@@ -8,8 +8,10 @@
 
 ## Current phase
 
-Phase 1: v0 core (TODO.md). Design settled and committed (29929ba).
-T1 pre-flight in progress.
+Phase 1: v0 core (TODO.md). Done so far: pre-flight, FORMAT.md contract
+(frozen, 6162bbc), `masora check` MVP (3869b49). Next task: `masora sync`
+(runs check, batches local events into one branch + PR; adds the
+append-only diff vs merge-base that standalone check defers, §7.9).
 
 ## Steps
 

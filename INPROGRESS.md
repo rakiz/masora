@@ -11,7 +11,10 @@
 Phase 1: v0 core (TODO.md). Done so far: pre-flight, FORMAT.md contract
 (frozen, 6162bbc), `masora check` MVP (3869b49), `masora sync` (be784c0),
 and the project documentation (README.md, docs/ARCHITECTURE.md,
-docs/TROUBLESHOOTING.md, AGENTS.md, tests/test_docs.py). Next task:
+docs/TROUBLESHOOTING.md, AGENTS.md, tests/test_docs.py). Hardened every
+git spawn against inherited repo-location GIT_* variables
+(`masora.sync.git_env()`, session-start fixture in tests/conftest.py,
+regression test in tests/test_sync.py) — 221 tests green. Next task:
 `masora setup --base <url>` (TODO.md).
 
 ## Steps

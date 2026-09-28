@@ -11,6 +11,7 @@ import sys
 import tarfile
 import tempfile
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,6 +38,24 @@ REMOTE = "origin"
 MAIN_BRANCH = "main"
 PR_TITLE = "masora sync"
 COMMIT_MESSAGE = "masora sync"
+
+REPO_LOCATION_ENV_VARS = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_COMMON_DIR",
+    "GIT_NAMESPACE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+)
+
+
+def git_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Return env (or os.environ) without repo-location GIT_* variables."""
+    result = dict(os.environ if env is None else env)
+    for name in REPO_LOCATION_ENV_VARS:
+        result.pop(name, None)
+    return result
 
 
 class SyncError(Exception):
@@ -635,6 +654,7 @@ def _remote_url(base_dir: Path) -> str:
         capture_output=True,
         text=True,
         check=False,
+        env=git_env(),
     )
     if proc.returncode != 0 or not proc.stdout.strip():
         raise SyncError(
@@ -653,6 +673,7 @@ def _fetch(base_dir: Path) -> None:
         capture_output=True,
         text=True,
         check=False,
+        env=git_env(),
     )
     if proc.returncode != 0:
         raise SyncError(Diag("error", E_GIT, f"git fetch {REMOTE} failed: {proc.stderr.strip()}"))
@@ -671,6 +692,7 @@ def _origin_main(base_dir: Path) -> str:
         capture_output=True,
         text=True,
         check=False,
+        env=git_env(),
     )
     if proc.returncode != 0:
         raise SyncError(
@@ -689,6 +711,7 @@ def _merge_base(base_dir: Path) -> str:
         capture_output=True,
         text=True,
         check=False,
+        env=git_env(),
     )
     if proc.returncode != 0:
         raise SyncError(
@@ -707,6 +730,7 @@ def _optional_rev(base_dir: Path, rev: str) -> str | None:
         capture_output=True,
         text=True,
         check=False,
+        env=git_env(),
     )
     return proc.stdout.strip() if proc.returncode == 0 else None
 
@@ -717,13 +741,18 @@ def _head_branch(base_dir: Path) -> str | None:
         capture_output=True,
         text=True,
         check=False,
+        env=git_env(),
     )
     return proc.stdout.strip() if proc.returncode == 0 else None
 
 
 def _git(base_dir: Path, *args: str) -> str:
     proc = subprocess.run(
-        ["git", "-C", str(base_dir), *args], capture_output=True, text=True, check=False
+        ["git", "-C", str(base_dir), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=git_env(),
     )
     if proc.returncode != 0:
         raise SyncError(Diag("error", E_GIT, f"git {' '.join(args)} failed: {proc.stderr.strip()}"))
@@ -744,7 +773,10 @@ def _require_repo_root(base_dir: Path) -> None:
 
 def _git_show_optional(base_dir: Path, rev: str) -> bytes | None:
     proc = subprocess.run(
-        ["git", "-C", str(base_dir), "show", rev], capture_output=True, check=False
+        ["git", "-C", str(base_dir), "show", rev],
+        capture_output=True,
+        check=False,
+        env=git_env(),
     )
     return proc.stdout if proc.returncode == 0 else None
 
@@ -754,6 +786,7 @@ def _materialize(base_dir: Path, commit: str, dest: Path) -> None:
         ["git", "-C", str(base_dir), "archive", "--format=tar", commit],
         capture_output=True,
         check=False,
+        env=git_env(),
     )
     if proc.returncode != 0:
         stderr = proc.stderr.decode(errors="replace").strip()
@@ -766,7 +799,7 @@ def _materialize(base_dir: Path, commit: str, dest: Path) -> None:
 def _commit_tree(base_dir: Path, work_tree: Path, parent: str) -> tuple[str, str]:
     git_dir = _git(base_dir, "rev-parse", "--absolute-git-dir")
     with tempfile.TemporaryDirectory() as tmp:
-        env = os.environ | {
+        env = git_env() | {
             "GIT_DIR": git_dir,
             "GIT_WORK_TREE": str(work_tree),
             "GIT_INDEX_FILE": str(Path(tmp) / "index"),

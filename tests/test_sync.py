@@ -22,6 +22,7 @@ from helpers import (
     write_event,
 )
 
+from masora.sync import REPO_LOCATION_ENV_VARS, _git, _remote_url, git_env
 from masora.sync import run as sync_run
 
 CLAIM_REL = "2026-09/x/01J8Z3K0000000000000000000.claim.md"
@@ -43,7 +44,11 @@ elif args[:2] == ["pr", "create"]:
 
 def git(repo: Path, *args: str) -> str:
     proc = subprocess.run(
-        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=False
+        ["git", "-C", str(repo), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=git_env(),
     )
     if proc.returncode != 0:
         raise AssertionError(f"git {' '.join(args)} failed: {proc.stderr}")
@@ -56,6 +61,7 @@ def rev_ok(repo: Path, rev: str) -> bool:
         capture_output=True,
         text=True,
         check=False,
+        env=git_env(),
     )
     return proc.returncode == 0
 
@@ -87,7 +93,10 @@ def repo(tmp_path: tuple) -> tuple[Path, Path]:
     git(base, "config", "user.email", "masora@example.invalid")
     origin = tmp / "origin.git"
     subprocess.run(
-        ["git", "init", "--bare", "-b", "main", str(origin)], capture_output=True, check=True
+        ["git", "init", "--bare", "-b", "main", str(origin)],
+        capture_output=True,
+        check=True,
+        env=git_env(),
     )
     git(base, "remote", "add", "origin", str(origin))
     (base / "base.toml").write_text('name = "test-base"\n', encoding="utf-8")
@@ -300,7 +309,9 @@ def test_sync_gc_race_surfaces_at_merged_result(repo, tmp_path, capsys):
     seed(base)
 
     worker = tmp_path / "worker"
-    subprocess.run(["git", "clone", str(origin), str(worker)], capture_output=True, check=True)
+    subprocess.run(
+        ["git", "clone", str(origin), str(worker)], capture_output=True, check=True, env=git_env()
+    )
     git(worker, "config", "user.name", "Other Author")
     git(worker, "config", "user.email", "other@example.invalid")
     (worker / claim_rel).unlink()
@@ -392,6 +403,7 @@ def test_sync_push_solo_pushes_main(repo, capsys):
         capture_output=True,
         text=True,
         check=False,
+        env=git_env(),
     )
     assert status.returncode == 0 and status.stdout == ""
 
@@ -473,7 +485,9 @@ def test_sync_collaborator_event_on_origin_is_not_tampering(repo, tmp_path, caps
     base, origin = repo
     collab_rel = "2026-09/y/01J8Z3K0000000000000000006.claim.md"
     worker = tmp_path / "worker"
-    subprocess.run(["git", "clone", str(origin), str(worker)], capture_output=True, check=True)
+    subprocess.run(
+        ["git", "clone", str(origin), str(worker)], capture_output=True, check=True, env=git_env()
+    )
     git(worker, "config", "user.name", "Other Author")
     git(worker, "config", "user.email", "other@example.invalid")
     write_event(worker, collab_rel, make_claim(ULID_L2))
@@ -594,3 +608,17 @@ def test_sync_corrupted_local_tombstone_blocks_at_gate(repo, capsys):
     out = capsys.readouterr().out
     assert "E-TOMBSTONE-SHAPE" in out
     assert "(local check)" in out
+
+
+def test_sync_git_spawns_immune_to_inherited_git_env(repo, tmp_path, monkeypatch):
+    base, origin = repo
+    bogus = tmp_path / "bogus.index"
+    for name in REPO_LOCATION_ENV_VARS:
+        monkeypatch.setenv(name, str(bogus))
+
+    assert _git(base, "rev-parse", "--git-dir") == ".git"
+    assert _remote_url(base) == str(origin)
+    git(base, "add", "-A")
+    assert (base / ".git" / "index").exists()
+    assert "base.toml" in git(base, "ls-files")
+    assert not bogus.exists()

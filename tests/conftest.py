@@ -1,7 +1,18 @@
+import os
 from pathlib import Path
 
 import pytest
 from helpers import ULID_L1, make_claim, make_verify, write_event
+
+from masora.sync import REPO_LOCATION_ENV_VARS
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _clean_git_environ():
+    """Pop repo-location GIT_* variables for the test session."""
+    saved = {name: os.environ.pop(name) for name in REPO_LOCATION_ENV_VARS if name in os.environ}
+    yield
+    os.environ.update(saved)
 
 
 @pytest.fixture

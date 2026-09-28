@@ -71,17 +71,27 @@ def emit_list(items: list, indent: int, parent_key: str | None = None) -> str:
         if isinstance(item, dict):
             text = emit(item, indent + 1, parent_key)
             child_pad = "  " * (indent + 1)
-            first, sep, rest = text.partition("\n")
-            lines.append(f"{pad}- {first[len(child_pad):]}" + (f"\n{rest}" if rest else ""))
+            first, _sep, rest = text.partition("\n")
+            lines.append(f"{pad}- {first[len(child_pad) :]}" + (f"\n{rest}" if rest else ""))
         else:
             lines.append(f"{pad}- {scalar(item)}")
     return "\n".join(lines)
 
 
-def anchor(identity: str = IDENT_MAIN, fingerprint: str = FP, snapshot: dict | None | object = None, **extra) -> dict:
+def anchor(
+    identity: str = IDENT_MAIN,
+    fingerprint: str = FP,
+    snapshot: dict | None | object = None,
+    **extra,
+) -> dict:
     if snapshot is None:
         snapshot = {"edges": FP, "neighbours": {IDENT_OTHER: FP}}
-    result = {"provider": "code", "identity": identity, "fingerprint": fingerprint, "snapshot": snapshot}
+    result = {
+        "provider": "code",
+        "identity": identity,
+        "fingerprint": fingerprint,
+        "snapshot": snapshot,
+    }
     result.update(extra)
     return result
 

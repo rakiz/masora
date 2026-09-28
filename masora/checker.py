@@ -8,28 +8,30 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .diagnostics import (
-    Diag,
     E_ANCHOR,
     E_CYCLE,
     E_DUP_ID,
     E_FILENAME,
     E_LINEAGE,
-    E_TOMBSTONED,
-    E_TOMBSTONE_SHAPE,
     E_TARGET_KIND,
+    E_TOMBSTONE_SHAPE,
+    E_TOMBSTONED,
     E_ULID,
     E_YAML,
     W_DANGLING,
     W_FOUNDER,
     W_REPLAY,
     W_SKEW,
+    Diag,
 )
 from .fold import Event, apply_precedence, fold_lineage, resolve_activity
 from .frontmatter import load_frontmatter
 from .schema import KINDS, EventRecord, validate_event
 from .ulid import validate_ulid
 
-FILENAME_RE = re.compile(r"^(?P<ulid>[0-9A-Z]+)\.(?P<kind>claim|verify|doubt|undoubt|refute|unrefute)\.md$")
+FILENAME_RE = re.compile(
+    r"^(?P<ulid>[0-9A-Z]+)\.(?P<kind>claim|verify|doubt|undoubt|refute|unrefute)\.md$"
+)
 ALLOWED_TARGET_KINDS = {
     "verify": frozenset({"claim"}),
     "doubt": frozenset({"verify"}),
@@ -73,7 +75,14 @@ def check_base(base_dir: Path) -> CheckResult:
         if record is None:
             continue
         if record.id in seen_ids:
-            diags.append(Diag("error", E_DUP_ID, f"event id {record.id} already defined by {seen_ids[record.id]}", rel))
+            diags.append(
+                Diag(
+                    "error",
+                    E_DUP_ID,
+                    f"event id {record.id} already defined by {seen_ids[record.id]}",
+                    rel,
+                )
+            )
             continue
         seen_ids[record.id] = rel
         records.append(record)
@@ -81,7 +90,14 @@ def check_base(base_dir: Path) -> CheckResult:
     tombstoned = _load_tombstones(base_dir / "deleted.toml", diags)
     for record in records:
         if record.id in tombstoned or record.lineage in tombstoned:
-            diags.append(Diag("error", E_TOMBSTONED, f"event id or lineage appears in deleted.toml: {record.id}", record.path))
+            diags.append(
+                Diag(
+                    "error",
+                    E_TOMBSTONED,
+                    f"event id or lineage appears in deleted.toml: {record.id}",
+                    record.path,
+                )
+            )
 
     valid = [r for r in records if r.id not in tombstoned and r.lineage not in tombstoned]
     by_id = {r.id: r for r in valid}
@@ -106,17 +122,33 @@ def check_base(base_dir: Path) -> CheckResult:
         lineages = sorted({r.lineage for r in valid})
         for lineage in lineages:
             lineage_events = [_to_fold_event(r) for r in valid if r.lineage == lineage]
-            versions = sorted((r for r in valid if r.kind == "claim" and r.lineage == lineage), key=lambda r: r.id, reverse=True)
+            versions = sorted(
+                (r for r in valid if r.kind == "claim" and r.lineage == lineage),
+                key=lambda r: r.id,
+                reverse=True,
+            )
             eligible = [r.id for r in versions if r.id == lineage or _has_founder(r, by_id)]
             for r in versions:
                 if r.id not in eligible:
                     diags.append(
-                        Diag("warning", W_FOUNDER, f"version {r.id} has no founding claim (id == lineage {lineage}); excluded from resolution", r.path)
+                        Diag(
+                            "warning",
+                            W_FOUNDER,
+                            f"version {r.id} has no founding claim (id == lineage {lineage}); excluded from resolution",
+                            r.path,
+                        )
                     )
-            fold = fold_lineage(lineage, lineage_events, activity, eligible, provider_available=False)
+            fold = fold_lineage(
+                lineage, lineage_events, activity, eligible, provider_available=False
+            )
             envelopes.append(_envelope(fold, versions))
     diags.sort(key=lambda d: (d.severity != "error", d.code, d.path or "", d.message))
-    return CheckResult(diags=diags, envelopes=envelopes, file_count=len(files), lineage_count=len({r.lineage for r in valid}))
+    return CheckResult(
+        diags=diags,
+        envelopes=envelopes,
+        file_count=len(files),
+        lineage_count=len({r.lineage for r in valid}),
+    )
 
 
 def discover_event_files(base_dir: Path) -> list[Path]:
@@ -126,7 +158,14 @@ def discover_event_files(base_dir: Path) -> list[Path]:
 def _parse_event_file(path: Path, rel: str, diags: list[Diag]) -> EventRecord | None:
     match = FILENAME_RE.match(path.name)
     if not match:
-        diags.append(Diag("error", E_FILENAME, f"filename does not parse as <ULID>.<kind>.md with kind in {sorted(KINDS)}", rel))
+        diags.append(
+            Diag(
+                "error",
+                E_FILENAME,
+                f"filename does not parse as <ULID>.<kind>.md with kind in {sorted(KINDS)}",
+                rel,
+            )
+        )
         return None
     try:
         filename_ulid = validate_ulid(match.group("ulid"), what="filename ULID")
@@ -147,7 +186,14 @@ def _parse_event_file(path: Path, rel: str, diags: list[Diag]) -> EventRecord | 
             return None
         raise
     if record.id != filename_ulid:
-        diags.append(Diag("error", E_FILENAME, f"frontmatter id {record.id} does not equal filename ULID {filename_ulid}", rel))
+        diags.append(
+            Diag(
+                "error",
+                E_FILENAME,
+                f"frontmatter id {record.id} does not equal filename ULID {filename_ulid}",
+                rel,
+            )
+        )
         return None
     return record
 
@@ -158,23 +204,53 @@ def _load_tombstones(path: Path, diags: list[Diag]) -> set[str]:
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
-        diags.append(Diag("error", E_TOMBSTONE_SHAPE, f"deleted.toml is not valid TOML: {exc}", path.name))
+        diags.append(
+            Diag("error", E_TOMBSTONE_SHAPE, f"deleted.toml is not valid TOML: {exc}", path.name)
+        )
         return set()
     if set(data) - {"deleted"}:
-        diags.append(Diag("error", E_TOMBSTONE_SHAPE, f"deleted.toml has unknown top-level fields {sorted(set(data) - {'deleted'})}", path.name))
+        diags.append(
+            Diag(
+                "error",
+                E_TOMBSTONE_SHAPE,
+                f"deleted.toml has unknown top-level fields {sorted(set(data) - {'deleted'})}",
+                path.name,
+            )
+        )
         return set()
     tombstoned: set[str] = set()
     blocks = data.get("deleted", [])
     if not isinstance(blocks, list) or any(not isinstance(block, dict) for block in blocks):
-        diags.append(Diag("error", E_TOMBSTONE_SHAPE, "deleted.toml must be a list of [[deleted]] tables", path.name))
+        diags.append(
+            Diag(
+                "error",
+                E_TOMBSTONE_SHAPE,
+                "deleted.toml must be a list of [[deleted]] tables",
+                path.name,
+            )
+        )
         return set()
     for i, block in enumerate(blocks):
         if set(block) != {"lineage", "ulids"}:
-            diags.append(Diag("error", E_TOMBSTONE_SHAPE, f"deleted.toml block {i} must have exactly {{lineage, ulids}}", path.name))
+            diags.append(
+                Diag(
+                    "error",
+                    E_TOMBSTONE_SHAPE,
+                    f"deleted.toml block {i} must have exactly {{lineage, ulids}}",
+                    path.name,
+                )
+            )
             return set()
         ulids = block["ulids"]
         if not isinstance(ulids, list):
-            diags.append(Diag("error", E_TOMBSTONE_SHAPE, f"deleted.toml block {i} ulids must be a list of strings", path.name))
+            diags.append(
+                Diag(
+                    "error",
+                    E_TOMBSTONE_SHAPE,
+                    f"deleted.toml block {i} ulids must be a list of strings",
+                    path.name,
+                )
+            )
             return set()
         try:
             tombstoned.add(validate_ulid(block["lineage"], what=f"deleted.toml block {i} lineage"))
@@ -186,19 +262,44 @@ def _load_tombstones(path: Path, diags: list[Diag]) -> set[str]:
     return tombstoned
 
 
-def _check_references(record: EventRecord, by_id: dict[str, EventRecord], diags: list[Diag]) -> None:
+def _check_references(
+    record: EventRecord, by_id: dict[str, EventRecord], diags: list[Diag]
+) -> None:
     if record.targets is not None:
         target = by_id.get(record.targets)
         if target is None:
-            diags.append(Diag("warning", W_DANGLING, f"targets ULID {record.targets} does not resolve to a valid event", record.path))
+            diags.append(
+                Diag(
+                    "warning",
+                    W_DANGLING,
+                    f"targets ULID {record.targets} does not resolve to a valid event",
+                    record.path,
+                )
+            )
         else:
             if target.kind not in ALLOWED_TARGET_KINDS[record.kind]:
                 diags.append(
-                    Diag("error", E_TARGET_KIND, f"{record.kind} must target {sorted(ALLOWED_TARGET_KINDS[record.kind])}, got {target.kind}", record.path)
+                    Diag(
+                        "error",
+                        E_TARGET_KIND,
+                        f"{record.kind} must target {sorted(ALLOWED_TARGET_KINDS[record.kind])}, got {target.kind}",
+                        record.path,
+                    )
                 )
             if target.lineage != record.lineage:
-                diags.append(Diag("error", E_LINEAGE, f"lineage mismatch: targets {target.id} in lineage {target.lineage}, event in lineage {record.lineage}", record.path))
-            if record.kind == "verify" and target.kind == "claim" and set(record.snapshot_keys) != set(target.anchor_identities):
+                diags.append(
+                    Diag(
+                        "error",
+                        E_LINEAGE,
+                        f"lineage mismatch: targets {target.id} in lineage {target.lineage}, event in lineage {record.lineage}",
+                        record.path,
+                    )
+                )
+            if (
+                record.kind == "verify"
+                and target.kind == "claim"
+                and set(record.snapshot_keys) != set(target.anchor_identities)
+            ):
                 diags.append(
                     Diag(
                         "error",
@@ -208,16 +309,44 @@ def _check_references(record: EventRecord, by_id: dict[str, EventRecord], diags:
                     )
                 )
         if record.targets > record.id:
-            diags.append(Diag("warning", W_SKEW, f"targets ULID {record.targets} is lexically greater than event id {record.id} (clock skew tolerated)", record.path))
+            diags.append(
+                Diag(
+                    "warning",
+                    W_SKEW,
+                    f"targets ULID {record.targets} is lexically greater than event id {record.id} (clock skew tolerated)",
+                    record.path,
+                )
+            )
     if record.contradicts is not None:
         target = by_id.get(record.contradicts)
         if target is None:
-            diags.append(Diag("warning", W_DANGLING, f"contradicts ULID {record.contradicts} does not resolve to a valid event", record.path))
+            diags.append(
+                Diag(
+                    "warning",
+                    W_DANGLING,
+                    f"contradicts ULID {record.contradicts} does not resolve to a valid event",
+                    record.path,
+                )
+            )
         else:
             if target.kind != "claim":
-                diags.append(Diag("error", E_TARGET_KIND, f"contradicts must resolve to a claim version, got {target.kind}", record.path))
+                diags.append(
+                    Diag(
+                        "error",
+                        E_TARGET_KIND,
+                        f"contradicts must resolve to a claim version, got {target.kind}",
+                        record.path,
+                    )
+                )
             if target.lineage != record.lineage:
-                diags.append(Diag("error", E_LINEAGE, f"contradicts must resolve to a claim version in the same lineage {record.lineage}, got {target.lineage}", record.path))
+                diags.append(
+                    Diag(
+                        "error",
+                        E_LINEAGE,
+                        f"contradicts must resolve to a claim version in the same lineage {record.lineage}, got {target.lineage}",
+                        record.path,
+                    )
+                )
 
 
 def _check_cycles(records: list[EventRecord], diags: list[Diag]) -> None:
@@ -240,7 +369,14 @@ def _check_cycles(records: list[EventRecord], diags: list[Diag]) -> None:
     if visited != len(records):
         remaining = sorted(node for node, degree in indegree.items() if degree > 0)
         cycle_path = _trace_cycle(remaining, edges)
-        diags.append(Diag("error", E_CYCLE, f"reference graph contains a cycle: {' -> '.join(cycle_path)}", by_id[cycle_path[0]].path))
+        diags.append(
+            Diag(
+                "error",
+                E_CYCLE,
+                f"reference graph contains a cycle: {' -> '.join(cycle_path)}",
+                by_id[cycle_path[0]].path,
+            )
+        )
 
 
 def _trace_cycle(remaining: list[str], edges: dict[str, str]) -> list[str]:
@@ -252,7 +388,7 @@ def _trace_cycle(remaining: list[str], edges: dict[str, str]) -> list[str]:
         path.append(node)
         seen.add(node)
         node = edges[node]
-    return path[path.index(node):] + [node]
+    return path[path.index(node) :] + [node]
 
 
 def _has_founder(record: EventRecord, by_id: dict[str, EventRecord]) -> bool:
@@ -267,8 +403,18 @@ def _to_fold_event(record: EventRecord) -> Event:
         lineage=record.lineage,
         targets=record.targets,
         actor=record.actor,
-        verified_at={"commit": record.timestamp_commit, "graph_commit": record.timestamp_graph_commit} if record.kind == "verify" else None,
-        recorded_at={"commit": record.timestamp_commit, "graph_commit": record.timestamp_graph_commit} if record.kind != "verify" else None,
+        verified_at={
+            "commit": record.timestamp_commit,
+            "graph_commit": record.timestamp_graph_commit,
+        }
+        if record.kind == "verify"
+        else None,
+        recorded_at={
+            "commit": record.timestamp_commit,
+            "graph_commit": record.timestamp_graph_commit,
+        }
+        if record.kind != "verify"
+        else None,
     )
 
 
@@ -289,6 +435,11 @@ def _envelope(fold, versions: list[EventRecord]) -> dict:
         },
         "actors": list(fold.actors),
         "doubted": fold.doubted,
-        "recorded_at": {"commit": displayed_record.timestamp_commit, "graph_commit": displayed_record.timestamp_graph_commit} if displayed_record else None,
+        "recorded_at": {
+            "commit": displayed_record.timestamp_commit,
+            "graph_commit": displayed_record.timestamp_graph_commit,
+        }
+        if displayed_record
+        else None,
         "proof_replay": "unknown" if any(r.claim_class == "structural" for r in versions) else None,
     }

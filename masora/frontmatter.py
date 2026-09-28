@@ -6,8 +6,6 @@ import yaml
 from yaml.events import AliasEvent
 
 from .diagnostics import (
-    CheckFailure,
-    Diag,
     E_CANON_ALIAS,
     E_CANON_DUPKEY,
     E_CANON_FLOW,
@@ -16,6 +14,8 @@ from .diagnostics import (
     E_CANON_TAG,
     E_FRONTMATTER,
     E_YAML,
+    CheckFailure,
+    Diag,
 )
 
 _STANDARD_SCALAR_TAGS = {
@@ -65,15 +65,23 @@ class _CanonicalLoader(yaml.SafeLoader):
 
 
 def split_frontmatter(text: str, path: str) -> str:
-    if text.startswith("\ufeff"):
-        text = text[1:]
+    text = text.removeprefix("\ufeff")
     lines = text.split("\n")
     if not lines or lines[0].rstrip() != "---":
-        raise CheckFailure(Diag("error", E_FRONTMATTER, "file does not start with a '---' frontmatter delimiter", path))
+        raise CheckFailure(
+            Diag(
+                "error",
+                E_FRONTMATTER,
+                "file does not start with a '---' frontmatter delimiter",
+                path,
+            )
+        )
     for end in range(1, len(lines)):
         if lines[end].rstrip() == "---":
             return "\n".join(lines[1:end])
-    raise CheckFailure(Diag("error", E_FRONTMATTER, "frontmatter is not terminated by a '---' delimiter", path))
+    raise CheckFailure(
+        Diag("error", E_FRONTMATTER, "frontmatter is not terminated by a '---' delimiter", path)
+    )
 
 
 def load_frontmatter(text: str, path: str) -> dict:
@@ -92,7 +100,14 @@ def load_frontmatter(text: str, path: str) -> dict:
     _walk_node(node, "", path, parent_key=None, opaque=False)
     data = loader.construct_document(node)
     if not isinstance(data, dict):
-        raise CheckFailure(Diag("error", E_FRONTMATTER, f"frontmatter must be a mapping, got {type(data).__name__}", path))
+        raise CheckFailure(
+            Diag(
+                "error",
+                E_FRONTMATTER,
+                f"frontmatter must be a mapping, got {type(data).__name__}",
+                path,
+            )
+        )
     return data
 
 
@@ -110,19 +125,34 @@ def _walk_node(node, where: str, path: str, parent_key: str | None, opaque: bool
             if key_node.tag == _MERGE_TAG:
                 _fail(path, E_CANON_TAG, "merge keys are rejected", where)
             if key_node.tag != "tag:yaml.org,2002:str":
-                _fail(path, E_CANON_KEY, f"mapping key {key_node.value!r} has non-string tag", where)
+                _fail(
+                    path, E_CANON_KEY, f"mapping key {key_node.value!r} has non-string tag", where
+                )
             if identity_keyed:
                 if key_node.style not in ("'", '"'):
-                    _fail(path, E_CANON_QUOTE, f"identity key {key_node.value!r} must be a quoted string", where)
+                    _fail(
+                        path,
+                        E_CANON_QUOTE,
+                        f"identity key {key_node.value!r} must be a quoted string",
+                        where,
+                    )
             elif not opaque and key_node.style is not None:
-                _fail(path, E_CANON_KEY, f"mapping key {key_node.value!r} must be plain style", where)
+                _fail(
+                    path, E_CANON_KEY, f"mapping key {key_node.value!r} must be plain style", where
+                )
             key = key_node.value
             if key in seen:
                 _fail(path, E_CANON_DUPKEY, f"duplicate key {key!r}", where)
             seen.add(key)
             child_where = f"{where}.{key}" if where else key
             child_parent_key = "neighbours" if parent_key == "neighbours" else key
-            _walk_node(value_node, child_where, path, parent_key=child_parent_key, opaque=opaque or key == "args")
+            _walk_node(
+                value_node,
+                child_where,
+                path,
+                parent_key=child_parent_key,
+                opaque=opaque or key == "args",
+            )
         return
     if isinstance(node, yaml.SequenceNode):
         if node.tag not in _STANDARD_COLLECTION_TAGS:
@@ -139,10 +169,23 @@ def _walk_node(node, where: str, path: str, parent_key: str | None, opaque: bool
             return
         if parent_key == "value" and where.endswith("expect.value"):
             if node.tag == "tag:yaml.org,2002:str" and node.style not in ("'", '"'):
-                _fail(path, E_CANON_QUOTE, f"value of {parent_key!r} must contain quoted strings", where)
-        elif parent_key in _QUOTED_VALUE_KEYS:
-            if node.tag != "tag:yaml.org,2002:null" and node.style not in ("'", '"'):
-                _fail(path, E_CANON_QUOTE, f"value of {parent_key!r} must be a quoted string or null", where)
+                _fail(
+                    path,
+                    E_CANON_QUOTE,
+                    f"value of {parent_key!r} must contain quoted strings",
+                    where,
+                )
+        elif (
+            parent_key in _QUOTED_VALUE_KEYS
+            and node.tag != "tag:yaml.org,2002:null"
+            and node.style not in ("'", '"')
+        ):
+            _fail(
+                path,
+                E_CANON_QUOTE,
+                f"value of {parent_key!r} must be a quoted string or null",
+                where,
+            )
         return
     _fail(path, E_CANON_TAG, f"unsupported node type {type(node).__name__}", where)
 

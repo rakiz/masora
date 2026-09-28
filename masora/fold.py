@@ -75,7 +75,9 @@ def resolve_activity(events: list[Event], *, order: str | list[str] = "desc") ->
                 changed = True
         if not changed:
             return activity
-    raise FoldCycleError(f"active-event evaluation did not converge ({len(events)} events); the reference graph is cyclic")
+    raise FoldCycleError(
+        f"active-event evaluation did not converge ({len(events)} events); the reference graph is cyclic"
+    )
 
 
 def _is_active(
@@ -92,9 +94,7 @@ def _is_active(
         return False
     if event.kind == "refute" and any(activity[u] for u in unrefuters.get(event.id, ())):
         return False
-    if event.kind == "doubt" and any(activity[u] for u in undoubters.get(event.id, ())):
-        return False
-    return True
+    return not (event.kind == "doubt" and any(activity[u] for u in undoubters.get(event.id, ())))
 
 
 def fold_lineage(
@@ -109,7 +109,11 @@ def fold_lineage(
     versions = sorted(set(eligible_versions), reverse=True)
     active_versions = [v for v in versions if activity.get(v, False)]
     refuted_versions = [v for v in versions if not activity.get(v, False)]
-    matched = [v for v in active_versions if fingerprint_matcher is not None and provider_available and fingerprint_matcher(v)]
+    matched = [
+        v
+        for v in active_versions
+        if fingerprint_matcher is not None and provider_available and fingerprint_matcher(v)
+    ]
     if matched:
         displayed = matched[0]
     elif active_versions:
@@ -125,7 +129,9 @@ def fold_lineage(
         resolution = None
     else:
         resolution = ("restored" if restored else "current") if matched else "stale"
-    verifies = [e for e in events if e.kind == "verify" and e.targets == displayed and activity[e.id]]
+    verifies = [
+        e for e in events if e.kind == "verify" and e.targets == displayed and activity[e.id]
+    ]
     verifies.sort(key=lambda e: e.id)
     shown = verifies[-1] if verifies else None
     actors = sorted({e.actor for e in verifies if e.actor is not None})

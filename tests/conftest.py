@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from helpers import ULID_L1, make_claim, make_verify, write_event
 
 

@@ -8,7 +8,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 from helpers import (
     OMIT,
     ULID_D1A,
@@ -22,6 +21,7 @@ from helpers import (
     make_verify,
     write_event,
 )
+
 from masora.sync import run as sync_run
 
 CLAIM_REL = "2026-09/x/01J8Z3K0000000000000000000.claim.md"
@@ -42,14 +42,21 @@ elif args[:2] == ["pr", "create"]:
 
 
 def git(repo: Path, *args: str) -> str:
-    proc = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+    proc = subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=False
+    )
     if proc.returncode != 0:
         raise AssertionError(f"git {' '.join(args)} failed: {proc.stderr}")
     return proc.stdout.strip()
 
 
 def rev_ok(repo: Path, rev: str) -> bool:
-    proc = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", rev], capture_output=True, text=True)
+    proc = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "--verify", rev],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     return proc.returncode == 0
 
 
@@ -79,7 +86,9 @@ def repo(tmp_path: tuple) -> tuple[Path, Path]:
     git(base, "config", "user.name", "Masora Test")
     git(base, "config", "user.email", "masora@example.invalid")
     origin = tmp / "origin.git"
-    subprocess.run(["git", "init", "--bare", "-b", "main", str(origin)], capture_output=True, check=True)
+    subprocess.run(
+        ["git", "init", "--bare", "-b", "main", str(origin)], capture_output=True, check=True
+    )
     git(base, "remote", "add", "origin", str(origin))
     (base / "base.toml").write_text('name = "test-base"\n', encoding="utf-8")
     seed(base, "init")
@@ -100,7 +109,9 @@ def fake_gh(tmp_path, monkeypatch) -> Path:
 
 @pytest.fixture
 def github_remote(monkeypatch):
-    monkeypatch.setattr("masora.sync._remote_url", lambda base_dir: "https://github.com/acme/base.git")
+    monkeypatch.setattr(
+        "masora.sync._remote_url", lambda base_dir: "https://github.com/acme/base.git"
+    )
 
 
 def test_sync_clean_add_pushes_pending_branch_and_opens_pr(repo, fake_gh, github_remote, capsys):
@@ -118,7 +129,9 @@ def test_sync_clean_add_pushes_pending_branch_and_opens_pr(repo, fake_gh, github
     pending = git(base, "rev-parse", "refs/heads/masora/pending")
     assert pending == git(origin, "rev-parse", "refs/heads/masora/pending")
     assert git(base, "rev-parse", "masora/pending^") == main_before
-    assert "2026-09/x/01J8Z3K0000000000000000000.claim.md" in git(origin, "ls-tree", "-r", "--name-only", "masora/pending")
+    assert "2026-09/x/01J8Z3K0000000000000000000.claim.md" in git(
+        origin, "ls-tree", "-r", "--name-only", "masora/pending"
+    )
     calls = gh_calls(fake_gh)
     assert [call["args"][:2] for call in calls] == [["pr", "list"], ["pr", "create"]]
     create = calls[1]
@@ -132,9 +145,11 @@ def test_sync_clean_add_pushes_pending_branch_and_opens_pr(repo, fake_gh, github
 
 
 def test_sync_updates_existing_pr(repo, fake_gh, github_remote, monkeypatch, capsys):
-    base, origin = repo
+    base, _origin = repo
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
-    monkeypatch.setenv("FAKE_GH_LIST", '[{"number": 42, "url": "https://github.com/acme/base/pull/42"}]')
+    monkeypatch.setenv(
+        "FAKE_GH_LIST", '[{"number": 42, "url": "https://github.com/acme/base/pull/42"}]'
+    )
 
     code = sync_run(base)
 
@@ -147,7 +162,7 @@ def test_sync_updates_existing_pr(repo, fake_gh, github_remote, monkeypatch, cap
 
 
 def test_sync_idempotent_second_run(repo, fake_gh, github_remote, capsys):
-    base, origin = repo
+    base, _origin = repo
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
     assert sync_run(base) == 0
     capsys.readouterr()
@@ -196,7 +211,7 @@ def test_sync_rewrite_is_rejected(repo, capsys):
 
 
 def test_sync_partial_lineage_deletion_is_rejected(repo, capsys):
-    base, origin = repo
+    base, _origin = repo
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
     write_event(base, VERIFY_REL, make_verify(ULID_V1A, ULID_L1, ULID_L1))
     seed(base)
@@ -209,7 +224,7 @@ def test_sync_partial_lineage_deletion_is_rejected(repo, capsys):
 
 
 def test_sync_whole_lineage_deletion_reports_gc_unavailable(repo, capsys):
-    base, origin = repo
+    base, _origin = repo
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
     write_event(base, VERIFY_REL, make_verify(ULID_V1A, ULID_L1, ULID_L1))
     other_rel = "2026-09/y/01J8Z3K0000000000000000006.claim.md"
@@ -228,7 +243,7 @@ def test_sync_whole_lineage_deletion_reports_gc_unavailable(repo, capsys):
 
 
 def test_sync_tombstone_shrink_is_rejected(repo, capsys):
-    base, origin = repo
+    base, _origin = repo
     (base / "deleted.toml").write_text(tombstone(ULID_L1, [ULID_L1]), encoding="utf-8")
     seed(base)
     (base / "deleted.toml").unlink()
@@ -242,8 +257,12 @@ def test_sync_tombstone_shrink_is_rejected(repo, capsys):
 
 
 def test_sync_v2_claim_without_founder_is_rejected(repo, capsys):
-    base, origin = repo
-    write_event(base, "2026-09/x/01J8Z3K0000000000000000005.claim.md", make_claim(ULID_V2A, lineage=ULID_L1, reason="why"))
+    base, _origin = repo
+    write_event(
+        base,
+        "2026-09/x/01J8Z3K0000000000000000005.claim.md",
+        make_claim(ULID_V2A, lineage=ULID_L1, reason="why"),
+    )
 
     code = sync_run(base)
 
@@ -252,9 +271,13 @@ def test_sync_v2_claim_without_founder_is_rejected(repo, capsys):
 
 
 def test_sync_v2_claim_with_pending_founder_is_accepted(repo, capsys):
-    base, origin = repo
+    base, _origin = repo
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
-    write_event(base, "2026-09/x/01J8Z3K0000000000000000005.claim.md", make_claim(ULID_V2A, lineage=ULID_L1, reason="why"))
+    write_event(
+        base,
+        "2026-09/x/01J8Z3K0000000000000000005.claim.md",
+        make_claim(ULID_V2A, lineage=ULID_L1, reason="why"),
+    )
 
     code = sync_run(base)
 
@@ -268,7 +291,11 @@ def test_sync_gc_race_surfaces_at_merged_result(repo, tmp_path, capsys):
     base, origin = repo
     claim_rel = "2026-09/x/01J8Z3K0000000000000000006.claim.md"
     verify_rel = "2026-09/x/01J8Z3K0000000000000000008.verify.md"
-    write_event(base, claim_rel, make_claim(ULID_L2, unanchored=True, anchors=OMIT, unanchored_reason="no anchors"))
+    write_event(
+        base,
+        claim_rel,
+        make_claim(ULID_L2, unanchored=True, anchors=OMIT, unanchored_reason="no anchors"),
+    )
     write_event(base, verify_rel, make_verify(ULID_V3A, ULID_L2, ULID_L2, snapshots={}))
     seed(base)
 
@@ -281,7 +308,11 @@ def test_sync_gc_race_surfaces_at_merged_result(repo, tmp_path, capsys):
     (worker / "deleted.toml").write_text(tombstone(ULID_L2, [ULID_L2, ULID_V3A]), encoding="utf-8")
     seed(worker, "gc lineage")
 
-    write_event(base, "2026-09/x/01J8Z3K0000000000000000002.doubt.md", make_doubt(ULID_D1A, ULID_L2, ULID_V3A))
+    write_event(
+        base,
+        "2026-09/x/01J8Z3K0000000000000000002.doubt.md",
+        make_doubt(ULID_D1A, ULID_L2, ULID_V3A),
+    )
 
     code = sync_run(base)
 
@@ -291,12 +322,16 @@ def test_sync_gc_race_surfaces_at_merged_result(repo, tmp_path, capsys):
     assert "merged-result check" in out
 
 
-def test_sync_drop_deletes_local_branch_closes_pr_and_deletes_remote(repo, fake_gh, github_remote, monkeypatch, capsys):
+def test_sync_drop_deletes_local_branch_closes_pr_and_deletes_remote(
+    repo, fake_gh, github_remote, monkeypatch, capsys
+):
     base, origin = repo
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
     assert sync_run(base) == 0
     capsys.readouterr()
-    monkeypatch.setenv("FAKE_GH_LIST", '[{"number": 42, "url": "https://github.com/acme/base/pull/42"}]')
+    monkeypatch.setenv(
+        "FAKE_GH_LIST", '[{"number": 42, "url": "https://github.com/acme/base/pull/42"}]'
+    )
 
     code = sync_run(base, drop=True)
 
@@ -327,7 +362,7 @@ def test_sync_drop_without_forge_cli_still_deletes_remote_branch(repo, monkeypat
 
 
 def test_sync_drop_without_any_pending(repo, capsys):
-    base, origin = repo
+    base, _origin = repo
     code = sync_run(base, drop=True)
     assert code == 0
     assert "nothing to drop" in capsys.readouterr().out
@@ -352,13 +387,22 @@ def test_sync_push_solo_pushes_main(repo, capsys):
     tree = git(origin, "ls-tree", "-r", "--name-only", "refs/heads/main")
     assert CLAIM_REL in tree and VERIFY_REL in tree
     assert git(base, "rev-parse", "refs/heads/main") == main_after
-    status = subprocess.run(["git", "-C", str(base), "status", "--porcelain"], capture_output=True, text=True)
+    status = subprocess.run(
+        ["git", "-C", str(base), "status", "--porcelain"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     assert status.returncode == 0 and status.stdout == ""
 
 
 def test_sync_dangling_target_is_warning_only(repo, capsys):
     base, origin = repo
-    write_event(base, "2026-09/x/01J8Z3K0000000000000000002.doubt.md", make_doubt(ULID_D1A, ULID_L1, DANGLING))
+    write_event(
+        base,
+        "2026-09/x/01J8Z3K0000000000000000002.doubt.md",
+        make_doubt(ULID_D1A, ULID_L1, DANGLING),
+    )
 
     code = sync_run(base)
 
@@ -398,7 +442,9 @@ def test_sync_requires_origin(tmp_path, capsys):
 
 def test_sync_compare_url_fallback_without_gh(repo, monkeypatch, capsys):
     base, origin = repo
-    monkeypatch.setattr("masora.sync._remote_url", lambda base_dir: "https://github.com/acme/base.git")
+    monkeypatch.setattr(
+        "masora.sync._remote_url", lambda base_dir: "https://github.com/acme/base.git"
+    )
     monkeypatch.setattr("masora.sync._gh_on_path", lambda: None)
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
 
@@ -441,11 +487,15 @@ def test_sync_collaborator_event_on_origin_is_not_tampering(repo, tmp_path, caps
     assert "E-REWRITE" not in out
     assert "E-GC-UNAVAILABLE" not in out
     assert "1 added" in out
-    pending_files = git(base, "ls-tree", "-r", "--name-only", "refs/heads/masora/pending").splitlines()
+    pending_files = git(
+        base, "ls-tree", "-r", "--name-only", "refs/heads/masora/pending"
+    ).splitlines()
     assert collab_rel in pending_files and CLAIM_REL in pending_files
 
 
-def test_sync_up_to_date_requires_matching_remote_tracking_ref(repo, fake_gh, github_remote, capsys):
+def test_sync_up_to_date_requires_matching_remote_tracking_ref(
+    repo, fake_gh, github_remote, capsys
+):
     base, origin = repo
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
     assert sync_run(base) == 0
@@ -470,7 +520,9 @@ def test_sync_drop_is_idempotent(repo, fake_gh, github_remote, monkeypatch, caps
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
     assert sync_run(base) == 0
     capsys.readouterr()
-    monkeypatch.setenv("FAKE_GH_LIST", '[{"number": 42, "url": "https://github.com/acme/base/pull/42"}]')
+    monkeypatch.setenv(
+        "FAKE_GH_LIST", '[{"number": 42, "url": "https://github.com/acme/base/pull/42"}]'
+    )
     assert sync_run(base, drop=True) == 0
     calls_after_drop = gh_calls(fake_gh)
     assert any(call["args"][:2] == ["pr", "close"] for call in calls_after_drop)
@@ -485,7 +537,7 @@ def test_sync_drop_is_idempotent(repo, fake_gh, github_remote, monkeypatch, caps
 
 
 def test_sync_pending_commit_excludes_stray_files(repo, capsys):
-    base, origin = repo
+    base, _origin = repo
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
     (base / "caches").mkdir()
     (base / "caches/data.bin").write_text("junk\n", encoding="utf-8")
@@ -521,7 +573,7 @@ def test_sync_unrelated_history_reports_merge_base(repo, tmp_path, capsys):
 
 
 def test_sync_corrupted_merge_base_tombstone_is_rejected(repo, capsys):
-    base, origin = repo
+    base, _origin = repo
     (base / "deleted.toml").write_text("deleted = [not valid toml\n", encoding="utf-8")
     seed(base)
     (base / "deleted.toml").unlink()
@@ -533,7 +585,7 @@ def test_sync_corrupted_merge_base_tombstone_is_rejected(repo, capsys):
 
 
 def test_sync_corrupted_local_tombstone_blocks_at_gate(repo, capsys):
-    base, origin = repo
+    base, _origin = repo
     (base / "deleted.toml").write_text("deleted = [not valid toml\n", encoding="utf-8")
 
     code = sync_run(base)

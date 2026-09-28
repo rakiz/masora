@@ -1,18 +1,14 @@
 from pathlib import Path
 
 import pytest
-
 from helpers import (
     FP,
     IDENT_MAIN,
-    OMIT,
     SHA,
     ULID_D1A,
     ULID_L1,
     ULID_L2,
-    ULID_L3,
     ULID_R1A,
-    ULID_U1A,
     ULID_V1A,
     ULID_V2A,
     ULID_V3A,
@@ -21,6 +17,7 @@ from helpers import (
     make_verify,
     write_event,
 )
+
 from masora.checker import check_base
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -134,7 +131,9 @@ def test_tombstoned_lineage_detected_via_lineage_field():
 
 
 def test_tombstone_absent_ulids_are_fine(single_claim_base):
-    (single_claim_base / "deleted.toml").write_text(f'[[deleted]]\nlineage = "{ULID_L2}"\nulids = ["{ULID_L2}"]\n')
+    (single_claim_base / "deleted.toml").write_text(
+        f'[[deleted]]\nlineage = "{ULID_L2}"\nulids = ["{ULID_L2}"]\n'
+    )
     result = check_base(single_claim_base)
     assert result.exit_code() == 0
 
@@ -168,12 +167,26 @@ def test_verify_of_v2_claim_snapshots_match_version_anchors(base):
     write_event(
         base,
         "x/01J8Z3K0000000000000000005.claim.md",
-        make_claim(ULID_V2A, lineage=ULID_L1, reason="v2", anchors=[{"provider": "code", "identity": other_identity, "fingerprint": FP, "snapshot": {"edges": FP, "neighbours": {}}}]),
+        make_claim(
+            ULID_V2A,
+            lineage=ULID_L1,
+            reason="v2",
+            anchors=[
+                {
+                    "provider": "code",
+                    "identity": other_identity,
+                    "fingerprint": FP,
+                    "snapshot": {"edges": FP, "neighbours": {}},
+                }
+            ],
+        ),
     )
     write_event(
         base,
         "x/01J8Z3K0000000000000000008.verify.md",
-        make_verify(ULID_V3A, ULID_L1, ULID_V2A, snapshots={other_identity: {"edges": FP, "neighbours": {}}}),
+        make_verify(
+            ULID_V3A, ULID_L1, ULID_V2A, snapshots={other_identity: {"edges": FP, "neighbours": {}}}
+        ),
     )
     result = check_base(base)
     assert result.exit_code() == 0, [d.render() for d in result.diags]
@@ -181,21 +194,33 @@ def test_verify_of_v2_claim_snapshots_match_version_anchors(base):
 
 
 def test_verify_missing_one_anchor_snapshot(base):
-    write_event(base, "x/01J8Z3K0000000000000000000.claim.md", make_claim(ULID_L1, anchors=[{
-        "provider": "code",
-        "identity": IDENT_MAIN,
-        "fingerprint": FP,
-        "snapshot": {"edges": FP, "neighbours": {}},
-    }, {
-        "provider": "code",
-        "identity": "scip-clang cxx . . example#second().",
-        "fingerprint": FP,
-        "snapshot": {"edges": FP, "neighbours": {}},
-    }]))
+    write_event(
+        base,
+        "x/01J8Z3K0000000000000000000.claim.md",
+        make_claim(
+            ULID_L1,
+            anchors=[
+                {
+                    "provider": "code",
+                    "identity": IDENT_MAIN,
+                    "fingerprint": FP,
+                    "snapshot": {"edges": FP, "neighbours": {}},
+                },
+                {
+                    "provider": "code",
+                    "identity": "scip-clang cxx . . example#second().",
+                    "fingerprint": FP,
+                    "snapshot": {"edges": FP, "neighbours": {}},
+                },
+            ],
+        ),
+    )
     write_event(
         base,
         "x/01J8Z3K0000000000000000001.verify.md",
-        make_verify(ULID_V1A, ULID_L1, ULID_L1, snapshots={IDENT_MAIN: {"edges": FP, "neighbours": {}}}),
+        make_verify(
+            ULID_V1A, ULID_L1, ULID_L1, snapshots={IDENT_MAIN: {"edges": FP, "neighbours": {}}}
+        ),
     )
     result = check_base(base)
     assert "E-ANCHOR" in codes(result)
@@ -236,8 +261,16 @@ def test_contradicts_dangling_warns(base):
 
 def test_two_verifies_newest_shown(base):
     write_event(base, "x/01J8Z3K0000000000000000000.claim.md", make_claim(ULID_L1))
-    write_event(base, "x/01J8Z3K0000000000000000001.verify.md", make_verify(ULID_V1A, ULID_L1, ULID_L1, actor="human"))
-    write_event(base, "x/01J8Z3K0000000000000000005.verify.md", make_verify(ULID_V2A, ULID_L1, ULID_L1, actor="llm"))
+    write_event(
+        base,
+        "x/01J8Z3K0000000000000000001.verify.md",
+        make_verify(ULID_V1A, ULID_L1, ULID_L1, actor="human"),
+    )
+    write_event(
+        base,
+        "x/01J8Z3K0000000000000000005.verify.md",
+        make_verify(ULID_V2A, ULID_L1, ULID_L1, actor="llm"),
+    )
     result = check_base(base)
     envelope = result.envelopes[0]
     assert envelope["verification"]["id"] == ULID_V2A
@@ -246,7 +279,11 @@ def test_two_verifies_newest_shown(base):
 
 def test_all_refuted_status_none(base):
     write_event(base, "x/01J8Z3K0000000000000000000.claim.md", make_claim(ULID_L1))
-    write_event(base, "x/01J8Z3K0000000000000000001.refute.md", make_doubt(ULID_V1A, ULID_L1, ULID_L1, kind="refute"))
+    write_event(
+        base,
+        "x/01J8Z3K0000000000000000001.refute.md",
+        make_doubt(ULID_V1A, ULID_L1, ULID_L1, kind="refute"),
+    )
     result = check_base(base)
     envelope = result.envelopes[0]
     assert envelope["status"] == "none"
@@ -256,8 +293,14 @@ def test_all_refuted_status_none(base):
 
 def test_doubted_flag(base):
     write_event(base, "x/01J8Z3K0000000000000000000.claim.md", make_claim(ULID_L1))
-    write_event(base, "x/01J8Z3K0000000000000000001.verify.md", make_verify(ULID_V1A, ULID_L1, ULID_L1))
-    write_event(base, "x/01J8Z3K0000000000000000002.doubt.md", make_doubt(ULID_D1A, ULID_L1, ULID_V1A, kind="doubt"))
+    write_event(
+        base, "x/01J8Z3K0000000000000000001.verify.md", make_verify(ULID_V1A, ULID_L1, ULID_L1)
+    )
+    write_event(
+        base,
+        "x/01J8Z3K0000000000000000002.doubt.md",
+        make_doubt(ULID_D1A, ULID_L1, ULID_V1A, kind="doubt"),
+    )
     result = check_base(base)
     envelope = result.envelopes[0]
     assert envelope["doubted"] is True

@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 
 from .checker import check_base
-from .diagnostics import Diag
 from .sync import run as run_sync
 
 
@@ -28,9 +27,23 @@ def main(argv: list[str] | None = None) -> int:
         help="publish pending events as one branch and one PR (MASORA_DESIGN.md §8)",
         description="Exit codes: 0 synced, 1 errors, 2 synced with warnings. Runs the local check gate, the append-only content diff against origin/main (FORMAT.md §7.9-§7.10) and merged-result validation, then commits the pending set on masora/pending, pushes it and opens or updates the single PR. --push pushes the merged result directly to origin/main (solo base). --drop discards the pending set.",
     )
-    sync.add_argument("base_dir", type=Path, nargs="?", default=Path("."), help="path to the Masora base directory (default: current directory)")
-    sync.add_argument("--drop", action="store_true", help="discard the pending set: reset masora/pending to origin/main and delete the remote branch")
-    sync.add_argument("--push", action="store_true", help="solo-base mode: push the merged result directly to origin/main instead of a pending branch and PR")
+    sync.add_argument(
+        "base_dir",
+        type=Path,
+        nargs="?",
+        default=Path("."),
+        help="path to the Masora base directory (default: current directory)",
+    )
+    sync.add_argument(
+        "--drop",
+        action="store_true",
+        help="discard the pending set: reset masora/pending to origin/main and delete the remote branch",
+    )
+    sync.add_argument(
+        "--push",
+        action="store_true",
+        help="solo-base mode: push the merged result directly to origin/main instead of a pending branch and PR",
+    )
     args = parser.parse_args(argv)
 
     if args.command == "check":
@@ -49,7 +62,9 @@ def _run_check(base_dir: Path) -> int:
     result = check_base(base_dir)
     print(f"masora check {base_dir}")
     print(f"scanned {result.file_count} event file(s), {result.lineage_count} lineage(s)")
-    print("standalone mode: no anchor provider wired — fingerprint resolution is unknown; proof queries are validated, not replayed")
+    print(
+        "standalone mode: no anchor provider wired — fingerprint resolution is unknown; proof queries are validated, not replayed"
+    )
     for diag in result.diags:
         print(f"  {diag.render()}")
     if not result.envelopes:
@@ -69,7 +84,10 @@ def _run_check(base_dir: Path) -> int:
 def _print_envelope(envelope: dict) -> None:
     print(f"claim {envelope['lineage']}")
     print(f"  displayed version: {envelope['displayed'] or 'none'}")
-    print(f"  status: {envelope['status']}" + (" (restored: a newer version is refuted)" if envelope["restored"] else ""))
+    print(
+        f"  status: {envelope['status']}"
+        + (" (restored: a newer version is refuted)" if envelope["restored"] else "")
+    )
     for version in envelope["versions"]:
         state = "refuted" if version["refuted"] else "active"
         print(f"  version {version['id']}: {state}")

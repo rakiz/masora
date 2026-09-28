@@ -1,8 +1,8 @@
 import pytest
+import yaml
+from helpers import FP, IDENT_OTHER, apply_overrides, emit, make_claim, make_verify
 
-from helpers import FP, IDENT_MAIN, IDENT_OTHER, apply_overrides, emit, make_claim, make_verify
 from masora.diagnostics import (
-    CheckFailure,
     E_CANON_ALIAS,
     E_CANON_DUPKEY,
     E_CANON_FLOW,
@@ -11,10 +11,9 @@ from masora.diagnostics import (
     E_CANON_TAG,
     E_FRONTMATTER,
     E_YAML,
+    CheckFailure,
 )
 from masora.frontmatter import load_frontmatter
-
-import yaml
 
 
 def parse(text: str) -> dict:
@@ -27,7 +26,11 @@ def test_block_style_claim_parses():
 
 
 def test_empty_flow_collections_are_accepted():
-    text = "---\n" + emit(apply_overrides(make_claim("01J8Z3K0000000000000000000"), {"anchors": []})) + "\n---\n"
+    text = (
+        "---\n"
+        + emit(apply_overrides(make_claim("01J8Z3K0000000000000000000"), {"anchors": []}))
+        + "\n---\n"
+    )
     assert parse(text)["anchors"] == []
 
 
@@ -70,7 +73,7 @@ def test_flow_sequence_rejected():
 
 
 def test_duplicate_key_rejected():
-    text = '---\nkind: claim\nkind: verify\n---\n'
+    text = "---\nkind: claim\nkind: verify\n---\n"
     with pytest.raises(CheckFailure) as exc:
         parse(text)
     assert exc.value.diag.code == E_CANON_DUPKEY
@@ -114,7 +117,7 @@ def test_unquoted_ulid_value_rejected():
 
 
 def test_unquoted_sha_value_rejected():
-    text = '---\nrecorded_at:\n  commit: 0123456789abcdef0123456789abcdef01234567\n---\n'
+    text = "---\nrecorded_at:\n  commit: 0123456789abcdef0123456789abcdef01234567\n---\n"
     with pytest.raises(CheckFailure) as exc:
         parse(text)
     assert exc.value.diag.code == E_CANON_QUOTE
@@ -167,5 +170,7 @@ def test_proof_query_args_scalars_are_opaque_to_quoting():
 def test_emitter_output_is_what_pyyaml_roundtrips():
     data = make_claim("01J8Z3K0000000000000000000")
     assert yaml.safe_load(emit(data)) == data
-    data = make_verify("01J8Z3K0000000000000000001", "01J8Z3K0000000000000000000", "01J8Z3K0000000000000000000")
+    data = make_verify(
+        "01J8Z3K0000000000000000001", "01J8Z3K0000000000000000000", "01J8Z3K0000000000000000000"
+    )
     assert yaml.safe_load(emit(data)) == data

@@ -9,6 +9,7 @@ from pathlib import Path
 HOME_ENV = "MASORA_HOME"
 _SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]*://")
 _DOT_GIT_RE = re.compile(r"\.git$", re.IGNORECASE)
+_SLUG_RE = re.compile(r"[^a-z0-9_-]+")
 
 
 def masora_home() -> Path | None:
@@ -28,6 +29,13 @@ def bases_root() -> Path:
     if home is not None:
         return home / "bases"
     return Path.home() / ".local" / "share" / "masora" / "bases"
+
+
+def indexes_root() -> Path:
+    home = masora_home()
+    if home is not None:
+        return home / "indexes"
+    return Path.home() / ".local" / "share" / "masora" / "indexes"
 
 
 def normalize_remote(url: str) -> str:
@@ -56,3 +64,8 @@ def normalize_remote(url: str) -> str:
     if not path:
         return host
     return f"{host}/{path}" if host else path
+
+
+def slug(name: str) -> str:
+    """Canonical directory slug: lowercase `[a-z0-9_-]`, any other run collapsed to `-`."""
+    return _SLUG_RE.sub("-", name.lower()).strip("-")

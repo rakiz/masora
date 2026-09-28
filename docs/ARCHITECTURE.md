@@ -4,7 +4,8 @@ How the code implements the FORMAT.md contract. Section references are to
 FORMAT.md unless stated otherwise. Data flow: event files on disk →
 canonicalization + schema → cross-file validation + fold → status envelopes
 (`check`), or → append-only diff + merged-result validation → one branch and
-one PR (`sync`).
+one PR (`sync`), or → full rebuild of the SQLite index + §6.2 status tuples +
+FTS (`index`, searched by `search`).
 
 ## Event files and layout (§1)
 
@@ -150,6 +151,76 @@ lineage is negative knowledge). Sequencing:
 5. **Post-check**: `check_base()` again; a failure is `E-GC-CHECK` (exit 1).
    Exit 0 deleted, 2 deleted with warnings.
 
+## Index and resolution (`masora/index.py`, `masora/resolve.py`, MASORA_DESIGN.md §6.2, §5.4, §8)
+
+The index turns the fold into the **computed status tuple** (`resolution`,
+`verification`, flags) that standalone `check` can only report as `unknown`,
+and adds FTS5 search. Section references are to MASORA_DESIGN.md.
+
+- **Location** — one index per base × code repo (TODO: rebuild triggers):
+  `<masora_home>/indexes/<base-slug>/<repo-slug>-<path-hash12>.db`, where the
+  hash is sha256 of the resolved repo path; slugs are the canonical
+  `masora/config.py:slug()` shared with `setup` (`masora/config.py:indexes_root()`,
+  `MASORA_HOME` relocates it like everything else).
+- **Full rebuild only** (§8: disposable, git is the single durable store): the
+  build writes a fresh DB (WAL mode) next to the target and `os.replace`s it
+  in; a corrupt or foreign-schema existing DB is discarded with `W-IDX-CORRUPT`
+  on `index` and refused with `E-IDX-CORRUPT` on `search` (read-only surface —
+  rebuild instead). Deleting the DB at any time is always safe; `search`
+  without one is `E-IDX-NOINDEX`.
+- **Gate**: `build_index` runs `check_base()` first — a base with errors is
+  refused (the check's own diagnostics are reported); warnings ride along.
+- **Resolution** (`masora/resolve.py`, pure): per lineage it reuses
+  `fold.resolve_activity` (fixed point before folding) and `fold.fold_lineage`
+  (refute/unrefute/doubt rules, founder-absent exclusion, newest-match-wins)
+  and assembles the tuple: `resolution` via `apply_precedence`
+  (`none` > `unknown` > `current`/`restored` > `stale`), `verification` as
+  `verified(<actor>)`/`unverified`, flags `suspect`/`doubted`/`pending`/
+  `unknown`/`unanchored`. A founderless-only lineage maps to `unknown` (no
+  eligible version to display). Unanchored claims skip fingerprint resolution:
+  always surfaced, `current`, flagged `unanchored`.
+- **Provider registry** (injectable): `Mapping[kind -> callable | None]`; the
+  callable is `(kind, identity) -> fingerprint | None` where a missing/None
+  registry entry means the provider is **unavailable** (→ `unknown` shadows)
+  and a callable returning None means the anchor is **not_found** (it simply
+  fails to match → the version is skipped, older versions still match).
+  Edge snapshots are a second registry `(kind, identity) -> {edges,
+  neighbours} | None` used by `suspect`.
+- **Suspect** (§12.4): the displayed version's newest observation (the newest
+  active verify's snapshot, else the claim's write-time snapshot) is compared
+  per anchor over the union of recorded and current neighbours — own edge-set
+  hash or any neighbour hash added/removed/changed ⇒ `suspect`; composes with
+  `stale`. A kind with no edge provider never fires suspect (with only the
+  `file` provider it never fires); an edge provider answering `None` (symbol
+  gone) does.
+- **Pending** (§8): events whose id is not in `origin/main`'s tree (content
+  identity like sync, via `git ls-tree`) flag their lineage `pending`;
+  computed only when `origin/main` resolves.
+- **Providers shipped** (`index.py`): the `file` provider — sha256 of the
+  whitespace/comment-normalized content of the repo-relative path in the
+  `--repo` checkout, so a reformat does not stale claims (§5.2): terminated
+  `/* … */` block comments (inline or spanning lines) removed, then blank
+  lines and full-line `//`/`#` comments dropped, whitespace runs collapsed; an
+  unterminated `/*` is content. Inline `//` is not stripped (`//` occurs in
+  URLs/strings mid-line). `code`
+  anchors stay without a provider until the cppgraph provider task → they
+  report `unknown` per §6.2, never a guessed status. The registry is a
+  parameter: tests inject fakes, cppgraph will inject the real one.
+- **Schema**: `meta` (schema_version, base_path, repo_path, base_head,
+  built_at), `lineages` (status-tuple columns), `versions` (refuted flag +
+  summary/statement per claim version), `anchors` (provider/identity/
+  fingerprint per version), FTS5 virtual table `search` (summary + statement;
+  unicode61 tokenizer → case/accent-insensitive; lineage/version unindexed).
+  Tombstoned lineages (and tombstoned event ids) are excluded.
+- **Rebuild trigger awareness**: the build stores the base's git HEAD; 
+  `index_stale()` compares it to the current HEAD and `search` prints
+  `W-IDX-STALE` when they differ (statuses may be outdated — rebuild).
+- **CLI**: `masora index <base-dir> [--repo <path>]` prints counts by status;
+  `masora search <base-dir> <query> [--repo <path>]` runs FTS and renders
+  `lineage [resolution verification flags]` + matched versions (MCP tools come
+  later). Exit codes: index 0/2 warnings/1 errors; search 0 (results or no
+  match) / 1 (no or unusable index) / 2 (invalid query syntax, `E-IDX-QUERY`).
+
 ## Setup and user configuration (`masora/setup.py`, `masora/config.py`, MASORA_DESIGN.md §9)
 
 `masora setup --base <url>[#<path>]` onboards a base in one command:
@@ -196,10 +267,9 @@ lineage is negative knowledge). Sequencing:
 
 All listed in TODO.md — statements below are facts, not plans in code:
 
-- SQLite index, §6.2 resolution algorithm and FTS — today a base is read as
-  plain files; folding cannot compute `current`/`stale` without an anchor
-  provider (statuses report `unknown`).
 - MCP tools (`note`, `verify`, `doubt`, `undoubt`, `refute`, `search`,
   `list_stale`) — events are written by hand/agent following FORMAT.md §5.
-- Code anchor provider via cppgraph, credential-shaped-content rejection,
-  `SessionStart` hook, edge-set/neighbour-snapshot capture at write time.
+- Code anchor provider via cppgraph (per-symbol definition fingerprint +
+  edge-set/neighbour-snapshot answers for the registry), credential-shaped
+  content rejection, `SessionStart` hook, injection of facts into cppgraph
+  responses.

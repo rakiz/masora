@@ -12,13 +12,14 @@ Phase 1: v0 core (TODO.md). Done so far: pre-flight, FORMAT.md contract
 (frozen, 6162bbc), `masora check` MVP (3869b49), `masora sync` (be784c0),
 the project documentation (README.md, docs/ARCHITECTURE.md,
 docs/TROUBLESHOOTING.md, AGENTS.md, tests/test_docs.py),
-`masora setup --base <url>[#<path>]` (masora/setup.py, masora/config.py —
-partial clone + sparse checkout into ~/.local/share/masora/bases/,
-base.toml schema {name, code_remotes}, config.toml write/merge with
-normalized [[mappings]], 7 E-SETUP-* diagnostics, 17 setup tests), and
-`masora gc --lineage` (masora/gc.py — plan-then-confirm, tombstone writes,
-sync acceptance of tombstoned deletions, 12 gc tests — 254 total green).
-Next task: the SQLite index (TODO.md).
+`masora setup --base <url>[#<path>]` (masora/setup.py, masora/config.py),
+`masora gc --lineage` (masora/gc.py), and the SQLite index + §6.2
+resolution + FTS (masora/resolve.py, masora/index.py — full-rebuild DB at
+`<masora_home>/indexes/<base-slug>/<repo-slug>-<hash>.db`, status tuples,
+`suspect` per §12.4, file-anchor provider, `code` anchors unknown until the
+cppgraph provider, CLI `index`/`search`, 52 index/resolve tests — 307 total
+green). Next task: MCP tools (`note`, `verify`, `doubt`, `undoubt`,
+`refute`, `search`, `list_stale`).
 
 ## Steps
 
@@ -100,6 +101,29 @@ Next task: the SQLite index (TODO.md).
   tree before merged-result validation. New codes E-GC-ULID, E-GC-UNKNOWN,
   E-GC-CHECK, W-GC-ACTIVE documented in the same change. 12 gc tests
   (incl. the keystone: sync accepts a gc'd base), 254 total green.
+- [x] SQLite index + resolution algorithm of §6.2 + FTS. Done:
+  `masora/resolve.py` (pure §6.2 status tuple — wraps `fold.py`'s fixed
+  point + fold_lineage + precedence; injectable provider registries:
+  fingerprints `(kind, identity) -> fp | None`, missing/None entry =
+  unavailable → `unknown` shadows, callable None = not_found fails to
+  match; edge-snapshot registry for `suspect` §12.4 over the union of
+  recorded/current neighbours; `pending` via injected not-in-origin/main
+  ids; founder-absent exclusion; unanchored always surfaced) and
+  `masora/index.py` (full-rebuild SQLite DB, WAL, atomic os.replace,
+  disposable; location `<masora_home>/indexes/<base-slug>/<repo-slug>-<path-hash12>.db`
+  via `config.indexes_root()`; check gate blocks on errors; tombstoned
+  lineages excluded; schema meta/lineages/versions/anchors + FTS5 search
+  (summary+statement, unicode61 → case/accent-insensitive); stored base
+  HEAD → `index_stale()` + `W-IDX-STALE` on search; `file`-anchor provider
+  hashing whitespace/comment-normalized content of the `--repo` checkout —
+  a reformat does not stale; `code` anchors have no provider yet →
+  `unknown`, never guessed; corrupt DB: discarded+rebuilt with
+  `W-IDX-CORRUPT` on index, refused with `E-IDX-CORRUPT` on search).
+  CLI `masora index <base> [--repo]` (counts by status, exit 0/2/1) and
+  `masora search <base> <query> [--repo]` (status-tuple rendering, exit
+0/1, 2 = `E-IDX-QUERY` arg-level error). 5 E-IDX-* + 2 W-IDX-* codes
+documented in docs/TROUBLESHOOTING.md in the same change; 32 matrix
+tests + 26 index tests, 313 total green.
 
 (Remainder of the phase: see TODO.md.)
 

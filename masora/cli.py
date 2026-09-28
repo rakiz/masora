@@ -1,13 +1,16 @@
-"""`masora` CLI — Phase 1 implements the `check`, `sync`, `setup` and `gc` commands."""
+"""`masora` CLI — Phase 1 implements the `check`, `sync`, `setup`, `gc`, `index` and `search` commands."""
 
 from __future__ import annotations
 
 import argparse
 import sys
+from collections import Counter
 from pathlib import Path
 
 from .checker import check_base
+from .diagnostics import E_IDX_QUERY, W_IDX_STALE, Diag
 from .gc import run as run_gc
+from .index import IndexingError, build_index, index_db_path, index_stale, search_index
 from .setup import run as run_setup
 from .sync import run as run_sync
 
@@ -75,6 +78,31 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="execute the deletion; without it gc prints the plan only and exits 3",
     )
+    index = sub.add_parser(
+        "index",
+        help="rebuild the SQLite index of a base for one code repo (MASORA_DESIGN.md §6.2, §8)",
+        description="Exit codes: 0 built, 1 errors, 2 built with warnings. Full rebuild only — the index is disposable (drop + recreate), tombstoned lineages are excluded. The default registry ships the `file` anchor provider; `code` anchors report unknown until the cppgraph provider exists.",
+    )
+    index.add_argument("base_dir", type=Path, help="path to the Masora base directory")
+    index.add_argument(
+        "--repo",
+        type=Path,
+        default=Path("."),
+        help="path to the code repo checkout the fingerprints are computed against (default: current directory)",
+    )
+    search = sub.add_parser(
+        "search",
+        help="run the FTS query over a built index and render status tuples (MASORA_DESIGN.md §6.2)",
+        description="Exit codes: 0 results or no match, 1 errors (no/unusable index), 2 invalid query syntax. Prints W-IDX-STALE when the base HEAD changed since the build.",
+    )
+    search.add_argument("base_dir", type=Path, help="path to the Masora base directory")
+    search.add_argument("query", help="FTS5 MATCH query over summaries and statements")
+    search.add_argument(
+        "--repo",
+        type=Path,
+        default=Path("."),
+        help="path to the code repo the index was built for (default: current directory)",
+    )
     args = parser.parse_args(argv)
 
     if args.command == "check":
@@ -87,6 +115,10 @@ def main(argv: list[str] | None = None) -> int:
         return run_setup(args.base)
     if args.command == "gc":
         return run_gc(args.base_dir, args.lineage, yes=args.yes)
+    if args.command == "index":
+        return _run_index(args.base_dir, args.repo)
+    if args.command == "search":
+        return _run_search(args.base_dir, args.query, args.repo)
     return 2
 
 
@@ -135,3 +167,74 @@ def _print_envelope(envelope: dict) -> None:
     print(f"  doubted: {'yes' if envelope['doubted'] else 'no'}")
     if envelope["proof_replay"]:
         print(f"  proof replay: {envelope['proof_replay']} (provider not wired)")
+
+
+def _run_index(base_dir: Path, repo: Path) -> int:
+    print(f"masora index {base_dir}")
+    if not base_dir.is_dir():
+        print(f"masora index: base directory does not exist: {base_dir}", file=sys.stderr)
+        return 1
+    try:
+        result = build_index(base_dir, repo)
+    except IndexingError as exc:
+        print(f"  {exc.diag.render()}")
+        print("FAILED: 1 error(s)")
+        return 1
+    print(f"repo: {repo}")
+    print(f"index: {result.db_path}")
+    print(f"base HEAD: {result.base_head or 'unknown'}")
+    for diag in result.diags:
+        print(f"  {diag.render()}")
+    if result.errors:
+        print(f"FAILED: {len(result.errors)} error(s)")
+        return 1
+    print(f"indexed: {result.lineage_count} lineage(s), {result.version_count} version(s)")
+    counts = Counter(status.resolution for status in result.statuses)
+    print(
+        "status counts: "
+        + " ".join(
+            f"{key}={counts.get(key, 0)}"
+            for key in ("current", "stale", "restored", "none", "unknown")
+        )
+    )
+    print(
+        "flags: "
+        + " ".join(
+            f"{flag}={sum(getattr(status, flag) for status in result.statuses)}"
+            for flag in ("suspect", "doubted", "pending", "unanchored")
+        )
+    )
+    return 2 if result.warnings else 0
+
+
+def _run_search(base_dir: Path, query: str, repo: Path) -> int:
+    print(f"masora search {base_dir}")
+    if not base_dir.is_dir():
+        print(f"masora search: base directory does not exist: {base_dir}", file=sys.stderr)
+        return 1
+    db = index_db_path(base_dir, repo)
+    try:
+        hits = search_index(db, query)
+    except IndexingError as exc:
+        print(f"  {exc.diag.render()}")
+        return 2 if exc.diag.code == E_IDX_QUERY else 1
+    if index_stale(db, base_dir):
+        stale = Diag(
+            "warning",
+            W_IDX_STALE,
+            "the base HEAD changed since this index was built — statuses may be outdated; rebuild with masora index",
+        )
+        print(f"  {stale.render()}")
+    if not hits:
+        print("no results")
+        return 0
+    grouped: dict[str, list] = {}
+    for hit in hits:
+        grouped.setdefault(hit.lineage, []).append(hit)
+    print(f"{len(hits)} match(es) in {len(grouped)} lineage(s)")
+    for lineage, group in grouped.items():
+        first = group[0]
+        print(f"{lineage} [{first.resolution} {first.verification} flags: {first.flags}]")
+        for hit in group:
+            print(f"  {hit.version} {hit.summary}")
+    return 0

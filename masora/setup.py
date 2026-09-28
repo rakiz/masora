@@ -9,7 +9,7 @@ import subprocess
 import tomllib
 from pathlib import Path, PurePosixPath
 
-from .config import bases_root, config_path, normalize_remote
+from .config import bases_root, config_path, normalize_remote, slug
 from .diagnostics import (
     E_SETUP_ARG,
     E_SETUP_CLONE,
@@ -22,7 +22,6 @@ from .diagnostics import (
 )
 from .sync import git_env
 
-_SLUG_RE = re.compile(r"[^a-z0-9_-]+")
 _BARE_KEY_RE = re.compile(r"[A-Za-z0-9_-]+")
 
 
@@ -99,7 +98,7 @@ def _slug(remote: str) -> str:
     text = remote.rstrip("/")
     name = text.rsplit("/", 1)[-1].rsplit(":", 1)[-1]
     name = re.sub(r"\.git$", "", name, flags=re.IGNORECASE)
-    return _SLUG_RE.sub("-", name.lower()).strip("-")
+    return slug(name)
 
 
 def _git(args: list[str], what: str) -> str:

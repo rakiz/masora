@@ -20,6 +20,7 @@ class Event:
     actor: str | None = None
     verified_at: dict | None = None
     recorded_at: dict | None = None
+    snapshots: dict | None = None
 
 
 @dataclass
@@ -37,6 +38,7 @@ class LineageFold:
     verification_time: dict | None
     actors: tuple[str, ...] = field(default_factory=tuple)
     doubted: bool = False
+    verification_snapshots: dict | None = None
 
 
 def resolve_activity(events: list[Event], *, order: str | list[str] = "desc") -> dict[str, bool]:
@@ -151,6 +153,7 @@ def fold_lineage(
         verification_time=shown.verified_at if shown else None,
         actors=tuple(actors),
         doubted=bool(doubts),
+        verification_snapshots=shown.snapshots if shown is not None else None,
     )
 
 

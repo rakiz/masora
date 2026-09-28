@@ -1,25 +1,59 @@
 # SPEC
 
-<!-- Stable specifications: what the project IS and must do. This file changes
-     only through an explicit decision — it is the reference re-read before any
-     commit that could deviate from it. Keep each section short. -->
-
 ## Overview
 
-<!-- One paragraph: what this project is, for whom. -->
+Masora is a git-backed, append-only knowledge base of claims anchored to code and documentation artifacts, built over time by a human and their AI coding agent together. Each claim carries its provenance, a verification status and stable anchors, and knows by itself when it may no longer be true. Masora is a separate open-source project and an optional companion to cppgraph, which anchors its code claims.
 
 ## Goals
 
-<!-- What it must do — verifiable statements. -->
+- Every claim must carry at least one anchor, a source (`human` | `llm` | `derived_from_graph`) and a verification status (`unverified` | `verified`); an unanchored claim is allowed only when explicitly declared `unanchored`. An event written by an LLM may record the model identity (optional free string) — `cost_tokens`, when present, is read against it.
+- Anchors must be stable identities (SCIP symbol string, path + section + content hash, URL + content hash), never interned database row ids.
+- Validity of a claim against a checkout must be decided by anchor fingerprints through the resolution algorithm: versions ordered newest-first by ULID, refuted (and not un-refuted) versions skipped, the first version whose anchor fingerprints match the current checkout is current, otherwise the newest is stale; a lineage whose every version is refuted has no current version.
+- Computed status must live only in the SQLite index, never in the `.md` files.
+- Storage must be append-only `.md` event files (`claim`, `verify`, `doubt`, `undoubt`, `refute`, `unrefute`) in git — verification is itself an event, and no `.md` file is ever modified after creation; refutations must be reversible (an un-refute makes the version a candidate again), and refuted claims must be kept and surfaced as negative knowledge. A human may record doubt on a verified version (it stays visible, labelled disputed) and lift it later.
+- The LLM may write `verified` on any claim it backs with recorded evidence: structural — a replayable proof query, replayed successfully at verification time; semantic — pointers to the proving code (file ranges, graph queries, tests, URLs) plus an explanation of why it proves the statement. The `.verify` event records the actual writer (`actor`: human | llm); every verification is refutable (reversibly), and on shared bases verifications go through PR review. Semantic claims are still never auto-confirmed: only auto-doubted.
+- Every structural claim must carry a replayable proof query (query + expected result) replayed when a verification is recorded and by `masora check`.
+- Recalled knowledge must be presented as evidence envelopes carrying an explicit computed validity as a tuple: resolution (`current`, `stale`, `restored`, `none`), verification (`verified` with its actor, `unverified`) and flags (`suspect`, `doubted`, `pending`, `unknown` when a provider is unavailable — which shadows the resolution instead of guessing), plus their anchor and provenance, never as instructions; results may be capped, but every cap or omission is reported (count omitted, how to fetch more).
+- Refuted claims are never injected as knowledge — they are injected as negative knowledge: a distinct `NOT: <summary> — refuted: <reason>` envelope on anchor match when the lineage has no current version or its newest version is refuted.
+- Verification must be lazy: a claim is re-verified when it is used, never in bulk at reindex.
+- Anchor providers must be pluggable with kinds `code`, `file` and `url`; cppgraph integration must be optional (without it, nothing changes for cppgraph): Masora exposes an index cppgraph can read to inject facts.
+- Configuration must be user-side (`~/.config/masora/config.toml`), with nothing in the code repo. A base declares itself (`base.toml` at the base directory's root: name + code remotes it serves); `masora setup --base <url>[#<path>]` writes the local config from it, so onboarding is one command plus the base URL.
+- The knowledge repository must be separate from the code repository and always read at its latest state.
+- The MCP tool surface must cover claim capture, verification, doubt, refutation, discovery and staleness inspection; publication (`masora sync`), cleanup (`masora gc`) and first-run setup (`masora setup`) are CLI commands.
+- By default every claim that is not refuted is injectable into agent context, always carrying its explicit computed status (see the envelope tuple above); refuted knowledge travels only through the negative envelope.
+- Publication batches a session's work into one branch and one PR, after a local `masora check` run; no CI pipeline is required.
+- The default deployment is one shared knowledge base per team, read and enriched by everyone; the configuration may declare several bases (capability kept for the future). A project whose git remote matches no mapping receives no injection, and writes require an explicit base or a configured default.
+- A garbage-collection command deletes whole lineages, explicitly requested (`--lineage`) and confirmed; no automatic suggestions in v1 — fully-refuted lineages are valuable negative knowledge. Deletion is an ordinary git commit and the index rebuilds from what remains.
 
 ## Non-goals
 
-<!-- What it must NOT do. Anything listed here is out of scope by design. -->
+- Not a free-text scratchpad memory: no sticky notes without provenance, anchors and staleness detection.
+- Code is never edited to attach knowledge; knowledge is written only beside the code.
+- No automatically extracted LLM knowledge is stored as trusted: session-end extraction is always `llm` / `unverified`.
+- Knowledge git history is never tied to code git history.
+- Timestamps never decide applicability to code; fingerprints do.
+- Semantic claims are never auto-confirmed; they can only be auto-doubted.
 
 ## Constraints
 
-<!-- Stable technical constraints: language, stack, performance, compatibility. -->
+- Separate open-source project from cppgraph.
+- Same stack and toolchain as cppgraph: Python >= 3.13, hatchling packaging, pytest + ruff, the official `mcp` Python SDK, stdlib sqlite3; console scripts `masora` (CLI) and `masora-mcp` (MCP server); runtime dependencies minimal.
+- One file per event, with suffixes `.claim`, `.verify`, `.doubt`, `.undoubt`, `.refute`, `.unrefute`. Validation is content-based (unique ULIDs, resolvable references), never location-based: the month-bucketed lineage layout (`YYYY-MM/<ulid>-<slug>/`) is the convention Masora writes, not an invariant — moving files changes nothing.
+- Code anchors are single symbols; a claim carries one or more symbol anchors (no edge or subgraph anchor types), and must anchor every symbol whose change could invalidate it. At write time and at each verification, a claim records a one-hop neighbour snapshot (anchors' edge-set hashes + direct-neighbour identity → edge-set hash) used to compute `suspect` in the index: a claim is suspect when its own or a direct neighbour's edge-set fingerprint changed (union of recorded and current neighbours, never transitive); an unavailable provider yields `unknown`, never a silent not-suspect.
+- Anchor provider operations return a defined outcome (`resolved`, `not_found`, `unavailable`, `ambiguous`); `url` anchors are validated against the content digest captured at write/verify time, never against a live refetch.
+- A ULID identifies each version and each lineage; the ULID is the ordering.
+- The SQLite index (FTS5) is disposable and holds no durable state. For a given state of the knowledge repo and a given checkout (provider fingerprints), rebuilding from scratch produces exactly the same resolution: which version is current for each lineage, and its status. Git is the single durable store.
+- Anchor providers implement `resolve` and `fingerprint`; the code provider additionally implements `replay` of structural proof queries. For code anchors, writes and verifications record the code commit and the graph commit they were fingerprinted from; for `file` and `url` anchors, the captured content digests play that role. Code-anchor fingerprints hash whitespace/comment-normalized definition text and the sorted callee SCIP strings of `calls` edges only; writes refuse fingerprints from a graph behind HEAD.
+- A proof query is `{tool, args, expect, provider_version}` over a whitelisted subset of read-only cppgraph tools; replay succeeds iff the normalized result set-equals `expect`.
+- Storage invariants (schema, append-only history) are enforced by validation (`masora check`, run standalone and by `sync`), not by forbidding hand edits; the `.md` files stay human-editable.
+- The agent interface is an MCP server.
+- For code anchors, fingerprints are per symbol (never per file), computed on the symbol's definition.
+- MCP tools address claims by version/lineage ULID and look them up by anchor identity (symbol, path+section, URL). Line offsets are never an address; they may appear only inside evidence.
 
 ## Out of scope
 
-<!-- Explicitly deferred or rejected. One line each, with the reason. -->
+- Duplicate-lineage merging via a `same-as` event: postponed.
+- Embeddings in the index: deferred; FTS5 first, embeddings later if ever.
+- Co-change mining from git history to suggest claims: deferred; not scheduled.
+- Edge and subgraph anchor types: not in v1 — anchors are single symbols, multiple per claim; the opaque anchor shape (`provider`, `identity`, `fingerprint`) keeps a future edge anchor possible without schema surgery.
+- CI pipeline wiring: `masora check` runs locally (within `sync`); automated CI comes only when adoption makes validation a real problem.

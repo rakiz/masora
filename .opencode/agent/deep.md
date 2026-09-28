@@ -1,5 +1,5 @@
 ---
-model: github-copilot/claude-sonnet-5
+model: github-copilot/claude-opus-5.5
 variant: high
 # Model is injected at install time by init.sh from the kit's models.json.
 mode: subagent

@@ -3,8 +3,8 @@
   "files": {
     "agent/deep.md": {
       "body_sha256": "ed9b2b43d5a74d5bcaa64b877c5e4b764bf16cd3eebf322601916ed59da7d0e1",
-      "model": "github-copilot/claude-sonnet-5",
-      "variant": "high"
+      "model": "github-copilot/claude-opus-5.5",
+      "variant": ""
     },
     "agent/design-review.md": {
       "body_sha256": "73ce4135d3176b3c7e0689d9653fac49f4d2383a0949436da3a92c3b5dce990b",

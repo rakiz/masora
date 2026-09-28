@@ -9,9 +9,9 @@
 ## Current phase
 
 Phase 1: v0 core (TODO.md). Done so far: pre-flight, FORMAT.md contract
-(frozen, 6162bbc), `masora check` MVP (3869b49). Next task: `masora sync`
-(runs check, batches local events into one branch + PR; adds the
-append-only diff vs merge-base that standalone check defers, §7.9).
+(frozen, 6162bbc), `masora check` MVP (3869b49). Ready to commit:
+`masora sync`. Next task: documentation (README + diagnostic-code
+troubleshooting + AGENTS.md, see TODO.md).
 
 ## Steps
 
@@ -45,6 +45,18 @@ append-only diff vs merge-base that standalone check defers, §7.9).
   SHIP. Standalone mode only — append-only diff vs merge-base comes with
   `sync` (§7.9). Contract correction folded in: FORMAT.md §6 convergence
   scoped to the acyclic domain (cycles rejected before folding).
+- [x] `masora sync`: runs `masora check`, batches local events into one
+  branch + PR to the shared base. Done: `masora/sync.py` + CLI subcommand
+  (`--drop`, `--push` solo) — local check gate, append-only content diff
+  by event-id identity (deletions vs merge-base, rewrites vs both
+  baselines, whole-lineage gc-shape detection, tombstone shrink),
+  founder rule for new v2+ claims, merged-result validation with union
+  tombstone (gc-vs-extension races), pending lifecycle (plumbing commit
+  onto `masora/pending`, force-with-lease push, gh PR create/update or
+  compare-URL fallback). 27 sync tests, 217 total green. Pipeline:
+  impl → review (2 MAJOR: deletions-vs-origin/main false positives,
+  solo push not advancing local main; 5 MINOR) → fixes → verified SHIP
+  (reviewer briefly hallucinated a re-objection, disproven on disk).
 
 (Remainder of the phase: see TODO.md.)
 

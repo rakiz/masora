@@ -45,8 +45,10 @@ agent as **evidence with a status, never as an instruction**.
 
 ## 3. Name
 
-**Masora.** The Masoretes were scribes who transmitted the Hebrew Bible text
-(roughly 7th–10th c.). Their method is our design:
+**Masora.** The Masoretes were scribes — not priests proper — who transmitted
+the Hebrew Bible text (roughly 7th–10th c.); *massora* denotes the tradition they
+handed down. Their problem is ours: keep a text exact across centuries of copies
+made by people who err. Their method is our design:
 
 - **Notes anchored in the margin**: the *Masora parva* (side margins, abbreviated)
   and *Masora magna* (top/bottom margins) are knowledge attached to a precise word.
@@ -56,6 +58,8 @@ agent as **evidence with a status, never as an instruction**.
 - **Never edit the text**: when a word should be read differently, they wrote it
   in the margin and left the text untouched → code is never touched; knowledge is
   append-only beside it.
+
+The name itself: six letters, pronounced the same in every language.
 
 TODO before committing to the name: `pip index versions masora`, check GitHub and
 npm. (Web search found no AI/knowledge project named Masora; only unrelated repos.)

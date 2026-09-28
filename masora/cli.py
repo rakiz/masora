@@ -1,4 +1,4 @@
-"""`masora` CLI — Phase 1 implements the `check` command."""
+"""`masora` CLI — Phase 1 implements the `check` and `sync` commands."""
 
 from __future__ import annotations
 
@@ -8,12 +8,13 @@ from pathlib import Path
 
 from .checker import check_base
 from .diagnostics import Diag
+from .sync import run as run_sync
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="masora",
-        description="Masora: git-backed knowledge base of anchored claims. Phase 1 provides `check`.",
+        description="Masora: git-backed knowledge base of anchored claims. Phase 1 provides `check` and `sync`.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
     check = sub.add_parser(
@@ -22,10 +23,22 @@ def main(argv: list[str] | None = None) -> int:
         description="Exit codes: 0 clean, 1 errors, 2 warnings only. Standalone mode: schema, uniqueness, tombstones and fold validity; no anchor provider, no append-only diff (that is `sync`).",
     )
     check.add_argument("base_dir", type=Path, help="path to the Masora base directory")
+    sync = sub.add_parser(
+        "sync",
+        help="publish pending events as one branch and one PR (MASORA_DESIGN.md §8)",
+        description="Exit codes: 0 synced, 1 errors, 2 synced with warnings. Runs the local check gate, the append-only content diff against origin/main (FORMAT.md §7.9-§7.10) and merged-result validation, then commits the pending set on masora/pending, pushes it and opens or updates the single PR. --push pushes the merged result directly to origin/main (solo base). --drop discards the pending set.",
+    )
+    sync.add_argument("base_dir", type=Path, nargs="?", default=Path("."), help="path to the Masora base directory (default: current directory)")
+    sync.add_argument("--drop", action="store_true", help="discard the pending set: reset masora/pending to origin/main and delete the remote branch")
+    sync.add_argument("--push", action="store_true", help="solo-base mode: push the merged result directly to origin/main instead of a pending branch and PR")
     args = parser.parse_args(argv)
 
     if args.command == "check":
         return _run_check(args.base_dir)
+    if args.command == "sync":
+        if args.drop and args.push:
+            sync.error("--drop and --push are mutually exclusive")
+        return run_sync(args.base_dir, drop=args.drop, push=args.push)
     return 2
 
 

@@ -195,10 +195,17 @@ next indexer does the same computation; files are never touched for status.
   `none` (every version of the lineage is refuted);
 - `verification`: `verified(<actor>)` | `unverified` — folded from `.verify`
   events;
-- flags: `suspect` (§12 item 4), `doubted` (an unlifted doubt), `pending`
-  (events not yet merged — §8), `unknown` (an anchor provider was `unavailable`;
-  shadows the resolution instead of guessing). An anchor that is `not_found`
-  simply fails to match.
+- flags: `suspect` (§12 item 4), `doubted` (iff some active doubt targets an
+  active verify of the displayed version), `pending` (events not yet merged —
+  §8), `unknown` (an anchor provider was `unavailable`; shadows the resolution
+  instead of guessing). An anchor that is `not_found` simply fails to match.
+- Status precedence is `none` > `unknown` (shadowing) > `current`/`restored` >
+  `stale`; `restored` applies only when the chosen version is older than some
+  refuted version. Event folding follows FORMAT.md's active-event rule (which
+  verifies, refutes, doubts and undoubts are active); activity is evaluated
+  backwards in descending ULID order to a fixed point before folding, and
+  resolution requires the founding claim — a v2+ version whose founder
+  (`id == lineage`) is absent is excluded.
 - A later `.verify` never clears a doubt; only `.undoubt` does.
 - An explicitly `unanchored` claim has no fingerprint resolution: it is always
   surfaced, and its `unanchored` flag is the validity signal (the §2 guard-rail
@@ -268,30 +275,32 @@ knowledge/
 Example claim frontmatter (schema settled — §12 item 5):
 
 ```yaml
-id: 01JA4QX…                 # version ULID
-lineage: 01J8Z3K…
+format_version: 1
+id: "01JA4QX…"               # version ULID
+lineage: "01J8Z3K…"
 kind: claim
 class: semantic              # structural | semantic
 source: llm                  # human | llm | derived_from_graph
 model: "glm-5p3-flash"       # optional: which LLM wrote it (free string)
 summary: "Resume token invalidated by a shard key change"   # mandatory one-liner, used verbatim in injections
 statement: "The resume token of a change stream is invalidated if the shard key changes, via …"
-anchors:                     # symbols only, >=1; anchor every symbol the claim depends on
+anchors:                     # >=1, unless unanchored
   - provider: code
     identity: "scip-clang cxx . . mongo/ResumeTokenData#makeResumeToken()."
-    fingerprint: 7b21…       # write-time, tool-computed (definition text)
-    edges: 3f9d…             # write-time edge-set hash of this symbol (input to suspect)
+    fingerprint: "7b21…"     # definition fingerprint at write time
+    snapshot:                # provider-typed; for code:
+      edges: "3f9d…"         # edge-set hash of this symbol
+      neighbours:            # per-anchor suspect snapshot (identity → edge-set hash)
+        "scip-clang cxx . . mongo/ShardKeyPattern#extract(key).": "9c04…"
 recorded_at: { commit: abc123, graph_commit: 7e8f90 }   # source version at write time; fingerprints judge, commits qualify
 unanchored: false            # explicit; true only with a reason (§2 guard-rail)
 proof_query: null            # for structural claims: replayable query + expected result
-neighbours:                  # suspect snapshot at write time (§12 item 4): direct neighbours
-  "scip-clang cxx . . mongo/ShardKeyPattern#extract(key).": 9c04…   # identity → edge-set hash
-contradicts: 01J8Z3K…        # optional, with reason
+contradicts: "01J8Z3K…"      # optional, with reason
 reason: "v1 assumed … but …"
 cost_tokens: 48000
 # no `verification` / `verified_at` here: they live on `.verify` events, e.g.
-#   .verify: { id, lineage, kind: verify, targets: 01JA4QX…, actor: llm,
-#              verified_at: { commit: def456, graph_commit: 9a01bb }, evidence: […] }
+#   .verify: { format_version: 1, id, lineage, kind: verify, targets: "01JA4QX…", actor: llm,
+#              verified_at: { commit: def456, graph_commit: 9a01bb }, evidence: […], snapshots: { … } }
 ```
 
 **Index:** a SQLite DB rebuilt from the .md files (FTS5 for text search;
@@ -472,7 +481,9 @@ SPEC.md). Items 6 and 8 remain postponed.
    event records the actual writer (`actor`: human | llm | ci). (The minni /
    Provena human-credential gate is answered: they gate all promotion because they
    have no machine-checkable proof class; Masora requires recorded evidence
-   instead and keeps refutation + review as the human override.)
+   instead and keeps refutation + review as the human override.) `source`,
+   `actor` and `model` are writer-asserted with no credential system; forgery is
+   an accepted risk left to PR review (the trust path).
 3. **Anchor granularity** — *settled*: symbols only, multiple anchors per claim
    (an indirect dependency = one claim anchored to ≥2 symbols). No edge/subgraph
    anchor types: structural claims name their edge/subgraph precisely in the
@@ -483,10 +494,11 @@ SPEC.md). Items 6 and 8 remain postponed.
 4. **`suspect` propagation** — *settled*: a claim anchored to X becomes `suspect`
    iff X's edge-set fingerprint changed, or that of any direct neighbour (1 hop,
    callers or callees; never transitive). Requires a durable snapshot recorded at
-   claim write time and at each verification: the anchors' edge-set hashes plus
-   the direct neighbours (identity → edge-set hash). Comparison runs over the
-   union of recorded and current neighbours, so removed and added neighbours are
-   seen. A provider that cannot answer yields `unknown`, never a silent
+   claim write time and at each verification: each anchor's snapshot records its
+   own edge-set hash and its direct neighbours (identity → edge-set hash);
+   comparison runs per anchor over the union of recorded and current neighbours,
+   so removed and added neighbours are seen. A provider that cannot answer yields
+   `unknown`, never a silent
    "not suspect". Neighbour body changes are ignored. `suspect` is computed in
    the index only (§6.2 rule unchanged) and composes with `stale`.
 5. **Frontmatter schema & event kinds** — *settled 2026-09-25; amended same day
@@ -505,21 +517,24 @@ SPEC.md). Items 6 and 8 remain postponed.
     reason"; `.undoubt` lifts it. Refutation stays for "provably wrong".
     Claim fields: `id`, `lineage`, `kind`, `class`, `source`, `summary` (mandatory
     one-liner, used verbatim in injections — OpenViking L0 lesson), `statement`,
-    `anchors` [{provider, identity, fingerprint, edges}] — `edges` is the
-    anchor's write-time edge-set hash (input to `suspect`), `recorded_at` {commit,
+    `format_version` (1; strict MAJOR-version rejection), `anchors` [{provider,
+    identity, fingerprint, snapshot?}] — `snapshot` is provider-typed (code:
+    `{edges, neighbours}`: the anchor's write-time edge-set hash and its
+    per-anchor neighbour snapshot, input to `suspect`), `recorded_at` {commit,
     graph_commit} — the source version at write time (§10.2); fingerprints
     decide validity, the commit only qualifies (§6.2) —, `unanchored` (explicit;
-    true only with a reason), `proof_query` (structural), `neighbours` (suspect
-    snapshot), `contradicts` + `reason` (optional pair, mandatory together),
+    true only with a reason), `proof_query` (structural), `contradicts` + `reason`
+    (optional pair, mandatory together),
     `model` (optional free string, recorded when `source: llm` — e.g.
     "glm-5p3-flash"; `cost_tokens` is read against it), `cost_tokens`
-    (optional). `.verify`: `targets` (version ULID), `actor` (human | llm; always
-   shown in envelopes — with no credential system, review is the trust path),
-   `verified_at` {commit + graph_commit; the per-anchor fingerprints are **not**
-   repeated here — the verify attests to exactly the immutable set recorded on
-    the claim}, `evidence`, plus its own neighbour snapshot — with `model`
-    (optional, same rule as the claim's) since the verifying session may not be
-    the writing one. `.refute`: `targets`
+    (optional). `.verify`: `format_version` (1), `targets` (version ULID), `actor`
+   (human | llm; always shown in envelopes — with no credential system, review is
+   the trust path), `verified_at` {commit + graph_commit; the per-anchor
+   fingerprints are **not** repeated here — the verify attests to exactly the
+   immutable set recorded on the claim}, `evidence`, `snapshots` (per-anchor
+   mapping, same shape as the claim's anchor snapshots), with `model` (optional,
+    same rule as the claim's) since the verifying session may not be the writing
+    one. `.refute`: `targets`
    (a version or event ULID), `reason` (mandatory), `source`, `evidence`. `.unrefute`: `targets`
    (the refute event's ULID), `reason`, `source`. `.doubt`/`.undoubt`: `.doubt`
    targets a `.verify` event (disagreement with that verification, not with the

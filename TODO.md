@@ -18,7 +18,7 @@ A minimal end-to-end core, enough to see whether Masora changes agent behaviour 
 
 Tasks:
 
-- [ ] Pre-flight: check name availability — `pip index versions masora`, GitHub, npm (§3).
+- [x] Pre-flight: check name availability — `pip index versions masora`, GitHub, npm (§3). Kept: **masora** (PyPI free; npm empty 2020 placeholder; GitHub username taken, irrelevant).
 - [ ] `masora setup --base <url>`: writes `~/.config/masora/config.toml` from the base's own `base.toml` (+ first-run init).
 - [ ] Claim/verify/doubt/undoubt/refute/unrefute `.md` format + layout of §7 (month-bucketed lineage dirs).
 - [x] Decide the frontmatter schema (Q5) — settled 2026-09-25, see MASORA_DESIGN.md §12.5 (mandatory `summary:`, explicit `unanchored:`, neighbour snapshot, `.verify` events).
@@ -30,7 +30,7 @@ Tasks:
 - [ ] Write path rejects credential-shaped content.
 - [ ] Code anchor provider via cppgraph with per-symbol definition fingerprint.
 - [ ] Edge-set fingerprint per symbol (hash of outgoing edges) — input to the settled `suspect` rule (§12.4).
-- [ ] Neighbour snapshot (anchors' edge-set hashes + direct-neighbour identity → edge-set hash) recorded at write time and in `.verify` events — baseline for `suspect` comparison.
+- [ ] Neighbour snapshot (per-anchor snapshot: each anchor's own edge-set hash plus its direct neighbours, identity → edge-set hash) recorded at write time and in `.verify` events — baseline for `suspect` comparison.
 - [ ] Injection of known facts into cppgraph responses (requires changes in the separate cppgraph repo).
 - [ ] Fallback without cppgraph: exercise the base via CLI/MCP `search` by symbol.
 - [ ] Injections emitted as evidence envelopes (validity, anchor, provenance).

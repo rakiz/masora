@@ -10,12 +10,17 @@
 
 Phase 1: v0 core (TODO.md). Done so far: pre-flight, FORMAT.md contract
 (frozen, 6162bbc), `masora check` MVP (3869b49), `masora sync` (be784c0),
-and the project documentation (README.md, docs/ARCHITECTURE.md,
-docs/TROUBLESHOOTING.md, AGENTS.md, tests/test_docs.py). Hardened every
-git spawn against inherited repo-location GIT_* variables
-(`masora.sync.git_env()`, session-start fixture in tests/conftest.py,
-regression test in tests/test_sync.py) — 221 tests green. Next task:
-`masora setup --base <url>` (TODO.md).
+the project documentation (README.md, docs/ARCHITECTURE.md,
+docs/TROUBLESHOOTING.md, AGENTS.md, tests/test_docs.py), and
+`masora setup --base <url>[#<path>]` (masora/setup.py, masora/config.py —
+partial clone + sparse checkout into ~/.local/share/masora/bases/,
+base.toml schema {name, code_remotes}, config.toml write/merge with
+normalized [[mappings]], 7 E-SETUP-* diagnostics, 17 setup tests — 238
+total green). Hardened every git spawn against inherited repo-location
+GIT_* variables (`masora.sync.git_env()`, session-start fixture in
+tests/conftest.py, regression test in tests/test_sync.py and
+tests/test_setup.py). Next task: `masora gc --lineage` or the SQLite
+index (TODO.md).
 
 ## Steps
 
@@ -62,6 +67,24 @@ regression test in tests/test_sync.py) — 221 tests green. Next task:
   impl → review (2 MAJOR: deletions-vs-origin/main false positives,
   solo push not advancing local main; 5 MINOR) → fixes → verified SHIP
   (reviewer briefly hallucinated a re-objection, disproven on disk).
+- [x] `masora setup --base <url>[#<path>]`: onboarding in one command.
+  Done: `masora/setup.py` + `masora/config.py` + CLI subcommand — partial
+  clone (`--filter=blob:none --sparse`) into `~/.local/share/masora/bases/<name>`
+  with sparse checkout at `#<path>` (root bases: sparse restriction lifted —
+  a bare `--sparse` cone clone checks out root files only, which would hide
+  the event tree); `base.toml` schema settled (`name` + `code_remotes`,
+  exactly these keys, docs/ARCHITECTURE.md); `config.toml` written or merged
+  (`[bases.<slug>]` from remote/path/clone-HEAD branch, `[[mappings]]` with
+  normalized `code_remote` — lowercase host, no scheme/user/port, no
+  trailing `.git` — in `masora.config.normalize_remote`; existing entries
+  and unknown keys preserved, mapping merge unions `bases`, same-remote
+  re-run idempotent, different-remote duplicate refused with
+  `E-SETUP-DUPLICATE`); `MASORA_HOME` relocates everything for tests and
+  special cases. 7 new `E-SETUP-*` codes in diagnostics.py +
+  docs/TROUBLESHOOTING.md in the same change (two-way sync guarded by
+  tests/test_docs.py). 17 setup tests (real git repos via file:// URLs —
+  local transport ignores the blob filter with a warning, clone succeeds:
+  graceful degradation), 238 total green.
 
 (Remainder of the phase: see TODO.md.)
 

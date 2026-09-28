@@ -48,6 +48,7 @@ Requires Python ≥ 3.13.
 
 ```sh
 uv tool install .        # or: pip install .
+masora setup --base <url>[#<path>]  # clone a base + write ~/.config/masora/config.toml from its base.toml
 masora check <base-dir>  # validate a base (exit 0/1/2)
 masora sync              # publish pending events: one branch + one PR
 ```
@@ -60,8 +61,12 @@ masora sync              # publish pending events: one branch + one PR
   available), delete the `masora/pending` branch locally and remotely; the
   local `.md` files of dropped events are left in place for you to remove.
 
-A base today is a git repo whose `main` branch holds event files laid out per
-FORMAT.md §1; there is no `masora init`/`setup` command yet (TODO.md).
+A base is a git repo whose `main` branch holds event files laid out per
+FORMAT.md §1, plus a `base.toml` (`name` + the `code_remotes` it serves) at
+its root; `masora setup --base <url>[#<path>]` clones it into
+`~/.local/share/masora/bases/` and writes the local config — the base URL
+travels through the team's onboarding docs, nothing ever lives in the code
+repo.
 
 ## Diagnostics
 
@@ -73,7 +78,8 @@ FORMAT.md §1; there is no `masora init`/`setup` command yet (TODO.md).
   wired in standalone check (`W-REPLAY`).
 - `E-CANON-*` are the YAML canonicalization rules (FORMAT.md §4);
   `E-REWRITE`, `E-FOUNDER`, `E-GC-UNAVAILABLE`, `E-TOMBSTONE-SHRINK`,
-  `E-GIT`, `E-NO-ORIGIN`, `E-MERGE-BASE` only appear in `sync`.
+  `E-GIT`, `E-NO-ORIGIN`, `E-MERGE-BASE` only appear in `sync`; the
+  `E-SETUP-*` codes only appear in `setup`.
 
 Every code, with likely cause and remedy, is in
 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md). The table is kept in

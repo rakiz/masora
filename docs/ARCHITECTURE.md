@@ -124,12 +124,53 @@ Pipeline (each step's failures abort with exit 1):
   locally and remotely; the local `.md` files of dropped events stay on disk.
 - Exit codes: 0 synced, 1 errors, 2 synced with warnings.
 
+## Setup and user configuration (`masora/setup.py`, `masora/config.py`, MASORA_DESIGN.md §9)
+
+`masora setup --base <url>[#<path>]` onboards a base in one command:
+
+1. Parse the spec: `#<path>` marks a base living in a sub-directory of a
+   shared repo; the fragment must be a relative path inside the repo
+   (`E-SETUP-ARG`). The base name (`[bases.<name>]` key) is derived from the
+   remote's last path segment, sanitized to `[a-z0-9_-]`.
+2. Clone into `~/.local/share/masora/bases/<name>` — never inside a code
+   repo — with a partial clone
+   (`git clone --filter=blob:none --sparse`), then, when a path is given,
+   `git -C <dest> sparse-checkout set <path>` (the base directory is the
+   sparse-checkout root), otherwise the sparse restriction is lifted
+   (`sparse-checkout disable`) so the whole event tree is checked out. An existing clone of the same remote (compared
+   after normalization) is reused, making a re-run idempotent
+   (`E-SETUP-CLONE`, `E-SETUP-DUPLICATE`). Every git spawn goes through
+   `masora.sync.git_env()` — no inherited repo-location `GIT_*` variables.
+3. Read the base's self-description, `base.toml` at the base directory's
+   root (`E-SETUP-NO-TOML`):
+
+   ```toml
+   name = "Team Query"                     # display name, non-empty string
+   code_remotes = ["github.com/org/repo"]  # git remotes this base serves
+   ```
+
+   Both keys are mandatory and no other key is accepted (`E-SETUP-SCHEMA`).
+4. Write `~/.config/masora/config.toml` (`E-SETUP-WRITE`) or merge into it:
+   the `[bases.<name>]` entry `{remote, path?, branch}` (`branch` read from
+   the clone's HEAD) plus one `[[mappings]]` block per `code_remotes` entry,
+   `code_remote` stored in normalized form. Remotes are matched after
+   normalization (`masora.config.normalize_remote`: lowercase host, no
+   scheme, no user/port prefix, no trailing `.git`). Existing entries,
+   mappings and unknown keys are preserved; a mapping's `bases` list gains
+   the new name. Re-running against the same remote (normalized equality)
+   updates the entry in place; the same name with a different remote is
+   refused (`E-SETUP-DUPLICATE`). The writer re-emits the parsed TOML:
+   comments in a hand-edited config are not preserved, and a value the
+   writer cannot serialize (e.g. a TOML date) is `E-SETUP-CONFIG`.
+5. `MASORA_HOME` relocates everything for special cases
+   (`$MASORA_HOME/config.toml`, `$MASORA_HOME/bases/<name>`); unset, the
+   default paths above apply.
+
 ## Not built yet
 
 All listed in TODO.md — statements below are facts, not plans in code:
 
-- `masora setup --base <url>` and `masora gc --lineage` (deletions are
-  currently rejected, see `E-GC-UNAVAILABLE`).
+- `masora gc --lineage` (deletions are currently rejected, see `E-GC-UNAVAILABLE`).
 - SQLite index, §6.2 resolution algorithm and FTS — today a base is read as
   plain files; folding cannot compute `current`/`stale` without an anchor
   provider (statuses report `unknown`).

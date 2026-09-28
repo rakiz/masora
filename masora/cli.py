@@ -1,4 +1,4 @@
-"""`masora` CLI — Phase 1 implements the `check` and `sync` commands."""
+"""`masora` CLI — Phase 1 implements the `check`, `sync` and `setup` commands."""
 
 from __future__ import annotations
 
@@ -7,13 +7,14 @@ import sys
 from pathlib import Path
 
 from .checker import check_base
+from .setup import run as run_setup
 from .sync import run as run_sync
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="masora",
-        description="Masora: git-backed knowledge base of anchored claims. Phase 1 provides `check` and `sync`.",
+        description="Masora: git-backed knowledge base of anchored claims. Phase 1 provides `check`, `sync` and `setup`.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
     check = sub.add_parser(
@@ -44,6 +45,17 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="solo-base mode: push the merged result directly to origin/main instead of a pending branch and PR",
     )
+    setup = sub.add_parser(
+        "setup",
+        help="configure a base from its own base.toml (MASORA_DESIGN.md §9)",
+        description="Clones the base into ~/.local/share/masora/bases/<name> (partial clone + sparse checkout at #<path>), reads its base.toml and writes or merges the local config.toml: a [bases.<name>] entry plus one [[mappings]] block per code remote it serves.",
+    )
+    setup.add_argument(
+        "--base",
+        required=True,
+        metavar="URL[#PATH]",
+        help="git URL of the base; '#<path>' selects a sub-directory of a shared repo (sparse checkout)",
+    )
     args = parser.parse_args(argv)
 
     if args.command == "check":
@@ -52,6 +64,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.drop and args.push:
             sync.error("--drop and --push are mutually exclusive")
         return run_sync(args.base_dir, drop=args.drop, push=args.push)
+    if args.command == "setup":
+        return run_setup(args.base)
     return 2
 
 

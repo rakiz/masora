@@ -11,16 +11,14 @@
 Phase 1: v0 core (TODO.md). Done so far: pre-flight, FORMAT.md contract
 (frozen, 6162bbc), `masora check` MVP (3869b49), `masora sync` (be784c0),
 the project documentation (README.md, docs/ARCHITECTURE.md,
-docs/TROUBLESHOOTING.md, AGENTS.md, tests/test_docs.py), and
+docs/TROUBLESHOOTING.md, AGENTS.md, tests/test_docs.py),
 `masora setup --base <url>[#<path>]` (masora/setup.py, masora/config.py —
 partial clone + sparse checkout into ~/.local/share/masora/bases/,
 base.toml schema {name, code_remotes}, config.toml write/merge with
-normalized [[mappings]], 7 E-SETUP-* diagnostics, 17 setup tests — 238
-total green). Hardened every git spawn against inherited repo-location
-GIT_* variables (`masora.sync.git_env()`, session-start fixture in
-tests/conftest.py, regression test in tests/test_sync.py and
-tests/test_setup.py). Next task: `masora gc --lineage` or the SQLite
-index (TODO.md).
+normalized [[mappings]], 7 E-SETUP-* diagnostics, 17 setup tests), and
+`masora gc --lineage` (masora/gc.py — plan-then-confirm, tombstone writes,
+sync acceptance of tombstoned deletions, 12 gc tests — 254 total green).
+Next task: the SQLite index (TODO.md).
 
 ## Steps
 
@@ -85,6 +83,23 @@ index (TODO.md).
   tests/test_docs.py). 17 setup tests (real git repos via file:// URLs —
   local transport ignores the blob filter with a warning, clone succeeds:
   graceful degradation), 238 total green.
+- [x] `masora gc --lineage`: whole-lineage deletion on explicit, confirmed
+  request. Done: `masora/gc.py` + CLI subcommand — `--lineage` repeatable,
+  plan-then-confirm (plan prints the files/warnings and exits 3 with
+  nothing written; `--yes` executes), `masora check` run before
+  (errors block) and after (failure = `E-GC-CHECK`) the mutation; one
+  `[[deleted]]` block per lineage appended to `deleted.toml` (append-only
+  by content), event files removed, emptied dirs pruned; no git spawn and
+  no commit — the deletion is an ordinary git commit left to the user, or
+  travels through `masora sync` like any pending change; gc never suggests
+  lineages (deleting a still-active lineage warns `W-GC-ACTIVE`,
+  fully-refuted lineages exit clean). `masora/sync.py` now accepts
+  whole-lineage deletions whose lineage is tombstoned locally (the
+  former unconditional `E-GC-UNAVAILABLE` fires only for tombstone-less
+  deletions = tampering) and applies accepted deletions to the merged
+  tree before merged-result validation. New codes E-GC-ULID, E-GC-UNKNOWN,
+  E-GC-CHECK, W-GC-ACTIVE documented in the same change. 12 gc tests
+  (incl. the keystone: sync accepts a gc'd base), 254 total green.
 
 (Remainder of the phase: see TODO.md.)
 

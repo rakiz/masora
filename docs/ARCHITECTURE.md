@@ -15,7 +15,7 @@ one PR (`sync`).
   changes nothing.
 - Event identity is the ULID (`id` == filename ULID); files are append-only,
   never modified after creation. Whole-lineage deletion is `masora gc`'s job
-  (not implemented; `sync` rejects such deletions with `E-GC-UNAVAILABLE`).
+  (see the GC section below).
 
 ## Canonicalization and schema (`masora/frontmatter.py`, `masora/schema.py`)
 
@@ -102,8 +102,9 @@ Pipeline (each step's failures abort with exit 1):
    (§7.9): added / unchanged / rewritten / deleted. Identity is content —
    moves are invisible, squash-merges are harmless.
 4. **Tampering**: a rewrite or partial deletion of a known id is
-   `E-REWRITE`; a whole-lineage deletion is `E-GC-UNAVAILABLE` (gc is
-   unimplemented).
+   `E-REWRITE`; a whole-lineage deletion is tampering unless the lineage is
+   tombstoned in the local `deleted.toml` (`E-GC-UNAVAILABLE`) — tombstoned
+   deletions are `masora gc`'s output and are accepted.
 5. **Tombstone**: the local `deleted.toml` must be a content-superset of the
    merge-base's (`E-TOMBSTONE-SHRINK`).
 6. **Founder rule**: every added v2+ claim needs its founder in
@@ -112,7 +113,9 @@ Pipeline (each step's failures abort with exit 1):
 7. **Merged-result validation**: `origin/main` tree + local overlay +
    **union tombstone** re-validated with `check_base()` — this surfaces
    gc-vs-extension races (a PR extending a lineage another PR deleted)
-   before publication, not just the PR diff (§7.10).
+   before publication, not just the PR diff (§7.10). Accepted gc deletions
+   are applied to the merged tree: the tombstoned lineages' event files are
+   removed from the origin side before validation.
 8. **Publication**: one plumbing commit (merged tree, parent = `origin/main`)
    on `masora/pending`, pushed `--force-with-lease`; PR opened or updated via
    `gh`, or the compare URL printed. Idempotent: when the branch already
@@ -123,6 +126,29 @@ Pipeline (each step's failures abort with exit 1):
 - `--drop`: closes the PR (`gh` when available), deletes `masora/pending`
   locally and remotely; the local `.md` files of dropped events stay on disk.
 - Exit codes: 0 synced, 1 errors, 2 synced with warnings.
+
+## GC (`masora/gc.py`, §7.9–§7.10, SPEC.md Goals)
+
+`masora gc <base-dir> --lineage <ulid>[…] [--yes]` deletes whole lineages on
+explicit, confirmed request; it never suggests candidates (a fully-refuted
+lineage is negative knowledge). Sequencing:
+
+1. `--lineage` values must be well-formed ULIDs (`E-GC-ULID`), deduplicated.
+2. **Pre-check**: `check_base()`; errors block (schema, tombstone shape, …)
+   and nothing is mutated.
+3. **Plan**: the lineage's event files (content-scanned — location plays no
+   role), its fold status — a lineage with active (non-refuted) versions is
+   deleted with `W-GC-ACTIVE` — and already-tombstoned requests as no-ops.
+   Without `--yes` the plan is printed and gc exits 3 without writing
+   anything.
+4. **Mutation**: one `[[deleted]]` block per lineage (`ulids` = every event
+   ULID of the lineage) is appended to `deleted.toml` (append-only by
+   content, §7.10), the lineage's event files are unlinked and emptied
+   parent directories pruned. gc commits nothing — the deletion is an
+   ordinary git commit left to the user, or travels through `masora sync`
+   like any pending change.
+5. **Post-check**: `check_base()` again; a failure is `E-GC-CHECK` (exit 1).
+   Exit 0 deleted, 2 deleted with warnings.
 
 ## Setup and user configuration (`masora/setup.py`, `masora/config.py`, MASORA_DESIGN.md §9)
 
@@ -170,7 +196,6 @@ Pipeline (each step's failures abort with exit 1):
 
 All listed in TODO.md — statements below are facts, not plans in code:
 
-- `masora gc --lineage` (deletions are currently rejected, see `E-GC-UNAVAILABLE`).
 - SQLite index, §6.2 resolution algorithm and FTS — today a base is read as
   plain files; folding cannot compute `current`/`stale` without an anchor
   provider (statuses report `unknown`).

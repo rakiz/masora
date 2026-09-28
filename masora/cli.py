@@ -1,4 +1,4 @@
-"""`masora` CLI — Phase 1 implements the `check`, `sync` and `setup` commands."""
+"""`masora` CLI — Phase 1 implements the `check`, `sync`, `setup` and `gc` commands."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from .checker import check_base
+from .gc import run as run_gc
 from .setup import run as run_setup
 from .sync import run as run_sync
 
@@ -14,7 +15,7 @@ from .sync import run as run_sync
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="masora",
-        description="Masora: git-backed knowledge base of anchored claims. Phase 1 provides `check`, `sync` and `setup`.",
+        description="Masora: git-backed knowledge base of anchored claims. Phase 1 provides `check`, `sync`, `setup` and `gc`.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
     check = sub.add_parser(
@@ -56,6 +57,24 @@ def main(argv: list[str] | None = None) -> int:
         metavar="URL[#PATH]",
         help="git URL of the base; '#<path>' selects a sub-directory of a shared repo (sparse checkout)",
     )
+    gc = sub.add_parser(
+        "gc",
+        help="delete whole lineages on explicit, confirmed request (FORMAT.md §7.10)",
+        description="Exit codes: 3 plan printed (nothing written), 0 deleted, 2 deleted with warnings, 1 errors. Runs masora check before and after the mutation, removes every event file of the requested lineage(s) and appends their tombstone to deleted.toml. gc never suggests lineages.",
+    )
+    gc.add_argument("base_dir", type=Path, help="path to the Masora base directory")
+    gc.add_argument(
+        "--lineage",
+        action="append",
+        required=True,
+        metavar="ULID",
+        help="lineage ULID to delete; repeatable to delete several lineages in one run",
+    )
+    gc.add_argument(
+        "--yes",
+        action="store_true",
+        help="execute the deletion; without it gc prints the plan only and exits 3",
+    )
     args = parser.parse_args(argv)
 
     if args.command == "check":
@@ -66,6 +85,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_sync(args.base_dir, drop=args.drop, push=args.push)
     if args.command == "setup":
         return run_setup(args.base)
+    if args.command == "gc":
+        return run_gc(args.base_dir, args.lineage, yes=args.yes)
     return 2
 
 

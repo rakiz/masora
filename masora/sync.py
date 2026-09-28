@@ -143,6 +143,14 @@ def _run_publish(base_dir: Path, push: bool) -> int:
                 f"{len(rewritten_ids)} rewritten, {len(deleted_ids)} deleted"
             )
 
+            pairs_local = _tombstone_pairs(
+                (base_dir / "deleted.toml").read_bytes()
+                if (base_dir / "deleted.toml").exists()
+                else None,
+                "local",
+            )
+            tombstoned = {value for pair in pairs_local for value in pair}
+
             for event_id in rewritten_ids:
                 errors.append(
                     Diag(
@@ -153,14 +161,8 @@ def _run_publish(base_dir: Path, push: bool) -> int:
                         local_events[event_id].path,
                     )
                 )
-            errors.extend(_deletion_diags(deleted_ids, base_events, origin_events))
+            errors.extend(_deletion_diags(deleted_ids, base_events, origin_events, tombstoned))
 
-            pairs_local = _tombstone_pairs(
-                (base_dir / "deleted.toml").read_bytes()
-                if (base_dir / "deleted.toml").exists()
-                else None,
-                "local",
-            )
             pairs_base = _tombstone_pairs(
                 _git_show_optional(base_dir, f"{merge_base}:deleted.toml"), "merge-base"
             )
@@ -208,7 +210,15 @@ def _run_publish(base_dir: Path, push: bool) -> int:
             if errors:
                 print("merged-result check skipped: diff errors above")
             else:
-                _build_merged(origin_dir, base_dir, merged_dir, pairs_local, pairs_origin)
+                _build_merged(
+                    origin_dir,
+                    base_dir,
+                    merged_dir,
+                    pairs_local,
+                    pairs_origin,
+                    deleted_ids,
+                    origin_events,
+                )
                 merged = check_base(merged_dir)
                 print(
                     f"merged-result check (origin/main + pending): scanned {merged.file_count} event file(s), {merged.lineage_count} lineage(s)"
@@ -323,7 +333,10 @@ def _run_drop(base_dir: Path) -> int:
 
 
 def _deletion_diags(
-    deleted_ids: list[str], base_events: dict[str, EventFile], origin_events: dict[str, EventFile]
+    deleted_ids: list[str],
+    base_events: dict[str, EventFile],
+    origin_events: dict[str, EventFile],
+    tombstoned: set[str],
 ) -> list[Diag]:
     if not deleted_ids:
         return []
@@ -348,11 +361,13 @@ def _deletion_diags(
         )
     for lineage in sorted(gc_lineages):
         if any(event_id in origin_events for event_id in lineage_ids[lineage]):
+            if lineage in tombstoned:
+                continue
             diags.append(
                 Diag(
                     "error",
                     E_GC_UNAVAILABLE,
-                    f"lineage {lineage} is deleted entirely: whole-lineage deletion requires `masora gc`, which is not implemented yet (FORMAT.md §7.10)",
+                    f"lineage {lineage} is deleted entirely without a tombstone in deleted.toml: whole-lineage deletion is tampering (FORMAT.md §7.9) — use `masora gc --lineage`, which tombstones the lineage (§7.10)",
                 )
             )
     return diags
@@ -421,6 +436,8 @@ def _build_merged(
     merged_dir: Path,
     pairs_local: set[tuple[str, str]],
     pairs_origin: set[tuple[str, str]],
+    deleted_ids: list[str],
+    origin_events: dict[str, EventFile],
 ) -> None:
     shutil.copytree(origin_dir, merged_dir)
     for path in sorted(base_dir.rglob("*")):
@@ -432,6 +449,10 @@ def _build_merged(
         dest = merged_dir / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, dest)
+    for event_id in deleted_ids:
+        event = origin_events.get(event_id)
+        if event is not None:
+            (merged_dir / event.path).unlink(missing_ok=True)
     if (
         pairs_local
         or pairs_origin

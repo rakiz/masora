@@ -70,16 +70,18 @@ repo.
 
 ## Diagnostics
 
-- `E-*` codes are errors: `check`/`sync` fail (exit 1) and nothing is
-  published.
+- `E-*` codes are errors: `check`/`sync`/`gc` fail (exit 1) and nothing is
+  published or deleted.
 - `W-*` codes are warnings: never blocking, exit 2. They mark tolerated
   shapes — dangling targets across PRs (`W-DANGLING`), clock skew
   (`W-SKEW`), a version missing its founder (`W-FOUNDER`), proof replay not
-  wired in standalone check (`W-REPLAY`).
+  wired in standalone check (`W-REPLAY`), deleting a still-active lineage
+  (`W-GC-ACTIVE`).
 - `E-CANON-*` are the YAML canonicalization rules (FORMAT.md §4);
   `E-REWRITE`, `E-FOUNDER`, `E-GC-UNAVAILABLE`, `E-TOMBSTONE-SHRINK`,
   `E-GIT`, `E-NO-ORIGIN`, `E-MERGE-BASE` only appear in `sync`; the
-  `E-SETUP-*` codes only appear in `setup`.
+  `E-SETUP-*` codes only appear in `setup`; `E-GC-ULID`, `E-GC-UNKNOWN` and
+  `E-GC-CHECK` only appear in `gc`.
 
 Every code, with likely cause and remedy, is in
 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md). The table is kept in

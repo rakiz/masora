@@ -21,7 +21,7 @@ a Masora base). Read in this order; on disagreement the earlier file wins:
 - The `.md` event files of a Masora base are append-only: never modify or
   delete an existing event (FORMAT.md §1). Corrections are new events — a new
   claim version, a refute, an unrefute. Whole-lineage deletion belongs to
-  `masora gc`, which is not implemented yet.
+  `masora gc`.
 - Diagnostic codes are the error surface: a new code goes into
   `masora/diagnostics.py` **and** `docs/TROUBLESHOOTING.md` in the same
   change; `tests/test_docs.py` enforces the two-way sync.

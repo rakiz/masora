@@ -264,8 +264,11 @@ An event is *active* iff it is not the target of any active refute and, when it
 is itself a refute, not the target of any active unrefute; when it is a doubt,
 not the target of any active undoubt. Activity is evaluated backwards in
 descending lexical ULID order to a fixed point — targeting events typically have
-higher ids (skew is a warning, not an error); the fixed-point evaluation
-converges regardless of id order — then the fold runs over the final active set;
+higher ids (skew is a warning, not an error); on the acyclic reference graph that
+`check` enforces (§3, §7 item 5), the fixed-point evaluation converges and is
+independent of evaluation order, and a cycle is rejected before folding — the
+evaluation reports non-convergence rather than a silently wrong result — then the
+fold runs over the final active set;
 dangling events are inactive. Example: for `V < R1 < R2`
 (`R1` refutes verify `V`, `R2` refutes `R1`), forward folding would discard `V`
 before learning `R1` is inactive; backward evaluation gives `V` active, `R1`

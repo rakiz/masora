@@ -31,7 +31,18 @@ T1 pre-flight in progress.
   refinements of already-open areas) → cheap-mech → final verification
   (0 MAJOR, 6 MINOR fixed). **Contract frozen** — every lens re-run finds
   zero. Next: `masora check` implements FORMAT.md §7.
-- [ ] `masora check`: validates event schema and append-only history (local command; run by `sync`). **Next up** — brief the impl agent on FORMAT.md §7.
+- [x] `masora check`: validates event schema and append-only history (local
+  command; run by `sync`). Done: `masora/` package (`ulid`, `frontmatter`,
+  `schema`, `fold`, `checker`, `cli`) implementing FORMAT.md §7 standalone
+  whole-tree validation + §6 active-event folding; fold executable spec
+  proven by brute force (all 13,512 DAGs at n≤4 vs an independent
+  topological oracle, 4 evaluation orders + 10k sampled 5-event graphs);
+  190 tests green. Review pipeline applied (1 MAJOR: neighbour-hash quoting
+  in canonicalization; 6 MINOR: ULID time mask, fold lineage scoping,
+  python floor 3.13, count ≥ 0, .pytest_cache, negative test) — verified,
+  SHIP. Standalone mode only — append-only diff vs merge-base comes with
+  `sync` (§7.9). Contract correction folded in: FORMAT.md §6 convergence
+  scoped to the acyclic domain (cycles rejected before folding).
 
 (Remainder of the phase: see TODO.md.)
 

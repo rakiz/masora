@@ -1,7 +1,7 @@
 {
   "precommit": {
     "checks": [
-      { "name": "tests", "cmd": "" },
+      { "name": "tests", "cmd": "uv run pytest -q" },
       { "name": "companions_exist", "builtin": "companion_md_exists", "extensions": ["cpp", "h", "ts", "tsx"] }
     ]
   },

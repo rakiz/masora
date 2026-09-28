@@ -1,6 +1,6 @@
 # Masora — design brief (bootstrap document)
 
-Status: **design agreed in discussion, nothing implemented yet.** This document
+Status: **contract frozen (FORMAT.md); masora check and masora sync implemented (Phase 1 in progress).** This document
 captures every decision made so far, the reasoning behind it, the open questions,
 and the prior art to study before writing the schema. It is meant to bootstrap an
 agent that will build Masora. Where something is marked *open*, do not decide it

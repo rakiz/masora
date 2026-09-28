@@ -9,9 +9,10 @@
 ## Current phase
 
 Phase 1: v0 core (TODO.md). Done so far: pre-flight, FORMAT.md contract
-(frozen, 6162bbc), `masora check` MVP (3869b49). Ready to commit:
-`masora sync`. Next task: documentation (README + diagnostic-code
-troubleshooting + AGENTS.md, see TODO.md).
+(frozen, 6162bbc), `masora check` MVP (3869b49), `masora sync` (be784c0),
+and the project documentation (README.md, docs/ARCHITECTURE.md,
+docs/TROUBLESHOOTING.md, AGENTS.md, tests/test_docs.py). Next task:
+`masora setup --base <url>` (TODO.md).
 
 ## Steps
 
@@ -53,7 +54,8 @@ troubleshooting + AGENTS.md, see TODO.md).
   founder rule for new v2+ claims, merged-result validation with union
   tombstone (gc-vs-extension races), pending lifecycle (plumbing commit
   onto `masora/pending`, force-with-lease push, gh PR create/update or
-  compare-URL fallback). 27 sync tests, 217 total green. Pipeline:
+  compare-URL fallback). 27 sync tests, 220 total green (incl.
+  tests/test_docs.py). Pipeline:
   impl → review (2 MAJOR: deletions-vs-origin/main false positives,
   solo push not advancing local main; 5 MINOR) → fixes → verified SHIP
   (reviewer briefly hallucinated a re-objection, disproven on disk).

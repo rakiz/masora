@@ -2,6 +2,8 @@
   "precommit": {
     "checks": [
       { "name": "tests", "cmd": "uv run pytest -q" },
+      { "name": "ruff_format", "cmd": "uv run ruff format --check masora tests" },
+      { "name": "ruff_lint", "cmd": "uv run ruff check masora tests" },
       { "name": "companions_exist", "builtin": "companion_md_exists", "extensions": ["cpp", "h", "ts", "tsx"] }
     ]
   },

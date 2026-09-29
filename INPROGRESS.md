@@ -13,13 +13,15 @@ Phase 1: v0 core (TODO.md). Done so far: pre-flight, FORMAT.md contract
 the project documentation (README.md, docs/ARCHITECTURE.md,
 docs/TROUBLESHOOTING.md, AGENTS.md, tests/test_docs.py),
 `masora setup --base <url>[#<path>]` (masora/setup.py, masora/config.py),
-`masora gc --lineage` (masora/gc.py), and the SQLite index + §6.2
+`masora gc --lineage` (masora/gc.py), the SQLite index + §6.2
 resolution + FTS (masora/resolve.py, masora/index.py — full-rebuild DB at
 `<masora_home>/indexes/<base-slug>/<repo-slug>-<hash>.db`, status tuples,
-`suspect` per §12.4, file-anchor provider, `code` anchors unknown until the
-cppgraph provider, CLI `index`/`search`, 52 index/resolve tests — 307 total
-green). Next task: MCP tools (`note`, `verify`, `doubt`, `undoubt`,
-`refute`, `search`, `list_stale`).
+`suspect` per §12.4, file-anchor provider, CLI `index`/`search`), and the
+`code` anchor provider over a cppgraph graph store (masora/providers.py:
+definition + edge-set fingerprints, neighbour snapshots, graph-commit
+currency policy; `--cppgraph`/`--no-cppgraph` on the index CLI; W-IDX-GRAPH;
+28 new tests — 344 total green). Next task: MCP tools (`note`,
+`verify`, `doubt`, `undoubt`, `refute`, `search`, `list_stale`).
 
 ## Steps
 
@@ -124,6 +126,28 @@ green). Next task: MCP tools (`note`, `verify`, `doubt`, `undoubt`,
 0/1, 2 = `E-IDX-QUERY` arg-level error). 5 E-IDX-* + 2 W-IDX-* codes
 documented in docs/TROUBLESHOOTING.md in the same change; 32 matrix
 tests + 26 index tests, 313 total green.
+- [x] Code anchor provider via cppgraph (TODO: per-symbol definition
+  fingerprint + edge-set fingerprint + neighbour snapshot). Done:
+  `masora/providers.py` — the `code` registry entries for both provider
+  registries read a cppgraph graph store (schema v5 learned from the
+  cppgraph source: `files`/`symbols`/`edges`/`meta`, `meta.source_commit`)
+  read-only; the FORMAT.md §4 anchor identity is matched verbatim against
+  `symbols.symbol`; definition fingerprint = sha256 of the
+  whitespace/comment-normalized source of `symbols.line`..`end_line`
+  (0-indexed; single line on stores without body extents), edge-set
+  fingerprint = sha256 of the sorted distinct callee SCIP strings of
+  `calls` edges, neighbour snapshot = 1-hop callers ∪ callees → their
+  edge-set hashes. Currency policy (§5.2): `meta.source_commit` must equal
+  the `--repo` HEAD, decided once per build — mismatch/unverifiable → ALL
+  code anchors unavailable (`unknown` shadows, §6.2) + `W-IDX-GRAPH` when
+  code anchors exist; missing graph store silent (cppgraph optional).
+  `masora index` gains `--cppgraph <db>` / `--no-cppgraph`; the used graph
+  commit is exposed on `IndexResult` and in index meta. 17 provider tests +
+  7 index-path tests (incl. suspect firing on neighbour and own-edge drift
+  between two hand-crafted graph builds) — plus W-IDX-STALE extended to code
+  drift (stored repo_head/graph_commit vs current --repo HEAD and discovered
+  graph source_commit at search time, 4 tests) — 344 total green. W-IDX-GRAPH
+  documented in docs/TROUBLESHOOTING.md in the same change.
 
 (Remainder of the phase: see TODO.md.)
 

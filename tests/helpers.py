@@ -1,7 +1,8 @@
-"""Test helpers: canonical block-style YAML emitter and event builders."""
+"""Test helpers: canonical block-style YAML emitter, event builders, graph fixture."""
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 OMIT = object()
@@ -159,4 +160,83 @@ def write_event(base: Path, relpath: str, data: dict) -> Path:
     path = base / relpath
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_event(data), encoding="utf-8")
+    return path
+
+
+GRAPH_DDL = """
+CREATE TABLE files (id INTEGER PRIMARY KEY, path TEXT);
+CREATE TABLE symbols (
+    id INTEGER PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    display_name TEXT,
+    file_id INTEGER,
+    line INTEGER,
+    end_line INTEGER,
+    documentation TEXT,
+    scip_kind TEXT,
+    signature_documentation TEXT,
+    is_out_of_project INTEGER
+);
+CREATE TABLE edges (
+    kind TEXT NOT NULL,
+    src_id INTEGER NOT NULL,
+    dst_id INTEGER NOT NULL,
+    file_id INTEGER,
+    line INTEGER
+);
+CREATE TABLE refs (
+    symbol_id INTEGER NOT NULL,
+    file_id INTEGER,
+    line INTEGER,
+    enclosing_id INTEGER,
+    roles INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
+"""
+
+
+def write_graph_db(
+    path: Path,
+    *,
+    commit: str | None = SHA,
+    symbols: dict[str, tuple[str, int, int | None]] | None = None,
+    calls: list[tuple[str, str]] | None = None,
+) -> Path:
+    """Minimal cppgraph store (schema v5: files/symbols/edges/meta, cf. cppgraph store.py).
+
+    `symbols` maps symbol string -> (repo-relative file path, 0-indexed
+    definition line, 0-indexed body-extent end line or None); `calls` lists
+    (caller, callee) pairs written as `calls` edges. `commit=None` omits
+    `source_commit` from meta entirely.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.unlink(missing_ok=True)
+    conn = sqlite3.connect(path)
+    try:
+        conn.executescript(GRAPH_DDL)
+        file_ids: dict[str, int] = {}
+        sym_ids: dict[str, int] = {}
+        for sid, (symbol, (rel, line, end)) in enumerate((symbols or {}).items()):
+            if rel not in file_ids:
+                file_ids[rel] = conn.execute(
+                    "INSERT INTO files (path) VALUES (?)", (rel,)
+                ).lastrowid
+            conn.execute(
+                "INSERT INTO symbols (id, symbol, display_name, file_id, line, end_line)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (sid, symbol, symbol.rsplit("#", 1)[-1], file_ids[rel], line, end),
+            )
+            sym_ids[symbol] = sid
+        for caller, callee in calls or []:
+            conn.execute(
+                "INSERT INTO edges (kind, src_id, dst_id) VALUES ('calls', ?, ?)",
+                (sym_ids[caller], sym_ids[callee]),
+            )
+        meta = {"schema_version": "5", "built_at": "2026-01-01T00:00:00+00:00"}
+        if commit is not None:
+            meta["source_commit"] = commit
+        conn.executemany("INSERT INTO meta (key, value) VALUES (?, ?)", meta.items())
+        conn.commit()
+    finally:
+        conn.close()
     return path

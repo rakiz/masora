@@ -29,9 +29,9 @@ Tasks:
 - [x] SQLite index + resolution algorithm of §6.2 + FTS. → `masora/index.py` (full-rebuild SQLite+WAL DB at `<masora_home>/indexes/<base-slug>/<repo-slug>-<hash>.db`, FTS5, tombstone exclusion, base-HEAD staleness) + `masora/resolve.py` (pure §6.2 status tuple over `masora/fold.py`, injectable provider registries, `suspect` per §12.4) + CLI `index`/`search` (E-IDX-*/W-IDX-* diagnostics); `code` anchors report `unknown` until the cppgraph provider.
 - [ ] MCP tools: `note`, `verify`, `doubt`, `undoubt`, `refute`, `search`, `list_stale`.
 - [ ] Write path rejects credential-shaped content.
-- [ ] Code anchor provider via cppgraph with per-symbol definition fingerprint.
-- [ ] Edge-set fingerprint per symbol (hash of outgoing edges) — input to the settled `suspect` rule (§12.4).
-- [ ] Neighbour snapshot (per-anchor snapshot: each anchor's own edge-set hash plus its direct neighbours, identity → edge-set hash) recorded at write time and in `.verify` events — baseline for `suspect` comparison.
+- [x] Code anchor provider via cppgraph with per-symbol definition fingerprint.
+- [x] Edge-set fingerprint per symbol (hash of outgoing edges) — input to the settled `suspect` rule (§12.4).
+- [x] Neighbour snapshot (per-anchor snapshot: each anchor's own edge-set hash plus its direct neighbours, identity → edge-set hash) recorded at write time and in `.verify` events — baseline for `suspect` comparison. (Provider-side computation: `masora/providers.py` answers both for the index; the recording at write/verify time lands with the MCP tools.)
 - [ ] Injection of known facts into cppgraph responses (requires changes in the separate cppgraph repo).
 - [ ] Fallback without cppgraph: exercise the base via CLI/MCP `search` by symbol.
 - [ ] Injections emitted as evidence envelopes (validity, anchor, provenance).

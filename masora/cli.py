@@ -81,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     index = sub.add_parser(
         "index",
         help="rebuild the SQLite index of a base for one code repo (MASORA_DESIGN.md §6.2, §8)",
-        description="Exit codes: 0 built, 1 errors, 2 built with warnings. Full rebuild only — the index is disposable (drop + recreate), tombstoned lineages are excluded. The default registry ships the `file` anchor provider; `code` anchors report unknown until the cppgraph provider exists.",
+        description="Exit codes: 0 built, 1 errors, 2 built with warnings. Full rebuild only — the index is disposable (drop + recreate), tombstoned lineages are excluded. The default registry ships the `file` anchor provider plus the `code` provider over a cppgraph graph store (auto-discovered at <repo>/.cppgraph, newest graph.db); `--cppgraph` points elsewhere, `--no-cppgraph` forces file-only (code anchors report unknown).",
     )
     index.add_argument("base_dir", type=Path, help="path to the Masora base directory")
     index.add_argument(
@@ -89,6 +89,18 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=Path("."),
         help="path to the code repo checkout the fingerprints are computed against (default: current directory)",
+    )
+    index.add_argument(
+        "--cppgraph",
+        type=Path,
+        default=None,
+        metavar="DB",
+        help="explicit cppgraph graph.db to fingerprint code anchors against (default: newest <repo>/.cppgraph/*.graph.db)",
+    )
+    index.add_argument(
+        "--no-cppgraph",
+        action="store_true",
+        help="force file-only indexing: code anchors report unknown even when a graph store exists",
     )
     search = sub.add_parser(
         "search",
@@ -116,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "gc":
         return run_gc(args.base_dir, args.lineage, yes=args.yes)
     if args.command == "index":
-        return _run_index(args.base_dir, args.repo)
+        return _run_index(args.base_dir, args.repo, args.cppgraph, args.no_cppgraph)
     if args.command == "search":
         return _run_search(args.base_dir, args.query, args.repo)
     return 2
@@ -169,18 +181,22 @@ def _print_envelope(envelope: dict) -> None:
         print(f"  proof replay: {envelope['proof_replay']} (provider not wired)")
 
 
-def _run_index(base_dir: Path, repo: Path) -> int:
+def _run_index(base_dir: Path, repo: Path, cppgraph: Path | None, no_cppgraph: bool) -> int:
     print(f"masora index {base_dir}")
     if not base_dir.is_dir():
         print(f"masora index: base directory does not exist: {base_dir}", file=sys.stderr)
         return 1
     try:
-        result = build_index(base_dir, repo)
+        result = build_index(base_dir, repo, cppgraph=cppgraph, no_cppgraph=no_cppgraph)
     except IndexingError as exc:
         print(f"  {exc.diag.render()}")
         print("FAILED: 1 error(s)")
         return 1
     print(f"repo: {repo}")
+    if result.graph_db is not None:
+        print(f"graph: {result.graph_db} (commit {result.graph_commit[:12]})")
+    else:
+        print("graph: none — code anchors report unknown")
     print(f"index: {result.db_path}")
     print(f"base HEAD: {result.base_head or 'unknown'}")
     for diag in result.diags:
@@ -218,11 +234,11 @@ def _run_search(base_dir: Path, query: str, repo: Path) -> int:
     except IndexingError as exc:
         print(f"  {exc.diag.render()}")
         return 2 if exc.diag.code == E_IDX_QUERY else 1
-    if index_stale(db, base_dir):
+    if index_stale(db, base_dir, repo):
         stale = Diag(
             "warning",
             W_IDX_STALE,
-            "the base HEAD changed since this index was built — statuses may be outdated; rebuild with masora index",
+            "base or code state moved since the last index build — rerun masora index",
         )
         print(f"  {stale.render()}")
     if not hits:

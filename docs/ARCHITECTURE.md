@@ -202,20 +202,48 @@ and adds FTS5 search. Section references are to MASORA_DESIGN.md.
   `/* … */` block comments (inline or spanning lines) removed, then blank
   lines and full-line `//`/`#` comments dropped, whitespace runs collapsed; an
   unterminated `/*` is content. Inline `//` is not stripped (`//` occurs in
-  URLs/strings mid-line). `code`
-  anchors stay without a provider until the cppgraph provider task → they
-  report `unknown` per §6.2, never a guessed status. The registry is a
-  parameter: tests inject fakes, cppgraph will inject the real one.
+  URLs/strings mid-line).
+- **`code` provider** (`masora/providers.py`): fingerprints code anchors
+  against a cppgraph graph store — the newest `<repo>/.cppgraph/*.graph.db`
+  (store schema v5: `files`/`symbols`/`edges`/`meta`), opened read-only;
+  `--cppgraph <db>` points elsewhere, `--no-cppgraph` forces file-only. The
+  anchor identity is the SCIP symbol string recorded per FORMAT.md §4 —
+  opaque-but-structured, matched verbatim against `symbols.symbol`. Definition
+  fingerprint (§5.4): sha256 of the whitespace/comment-normalized source of
+  the definition range `symbols.line`..`symbols.end_line` inclusive
+  (0-indexed, read from the `--repo` checkout); a store without body extents
+  (`end_line`, #504-built binaries only) hashes the single definition line. An
+  unknown symbol or unreadable/escaping definition file is `not_found` (fails
+  to match). Edge-set fingerprint (§5.4): sha256 of the sorted distinct callee
+  SCIP strings from `calls` edges only. Neighbour snapshot (§12.4): 1-hop
+  callers ∪ callees, identity → that neighbour's edge-set hash. **Graph
+  currency policy (§5.2)**: the store's `meta.source_commit` must equal the
+  `--repo` git HEAD, decided once per index build — on mismatch, missing
+  commit/HEAD, unreadable store or one newer than the schema this provider
+  reads, ALL code anchors are unavailable (`unknown` shadows; a warning
+  `W-IDX-GRAPH` states why when code anchors exist) — never per-anchor, since
+  the registry contract has no per-anchor availability channel (callable None
+  = `not_found`) and §5.2 refuses fingerprints from a stale graph wholesale.
+  A missing graph store is silent `unknown` (cppgraph is optional, SPEC.md);
+  the used graph commit is exposed as `result.graph_commit` and in the index
+  meta (`graph_commit`, `graph_db`). The registry feeds both the fingerprint
+  registry and the edge-snapshot registry, so `suspect` (§12.4) fires for real
+  on call-neighbourhood drift.
 - **Schema**: `meta` (schema_version, base_path, repo_path, base_head,
-  built_at), `lineages` (status-tuple columns), `versions` (refuted flag +
+  graph_commit, graph_db, built_at), `lineages` (status-tuple columns),
+  `versions` (refuted flag +
   summary/statement per claim version), `anchors` (provider/identity/
   fingerprint per version), FTS5 virtual table `search` (summary + statement;
   unicode61 tokenizer → case/accent-insensitive; lineage/version unindexed).
   Tombstoned lineages (and tombstoned event ids) are excluded.
-- **Rebuild trigger awareness**: the build stores the base's git HEAD; 
-  `index_stale()` compares it to the current HEAD and `search` prints
-  `W-IDX-STALE` when they differ (statuses may be outdated — rebuild).
-- **CLI**: `masora index <base-dir> [--repo <path>]` prints counts by status;
+- **Rebuild trigger awareness**: the build stores the base's git HEAD plus
+  the code state it fingerprinted (`repo_head`, `graph_commit` in meta);
+  `index_stale()` compares all three at search time — base HEAD, the
+  `--repo` HEAD and the discovered graph store's indexed commit (unknown
+  sides skipped, pre-provider index rows never warn) — and `search` prints
+  `W-IDX-STALE` when any drifted (statuses may be outdated — rebuild).
+- **CLI**: `masora index <base-dir> [--repo <path>] [--cppgraph <db>]
+  [--no-cppgraph]` prints the graph store used, counts by status;
   `masora search <base-dir> <query> [--repo <path>]` runs FTS and renders
   `lineage [resolution verification flags]` + matched versions (MCP tools come
   later). Exit codes: index 0/2 warnings/1 errors; search 0 (results or no
@@ -269,7 +297,8 @@ All listed in TODO.md — statements below are facts, not plans in code:
 
 - MCP tools (`note`, `verify`, `doubt`, `undoubt`, `refute`, `search`,
   `list_stale`) — events are written by hand/agent following FORMAT.md §5.
-- Code anchor provider via cppgraph (per-symbol definition fingerprint +
-  edge-set/neighbour-snapshot answers for the registry), credential-shaped
-  content rejection, `SessionStart` hook, injection of facts into cppgraph
-  responses.
+- Credential-shaped content rejection, `SessionStart` hook, injection of facts
+  into cppgraph responses. (The `code` anchor provider itself is built:
+  `masora/providers.py` fingerprints code anchors against a cppgraph graph
+  store for the index; the write path that records fingerprints at note/verify
+  time lands with the MCP tools.)

@@ -28,6 +28,7 @@ from .diagnostics import (
     E_IDX_WRITE,
     E_YAML,
     W_IDX_CORRUPT,
+    W_IDX_GRAPH,
     CheckFailure,
     Diag,
 )
@@ -106,6 +107,8 @@ class IndexResult:
     version_count: int = 0
     diags: list[Diag] = field(default_factory=list)
     base_head: str | None = None
+    graph_commit: str | None = None
+    graph_db: Path | None = None
 
     @property
     def lineage_count(self) -> int:
@@ -212,14 +215,23 @@ def build_index(
     fingerprints: Mapping[str, resolve.FingerprintFn | None] | None = None,
     edge_snapshots: Mapping[str, resolve.EdgeSnapshotFn | None] | None = None,
     db_path: Path | None = None,
+    cppgraph: Path | None = None,
+    no_cppgraph: bool = False,
 ) -> IndexResult:
-    """Full rebuild from the base tree; raises IndexingError on unusable inputs."""
+    """Full rebuild from the base tree; raises IndexingError on unusable inputs.
+
+    Without injected registries the defaults ship the `file` provider plus the
+    `code` provider from `masora/providers.py` (`cppgraph`: explicit graph.db
+    or None = auto-discover `<repo>/.cppgraph/*.graph.db`; `no_cppgraph`
+    forces file-only). The graph's indexed commit is exposed on the result and
+    in the index meta (MASORA_DESIGN.md §5.2).
+    """
     if not repo.is_dir():
         raise IndexingError(
             Diag("error", E_IDX_REPO, f"--repo path is not an existing directory: {repo}")
         )
-    if fingerprints is None:
-        fingerprints = {"file": file_fingerprint_provider(repo)}
+    from .providers import repo_head
+
     db = db_path if db_path is not None else index_db_path(base_dir, repo)
     check = check_base(base_dir)
     diags = list(check.diags)
@@ -228,13 +240,32 @@ def build_index(
     _report_corrupt(db, diags)
     parsed = _parse_events(base_dir, diags)
     tombstoned = _tombstone_ulids(base_dir)
-    entries = _resolve_all(
-        parsed, tombstoned, fingerprints, edge_snapshots or {}, _pending_ids(parsed, base_dir)
-    )
+    graph_commit: str | None = None
+    graph_db: Path | None = None
+    registry = None
+    if fingerprints is None:
+        from .providers import cppgraph_registry
+
+        registry = cppgraph_registry(repo, cppgraph=cppgraph, no_cppgraph=no_cppgraph)
+        if registry.available:
+            graph_commit = registry.graph_commit
+            graph_db = registry.db
+        fingerprints = {"file": file_fingerprint_provider(repo), "code": registry.fingerprints}
+        if edge_snapshots is None:
+            edge_snapshots = {"code": registry.edges}
+        if registry.reason is not None and _has_code_anchors(parsed):
+            diags.append(Diag("warning", W_IDX_GRAPH, registry.reason))
+    try:
+        entries = _resolve_all(
+            parsed, tombstoned, fingerprints, edge_snapshots or {}, _pending_ids(parsed, base_dir)
+        )
+    finally:
+        if registry is not None:
+            registry.close()
     version_count = sum(len(claims) for _, claims in entries)
     head = _base_head(base_dir)
     try:
-        _write_db(db, entries, head, base_dir, repo)
+        _write_db(db, entries, head, repo_head(repo), base_dir, repo, graph_commit, graph_db)
     except OSError as exc:
         raise IndexingError(
             Diag("error", E_IDX_WRITE, f"index location {db.parent} is not writable: {exc}")
@@ -245,6 +276,14 @@ def build_index(
         version_count=version_count,
         diags=diags,
         base_head=head,
+        graph_commit=graph_commit,
+        graph_db=graph_db,
+    )
+
+
+def _has_code_anchors(parsed: list[ParsedEvent]) -> bool:
+    return any(
+        pe.record.kind == "claim" and any(a.provider == "code" for a in pe.anchors) for pe in parsed
     )
 
 
@@ -301,25 +340,48 @@ def _open_index(db: Path) -> sqlite3.Connection:
     return conn
 
 
-def index_stale(db: Path, base_dir: Path) -> bool | None:
-    """True when the stored base HEAD differs from the current one (rebuild trigger, TODO line 46)."""
-    stored = _stored_base_head(db)
-    current = _base_head(base_dir)
-    if stored is None or current is None:
+def index_stale(db: Path, base_dir: Path, repo: Path | None = None) -> bool | None:
+    """True when the base or code state moved since the build (rebuild trigger, TODO line 46).
+
+    Compares the stored meta (`base_head`, `repo_head`, `graph_commit`) against
+    the current base HEAD, the `--repo` HEAD and the discovered graph store's
+    indexed commit. A comparison with an unknown side (pre-provider index row,
+    no `--repo`, no git HEAD, no discovered graph) is skipped; None only when
+    nothing is comparable.
+    """
+    stored = _stored_meta(db)
+    from .providers import discover_graph_db, open_graph, repo_head
+
+    checks: list[bool] = []
+    current_base = _base_head(base_dir)
+    if stored.get("base_head") and current_base:
+        checks.append(stored["base_head"] != current_base)
+    if repo is not None:
+        current_repo = repo_head(repo)
+        if stored.get("repo_head") and current_repo:
+            checks.append(stored["repo_head"] != current_repo)
+        graph_db = discover_graph_db(repo)
+        if graph_db is not None:
+            handle = open_graph(graph_db)
+            if handle is not None:
+                current_graph = handle.source_commit
+                handle.conn.close()
+                if "graph_commit" in stored and current_graph:
+                    checks.append(stored["graph_commit"] != current_graph)
+    if not checks:
         return None
-    return stored != current
+    return any(checks)
 
 
-def _stored_base_head(db: Path) -> str | None:
+def _stored_meta(db: Path) -> dict[str, str]:
     try:
         conn = sqlite3.connect(f"file:{quote(str(db))}?mode=ro", uri=True)
         try:
-            row = conn.execute("SELECT value FROM meta WHERE key = 'base_head'").fetchone()
+            return dict(conn.execute("SELECT key, value FROM meta").fetchall())
         finally:
             conn.close()
     except sqlite3.Error:
-        return None
-    return row[0] or None if row else None
+        return {}
 
 
 def _report_corrupt(db: Path, diags: list[Diag]) -> None:
@@ -493,8 +555,11 @@ def _write_db(
     db: Path,
     entries: tuple[tuple[resolve.LineageStatus, list[ParsedEvent]], ...],
     head: str | None,
+    repo_head: str | None,
     base_dir: Path,
     repo: Path,
+    graph_commit: str | None = None,
+    graph_db: Path | None = None,
 ) -> None:
     db.parent.mkdir(parents=True, exist_ok=True)
     tmp = db.with_name(db.name + ".building")
@@ -547,6 +612,9 @@ def _write_db(
                 ("base_path", str(base_dir.resolve())),
                 ("repo_path", str(repo.resolve())),
                 ("base_head", head or ""),
+                ("repo_head", repo_head or ""),
+                ("graph_commit", graph_commit or ""),
+                ("graph_db", str(graph_db) if graph_db else ""),
                 ("built_at", datetime.now(UTC).replace(microsecond=0).isoformat()),
             ],
         )

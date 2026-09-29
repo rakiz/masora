@@ -11,12 +11,16 @@ import pytest
 from helpers import (
     FP,
     IDENT_MAIN,
+    OMIT,
+    SHA,
     ULID_L1,
     ULID_V1A,
     ULID_V2A,
+    anchor,
     make_claim,
     make_verify,
     write_event,
+    write_graph_db,
 )
 
 from masora.cli import main
@@ -31,6 +35,7 @@ from masora.index import (
     index_stale,
     search_index,
 )
+from masora.providers import cppgraph_registry
 from masora.resolve import AnchorData, VersionData, resolve_lineage
 from masora.sync import git_env
 
@@ -398,3 +403,276 @@ def test_file_provider_resolution_roundtrip(tmp_path):
 
 def test_indexes_root_under_masora_home(home):
     assert indexes_root() == home / "indexes"
+
+
+SYM_A = "scip-clang cxx . . mongo/Engine#start()."
+SYM_B = "scip-clang cxx . . mongo/Engine#stop()."
+SYM_C = "scip-clang cxx . . mongo/Util#tick()."
+
+CPP_SOURCE_V1 = """namespace mongo {
+void Engine::start() {
+    // bring-up order matters
+    stop();
+    tick();
+}
+void Engine::stop() {
+}
+void Util::tick() {
+}
+}
+"""
+
+CPP_SOURCE_V2 = """namespace mongo {
+void Engine::start() {
+    // bring-up order matters
+    stop();
+    tick();
+}
+void Engine::stop() {
+    tick();
+}
+void Util::tick() {
+}
+}
+"""
+
+V1_SYMBOLS = {
+    SYM_A: ("mongo/engine.cpp", 1, 4),
+    SYM_B: ("mongo/engine.cpp", 5, 6),
+    SYM_C: ("mongo/engine.cpp", 7, 8),
+}
+V2_SYMBOLS = {
+    SYM_A: ("mongo/engine.cpp", 1, 4),
+    SYM_B: ("mongo/engine.cpp", 6, 8),
+    SYM_C: ("mongo/engine.cpp", 9, 10),
+}
+
+
+def cpp_repo(tmp_path, source=CPP_SOURCE_V1):
+    repo = tmp_path / "cpprepo"
+    (repo / "mongo").mkdir(parents=True)
+    (repo / "mongo" / "engine.cpp").write_text(source, encoding="utf-8")
+    git(repo, "init", "-b", "main")
+    git(repo, "config", "user.name", "Masora Test")
+    git(repo, "config", "user.email", "masora@example.invalid")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-m", "src")
+    return repo, git(repo, "rev-parse", "HEAD")
+
+
+def write_cppgraph(repo, head, symbols, calls):
+    return write_graph_db(
+        repo / ".cppgraph" / f"{repo.name}.graph.db", commit=head, symbols=symbols, calls=calls
+    )
+
+
+def code_anchor(repo, identity=SYM_A):
+    registry = cppgraph_registry(repo)
+    result = anchor(
+        identity=identity,
+        fingerprint=registry.fingerprints("code", identity),
+        snapshot=registry.edges("code", identity),
+    )
+    registry.close()
+    return result
+
+
+def test_code_graph_missing_is_silent_unknown(base, repo, home):
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    result = build_index(base, repo)
+    assert result.exit_code() == 0
+    assert not result.warnings
+    assert db_rows(result.db_path, "SELECT resolution FROM lineages") == [("unknown",)]
+
+
+def test_code_anchor_resolves_current_with_graph_store(base, home, tmp_path):
+    repo, head = cpp_repo(tmp_path)
+    write_cppgraph(repo, head, V1_SYMBOLS, [(SYM_A, SYM_B), (SYM_A, SYM_C)])
+    snap = code_anchor(repo)
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, anchors=[snap]))
+    write_event(
+        base,
+        VERIFY_REL,
+        make_verify(ULID_V1A, ULID_L1, ULID_L1, snapshots={SYM_A: snap["snapshot"]}),
+    )
+    result = build_index(base, repo)
+    assert result.exit_code() == 0
+    assert result.graph_commit == head
+    assert db_rows(result.db_path, "SELECT resolution, unknown, suspect FROM lineages") == [
+        ("current", 0, 0)
+    ]
+    assert db_rows(result.db_path, "SELECT value FROM meta WHERE key = 'graph_commit'") == [(head,)]
+
+
+def test_code_graph_behind_head_reports_unknown_with_warning(base, home, tmp_path):
+    repo, head = cpp_repo(tmp_path)
+    write_cppgraph(repo, head, V1_SYMBOLS, [(SYM_A, SYM_B), (SYM_A, SYM_C)])
+    snap = code_anchor(repo)
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, anchors=[snap]))
+    write_event(
+        base,
+        VERIFY_REL,
+        make_verify(ULID_V1A, ULID_L1, ULID_L1, snapshots={SYM_A: snap["snapshot"]}),
+    )
+    git(repo, "commit", "--allow-empty", "-m", "later")
+    result = build_index(base, repo)
+    assert result.exit_code() == 2
+    assert [d.code for d in result.warnings] == ["W-IDX-GRAPH"]
+    assert db_rows(result.db_path, "SELECT resolution, unknown FROM lineages") == [("unknown", 1)]
+
+
+def test_code_graph_warning_suppressed_without_code_anchors(base, home, tmp_path):
+    repo, _head = cpp_repo(tmp_path)
+    write_cppgraph(repo, SHA, V1_SYMBOLS, [(SYM_A, SYM_B), (SYM_A, SYM_C)])
+    write_event(
+        base,
+        CLAIM_REL,
+        make_claim(ULID_L1, anchors=OMIT, unanchored=True, unanchored_reason="No symbol applies"),
+    )
+    result = build_index(base, repo)
+    assert result.exit_code() == 0
+    assert result.warnings == []
+    (repo / ".cppgraph" / "garbage.graph.db").write_bytes(b"not sqlite" * 64)
+    result = build_index(base, repo)
+    assert result.exit_code() == 0
+    assert result.warnings == []
+    assert db_rows(result.db_path, "SELECT resolution FROM lineages") == [("current",)]
+
+
+def test_suspect_fires_on_neighbour_drift(base, home, tmp_path):
+    repo, head = cpp_repo(tmp_path)
+    write_cppgraph(repo, head, V1_SYMBOLS, [(SYM_A, SYM_B), (SYM_A, SYM_C)])
+    snap = code_anchor(repo)
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, anchors=[snap]))
+    write_event(
+        base,
+        VERIFY_REL,
+        make_verify(ULID_V1A, ULID_L1, ULID_L1, snapshots={SYM_A: snap["snapshot"]}),
+    )
+    first = build_index(base, repo)
+    assert first.statuses[0].suspect is False
+    (repo / "mongo" / "engine.cpp").write_text(CPP_SOURCE_V2, encoding="utf-8")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-m", "stop() now calls tick()")
+    write_cppgraph(
+        repo,
+        git(repo, "rev-parse", "HEAD"),
+        V2_SYMBOLS,
+        [(SYM_A, SYM_B), (SYM_A, SYM_C), (SYM_B, SYM_C)],
+    )
+    result = build_index(base, repo)
+    status = result.statuses[0]
+    assert status.resolution == "current"
+    assert status.suspect is True
+
+
+def test_suspect_fires_on_own_edge_drift(base, home, tmp_path):
+    repo, head = cpp_repo(tmp_path)
+    write_cppgraph(repo, head, V1_SYMBOLS, [(SYM_A, SYM_B), (SYM_A, SYM_C)])
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, anchors=[code_anchor(repo)]))
+    assert build_index(base, repo).statuses[0].suspect is False
+    write_cppgraph(repo, head, V1_SYMBOLS, [(SYM_A, SYM_B)])
+    result = build_index(base, repo)
+    assert result.statuses[0].resolution == "current"
+    assert result.statuses[0].suspect is True
+
+
+def test_cli_index_graph_line_and_flags(base, home, tmp_path, capsys):
+    repo, head = cpp_repo(tmp_path)
+    graph_db = write_cppgraph(repo, head, V1_SYMBOLS, [(SYM_A, SYM_B), (SYM_A, SYM_C)])
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, anchors=[code_anchor(repo)]))
+    assert main(["index", str(base), "--repo", str(repo)]) == 0
+    out = capsys.readouterr().out
+    assert f"graph: {graph_db} (commit {head[:12]})" in out
+    assert "status counts: current=1" in out
+    assert main(["index", str(base), "--repo", str(repo), "--no-cppgraph"]) == 0
+    out = capsys.readouterr().out
+    assert "graph: none — code anchors report unknown" in out
+    assert "status counts: current=0 stale=0 restored=0 none=0 unknown=1" in out
+    explicit = tmp_path / "elsewhere"
+    explicit.mkdir()
+    explicit_db = write_graph_db(
+        explicit / "explicit.graph.db", commit=head, symbols=V1_SYMBOLS, calls=[(SYM_A, SYM_B)]
+    )
+    assert main(["index", str(base), "--repo", str(repo), "--cppgraph", str(explicit_db)]) == 0
+    assert str(explicit_db) in capsys.readouterr().out
+
+
+def test_cli_index_graph_behind_head_warns(base, home, tmp_path, capsys):
+    repo, head = cpp_repo(tmp_path)
+    write_cppgraph(repo, head, V1_SYMBOLS, [(SYM_A, SYM_B), (SYM_A, SYM_C)])
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, anchors=[code_anchor(repo)]))
+    git(repo, "commit", "--allow-empty", "-m", "later")
+    code = main(["index", str(base), "--repo", str(repo)])
+    out = capsys.readouterr().out
+    assert code == 2
+    assert "W-IDX-GRAPH" in out
+    assert "re-index with cppgraph" in out
+
+
+def test_repo_head_drift_warns_on_search(base, home, tmp_path, capsys):
+    repo, head = cpp_repo(tmp_path)
+    write_cppgraph(repo, head, V1_SYMBOLS, [(SYM_A, SYM_B), (SYM_A, SYM_C)])
+    write_event(
+        base,
+        CLAIM_REL,
+        make_claim(ULID_L1, summary="One line summary", anchors=[code_anchor(repo)]),
+    )
+    assert build_index(base, repo).exit_code() == 0
+    git(repo, "commit", "--allow-empty", "-m", "later")
+    code = main(["search", str(base), "summary", "--repo", str(repo)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "W-IDX-STALE" in out
+    assert "base or code state moved" in out
+
+
+def test_graph_reindex_drift_warns_on_search(base, home, tmp_path, capsys):
+    repo, head = cpp_repo(tmp_path)
+    write_cppgraph(repo, head, V1_SYMBOLS, [(SYM_A, SYM_B), (SYM_A, SYM_C)])
+    write_event(
+        base,
+        CLAIM_REL,
+        make_claim(ULID_L1, summary="One line summary", anchors=[code_anchor(repo)]),
+    )
+    assert build_index(base, repo).exit_code() == 0
+    write_cppgraph(repo, SHA, V1_SYMBOLS, [(SYM_A, SYM_B), (SYM_A, SYM_C)])
+    code = main(["search", str(base), "summary", "--repo", str(repo)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "W-IDX-STALE" in out
+
+
+def test_fresh_search_warning_free(base, home, tmp_path, capsys):
+    repo, head = cpp_repo(tmp_path)
+    write_cppgraph(repo, head, V1_SYMBOLS, [(SYM_A, SYM_B), (SYM_A, SYM_C)])
+    write_event(
+        base,
+        CLAIM_REL,
+        make_claim(ULID_L1, summary="One line summary", anchors=[code_anchor(repo)]),
+    )
+    assert build_index(base, repo).exit_code() == 0
+    code = main(["search", str(base), "summary", "--repo", str(repo)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "W-IDX-STALE" not in out
+    assert "W-IDX-GRAPH" not in out
+
+
+def test_index_stale_without_repo_checks_base_only(git_base, repo, home):
+    write_event(git_base, CLAIM_REL, make_claim(ULID_L1))
+    git(git_base, "add", "-A")
+    git(git_base, "commit", "-m", "claim")
+    git(git_base, "push", "origin", "main")
+    db = index_db_path(git_base, repo)
+    result = build_index(git_base, repo)
+    assert index_stale(result.db_path, git_base, repo=None) is False
+    write_event(
+        git_base,
+        V2_REL,
+        make_claim(ULID_V2A, ULID_L1, reason="code changed", summary="Second version summary"),
+    )
+    git(git_base, "add", "-A")
+    git(git_base, "commit", "-m", "v2")
+    assert index_stale(db, git_base, repo=None) is True
+    assert db.is_file()

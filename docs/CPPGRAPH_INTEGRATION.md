@@ -44,6 +44,10 @@ Output: a single JSON document on stdout (one line, but parse it as a
 document, not as a line protocol). cppgraph should code against the shape of
 §3 only — never against Masora's SQLite schema (§7).
 
+How cppgraph detects Masora: the presence of the `masora` binary on `PATH`
+(e.g. `shutil.which`) is the only detection signal; if it is absent, cppgraph
+makes zero change (the §7 zero-change guarantee already covers this).
+
 ## 3. Output contract — version 1
 
 ```json
@@ -177,9 +181,18 @@ command handles it.
 
 ## 8. When `masora facts` ships — checklist
 
+An explicit opt-out env var, `CPPGRAPH_MASORA=0` (or `=off`), fully disables
+injection; it is checked before any spawn. The injection ships feature-flagged
+off until validated (item 1 below), so the opt-out is the user-facing off
+switch once the feature flag is turned on.
+
 1. Feature-flag the injection (default off until validated).
 2. Register the call where responses are built: after a query touches symbol
    S, spawn `masora facts --repo <root> --symbol <S>` with the §5 budget.
+   Initial injection scope is pinned to `explain`, `callers` and `callees`
+   only (single-symbol-centered responses); extending it to the other
+   symbol-bearing queries (`find`, `impact`, `references`, `path`) is a
+   deliberate later decision, not part of the first integration.
 3. Render per §6; assert the ≤ 2-facts / ≤ 60-token budget in a test.
 4. Test with (a) a repo with a configured base and a fresh index, (b) a repo
    with a stale index (`stale_warning: true`), (c) a repo with no Masora

@@ -93,7 +93,7 @@ Field semantics:
 
 | Field | Meaning |
 |---|---|
-| `contract_version` | integer `1`; bump = breaking change to this shape — cppgraph rejects unknown major versions and renders nothing |
+| `contract_version` | integer `1`; bump = breaking change to this shape — cppgraph rejects unknown major versions and renders nothing; checked as a strict integer: a JSON boolean is invalid even where the language conflates bool and int (e.g. Python `True == 1`) |
 | `repo_head` | code repo HEAD the statuses were resolved against, or `null` (not a git checkout) |
 | `graph_commit` | cppgraph-indexed commit that served the code fingerprints, or `null` (no usable graph store) |
 | `stale_warning` | `true` when the base or code state moved since the index was built (statuses may be outdated); `false` current; `null` when not comparable |
@@ -139,7 +139,9 @@ command handles it.
 - Attach at most **2 facts**, one terse line each, appended to the response of
   the symbol they anchor. Suggested budget: ≤ 60 tokens total; when more
   facts match, the truncation must be visible (e.g. `… +3 more — masora
-  search`), never silent.
+  search`), never silent. The token budget always wins over the fact count:
+  when rendering two facts would exceed it, render one fact plus the visible
+  truncation line; at least one fact renders whenever any matched.
 - A fact's status must surface **as such** — statuses are evidence labels,
   not decoration, and negative knowledge is as valuable as positive:
 
@@ -150,7 +152,7 @@ command handles it.
   | `restored` | current again because a newer version was refuted — re-verify |
   | `none` | every version refuted — **negative knowledge**: render `masora NOT: <summary> [refuted]`, never as advice |
   | `verified(<actor>)` | newest active verify's actor (`human`/`llm`) |
-  | `unverified` | no active verify |
+  | `unverified` | no active verify — renders as nothing: the absence of a verify is not evidence; `verified(<actor>)` always renders |
   | `suspect` | the displayed version's or its 1-hop neighbours' edge-set hash changed since the recorded snapshot |
   | `doubted` | an active doubt targets that verify — disputed, not provably wrong |
   | `pending` | events not yet merged (traveling through the `masora/pending` PR) |
@@ -178,6 +180,10 @@ command handles it.
   to the user.
 - **Token discipline**: ≤ 60 tokens per response, at most 2 facts, cap
   reported (§6).
+- **Malformed facts fail closed**: a document containing any shape violation
+  (non-dict fact, non-string field) is treated as unparsable, no injection at
+  all; partial delivery is deliberately wrong because silently dropping a
+  malformed fact could hide negative knowledge.
 
 ## 8. When `masora facts` ships — checklist
 

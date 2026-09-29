@@ -471,6 +471,17 @@ per-symbol hashing.
 Settled 2026-09-25 with the design owner (decisions recorded here, reflected in
 SPEC.md). Items 6 and 8 remain postponed.
 
+9. **MCP transport** — *settled 2026-09-29*: a hand-rolled minimal MCP stdio
+   server (`masora mcp`), no SDK — the zero-runtime-dependency ethos (pyyaml
+   only) outweighs SDK convenience, and the Phase-1 surface is four JSON-RPC
+   methods (initialize / notifications/initialized / tools/list / tools/call).
+   Protocol version pinned (`2025-06-18`), negotiated the standard MCP way —
+   the initialize result always carries it; tool failures
+   are `isError` results carrying diagnostic codes, never protocol crashes;
+   Phase-1 tools: `note`, `verify`, `doubt`, `undoubt`, `refute`, `search`,
+   `list_stale` (`history`/`recheck`/`unrefute` stay out — TODO "out of
+   scope").
+
 1. **v1 scope** — *settled*: both classes in v1. Semantic claims are the original
    problem (§1); they can only auto-doubt (`stale`/`suspect`), never auto-confirm
    (SPEC non-goal). The structural machinery (proof queries, replayed at verify

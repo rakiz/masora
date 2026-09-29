@@ -34,6 +34,17 @@ from .index import normalize_source
 from .sync import git_env
 
 SCHEMA_VERSION = 5
+RESOLVE_CAP = 8
+_LIKE_ESCAPES = str.maketrans({"\\": "\\\\", "%": "\\%", "_": "\\_"})
+
+
+@dataclass(frozen=True)
+class Resolution:
+    """`resolve(ref)` outcome (MASORA_DESIGN.md §11): resolved | ambiguous | not_found."""
+
+    status: str
+    identity: str | None = None
+    candidates: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -68,6 +79,17 @@ class CppgraphRegistry:
     @property
     def available(self) -> bool:
         return self.fingerprints is not None
+
+    def resolve(self, ref: str) -> Resolution | None:
+        """§11 `resolve(ref)`: exact SCIP symbol match, else case-insensitive substring.
+
+        None when the registry is unavailable; `not_found` when no symbol
+        matches; `ambiguous` with the candidate exact identities when several
+        do (FORMAT.md §6: the note writes nothing and re-invokes with one).
+        """
+        if self._handle is None:
+            return None
+        return resolve_identity(self._handle, ref)
 
     def close(self) -> None:
         if self._handle is not None:
@@ -195,6 +217,31 @@ def cppgraph_registry(
         return edge_snapshot_of(handle, identity)
 
     return CppgraphRegistry(fingerprint, edge_snapshot, db, commit, None, handle)
+
+
+def resolve_identity(handle: GraphHandle, ref: str) -> Resolution:
+    """Symbol resolution over the graph store (MASORA_DESIGN.md §11 `resolve`).
+
+    Exact `symbols.symbol` match first; otherwise a case-insensitive substring
+    search (LIKE wildcards escaped), deterministic by symbol order: a single
+    candidate resolves, several are ambiguous (candidates capped at
+    RESOLVE_CAP), none is not_found.
+    """
+    row = handle.conn.execute("SELECT symbol FROM symbols WHERE symbol = ?", (ref,)).fetchone()
+    if row is not None:
+        return Resolution("resolved", row[0])
+    pattern = f"%{ref.translate(_LIKE_ESCAPES)}%"
+    rows = handle.conn.execute(
+        "SELECT symbol FROM symbols WHERE symbol LIKE ? ESCAPE '\\' ORDER BY symbol LIMIT ?",
+        (pattern, RESOLVE_CAP + 1),
+    ).fetchall()
+    if not rows:
+        return Resolution("not_found")
+    if len(rows) > RESOLVE_CAP:
+        return Resolution("ambiguous", candidates=tuple(r[0] for r in rows[:RESOLVE_CAP]))
+    if len(rows) == 1:
+        return Resolution("resolved", rows[0][0])
+    return Resolution("ambiguous", candidates=tuple(r[0] for r in rows))
 
 
 def definition_fingerprint(handle: GraphHandle, root: Path, identity: str) -> str | None:

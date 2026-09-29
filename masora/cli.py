@@ -11,6 +11,8 @@ from .checker import check_base
 from .diagnostics import E_IDX_QUERY, W_IDX_STALE, Diag
 from .gc import run as run_gc
 from .index import IndexingError, build_index, index_db_path, index_stale, search_index
+from .mcp import PROTOCOL_VERSION
+from .mcp import serve as run_mcp
 from .setup import run as run_setup
 from .sync import run as run_sync
 
@@ -115,6 +117,14 @@ def main(argv: list[str] | None = None) -> int:
         default=Path("."),
         help="path to the code repo the index was built for (default: current directory)",
     )
+    sub.add_parser(
+        "mcp",
+        help="run the MCP stdio server (MASORA_DESIGN.md §10.4)",
+        description="Hand-rolled minimal MCP server over stdio: newline-delimited JSON-RPC 2.0,"
+        f" protocol version {PROTOCOL_VERSION} (negotiated: the result always carries it), tools only — note, verify,"
+        " doubt, undoubt, refute, search, list_stale. Responses go to stdout; protocol anomalies"
+        " to stderr (W-MCP-PROTO); the loop survives malformed input.",
+    )
     args = parser.parse_args(argv)
 
     if args.command == "check":
@@ -131,6 +141,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_index(args.base_dir, args.repo, args.cppgraph, args.no_cppgraph)
     if args.command == "search":
         return _run_search(args.base_dir, args.query, args.repo)
+    if args.command == "mcp":
+        return run_mcp()
     return 2
 
 

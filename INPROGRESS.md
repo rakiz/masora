@@ -20,8 +20,13 @@ resolution + FTS (masora/resolve.py, masora/index.py — full-rebuild DB at
 `code` anchor provider over a cppgraph graph store (masora/providers.py:
 definition + edge-set fingerprints, neighbour snapshots, graph-commit
 currency policy; `--cppgraph`/`--no-cppgraph` on the index CLI; W-IDX-GRAPH;
-28 new tests — 344 total green). Next task: MCP tools (`note`,
-`verify`, `doubt`, `undoubt`, `refute`, `search`, `list_stale`).
+28 new tests — 344 total green), and the MCP server + write path
+(masora/mcp.py: hand-rolled stdio JSON-RPC 2.0, protocol pinned 2025-06-18
+and negotiated the standard way; masora/write.py: shared write path, E-MCP-*
+codes; 39 new tests — 383 total green), and the cppgraph injection handoff
+contract (docs/CPPGRAPH_INTEGRATION.md — `masora facts --repo [--symbol]`
+pinned, delivery pending). Next task: write-path credential
+rejection ("Write path rejects credential-shaped content").
 
 ## Steps
 
@@ -148,6 +153,42 @@ tests + 26 index tests, 313 total green.
   drift (stored repo_head/graph_commit vs current --repo HEAD and discovered
   graph source_commit at search time, 4 tests) — 344 total green. W-IDX-GRAPH
   documented in docs/TROUBLESHOOTING.md in the same change.
+- [x] MCP tools: `note`, `verify`, `doubt`, `undoubt`, `refute`, `search`,
+  `list_stale`. Done: `masora/mcp.py` (hand-rolled minimal MCP stdio server —
+  newline-delimited JSON-RPC 2.0, protocol version pinned `2025-06-18` and
+  negotiated the standard MCP way (the initialize result always carries it;
+  malformed initialize params are -32602), methods initialize /
+  notifications/initialized / tools/list / tools/call only, JSON-RPC error
+  mapping -32700/-32600/-32601/-32602/-32603, parse-error resilience:
+  malformed lines never stop the loop, reported via W-MCP-PROTO on stderr)
+  and `masora/write.py` (the ONE event-writing path for all five write tools:
+  base resolution — explicit `base` parameter first, then mapping match on
+  the normalized `origin` remote →
+  `default_base` → `E-MCP-NO-BASE`, never guessed —,
+  write-time anchor resolution (exact SCIP match, else case-insensitive
+  substring; ambiguous/not_found → `E-MCP-ANCHOR`, nothing written, FORMAT
+  §6), write-time fingerprints + snapshots via `masora/providers.py` (§11
+  `resolve` added there), `E-MCP-GRAPH` when the graph is behind HEAD or
+  absent (§5.2, message: re-index), canonical block-style emission with
+  JSON-style control-char escaping (multi-line statements round-trip) +
+  pre-validation behind a shared `check_base` pre-check (nothing is written
+  onto an invalid base) + post-write `check_base` with unlink-on-failure (a
+  tool never returns success on an invalid tree); timestamps always carry
+  `graph_commit` (explicit null without a graph, FORMAT §4); lineage ids
+  (including the founding claim's, whose id equals the lineage) ride the
+  fold to the lineage's DISPLAYED version for verify/refute and to the
+  active verify for doubt; verify re-fingerprints the immutable set with
+  `E-MCP-DRIFT` refusal (FORMAT §7.7 → new claim version, MASORA_DESIGN
+  §6.3); undoubt targets the doubt's ULID only;
+  `search`/`list_stale` resolve the base the
+  same way, auto-build a missing index and surface `W-IDX-STALE` in the
+  result text without rebuilding (the SessionStart hook owns freshness)).
+  CLI `masora mcp` (stdio server). New codes E-MCP-ARGS, E-MCP-NO-BASE,
+  E-MCP-GRAPH, E-MCP-UNKNOWN-ID, E-MCP-ANCHOR, E-MCP-DRIFT, W-MCP-PROTO
+  documented in docs/TROUBLESHOOTING.md in the same change; ARCHITECTURE.md
+  MCP section, README quick-start line, MASORA_DESIGN §12.9 entry. 39 MCP
+  tests (subprocess-driven server, hermetic MASORA_HOME, graph fixture,
+  rapid-consecutive-note ULID monotonicity), 383 total green.
 
 (Remainder of the phase: see TODO.md.)
 

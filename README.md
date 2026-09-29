@@ -38,9 +38,10 @@ leaves the code untouched.
    and opens or updates the single PR.
 4. **Merge** — a human reviews the PR (the recorded evidence is in the diff)
    and merges into `main`.
-5. **Recall** — later sessions query the base. The SQLite index and MCP tools
-   (`note`, `search`, …) are not built yet — see TODO.md; today the base is
-   read as plain files.
+5. **Recall** — later sessions query the base: `masora mcp` serves the write
+   and recall tools (`note`, `verify`, `doubt`, `undoubt`, `refute`, `search`,
+   `list_stale`) over MCP stdio, and `masora search <base-dir> <query>` reads
+   the index from the CLI.
 
 ## Quick start
 
@@ -51,6 +52,7 @@ uv tool install .        # or: pip install .
 masora setup --base <url>[#<path>]  # clone a base + write ~/.config/masora/config.toml from its base.toml
 masora check <base-dir>  # validate a base (exit 0/1/2)
 masora sync              # publish pending events: one branch + one PR
+masora mcp               # run the MCP stdio server — register it in your MCP client's config
 ```
 
 `sync` variants:

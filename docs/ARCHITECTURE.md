@@ -291,14 +291,62 @@ and adds FTS5 search. Section references are to MASORA_DESIGN.md.
    (`$MASORA_HOME/config.toml`, `$MASORA_HOME/bases/<name>`); unset, the
    default paths above apply.
 
+## MCP server and write path (`masora/mcp.py`, `masora/write.py`, MASORA_DESIGN.md §10.4, §13)
+
+`masora mcp` runs a **hand-rolled minimal MCP server** over stdio — no SDK, no
+new runtime dependency (MASORA_DESIGN.md §12.9). Transport: newline-delimited
+JSON-RPC 2.0 (one message per line in, one response line out), stdin/stdout,
+nothing else on the stream; protocol anomalies go to stderr as `W-MCP-PROTO`.
+Protocol version is pinned to `2025-06-18`, negotiated the standard MCP way:
+the `initialize` result always carries it (a client advertising another
+version decides whether to keep talking to it); malformed `initialize` params
+are `-32602`.
+The method surface is exactly `initialize`, `notifications/initialized`,
+`tools/list` and `tools/call` — no resources/prompts/sampling. Error mapping:
+malformed JSON → `-32700` (id `null`) and the loop **continues**; a parseable
+non-request → `-32600`; unknown method → `-32601`; unknown tool / bad
+`arguments` → `-32602`; an unexpected tool crash → `-32603` (the server
+survives). Tool-level failures are MCP tool results with `isError: true` and
+the diagnostic code in the text — never protocol crashes.
+
+Tools (all results are terse deterministic text; the client passes repo
+context per call — the server does no repo discovery):
+
+| Tool | Params | Behaviour |
+|---|---|---|
+| `note` | `statement`, `summary`, `repo_root`; optional `base`, `anchors[]`, `unanchored`, `unanchored_reason`, `class`, `proof_query`, `source`, `model`, `cost_tokens` | Writes the lineage's v1 claim. Anchor refs resolve via the graph provider (exact SCIP match, else case-insensitive substring; `ambiguous`/`not_found` → `E-MCP-ANCHOR`, nothing written — FORMAT.md §6). Fingerprints + snapshots are recorded at write time (`providers.py`); a graph behind HEAD or absent → `E-MCP-GRAPH` (§5.2). Without anchors only an explicit `unanchored: true` + reason writes. |
+| `verify` | `id`, `evidence[]`, `repo_root`; optional `base`, `actor`, `model` | Targets the claim version (a lineage id rides the fold to its displayed version; unknown → `E-MCP-UNKNOWN-ID`). Re-fingerprints the claim's immutable anchor set at verify time — drift → `E-MCP-DRIFT` ("write a new claim version", §6.3); records fresh per-anchor snapshots and `verified_at {commit, graph_commit}`. |
+| `doubt` | `id`, `reason`, `repo_root`; optional `base`, `source`, `evidence[]`, `model` | Targets a `.verify` ULID, or a lineage → the active verify of its displayed version; none → `E-MCP-UNKNOWN-ID`. |
+| `undoubt` | same params as `doubt` | Targets the doubt event's ULID only (no lineage form). |
+| `refute` | same params as `doubt` | Targets any event ULID, or a lineage → its displayed version. |
+| `search` | `query`; optional `base`, `repo_root` | FTS over the index (auto-**built when missing**, never rebuilt when merely stale — the SessionStart hook owns freshness); `W-IDX-STALE` is surfaced in the result text; statuses rendered per lineage. |
+| `list_stale` | optional `base`, `repo_root` | Lineages whose resolution is not `current`/`none` (stale, restored, unknown), as `lineage [resolution verification flags] displayed: summary head`. |
+
+The write path (`masora/write.py`) is shared by all five write tools:
+`resolve_base()` honours an explicit `base` parameter first (a caller-provided
+base always wins), then matches the code repo's `origin` remote (normalized via
+`config.normalize_remote`) against the user config's `[[mappings]]`, then
+`default_base` — otherwise `E-MCP-NO-BASE` asks for an explicit base (§9: it
+never guesses); ULIDs come from
+`ulid.new_ulid()` (monotonic in-process); the event dict is pre-validated with
+`schema.validate_event`, emitted in the canonical block style (plain keys,
+quoted identity/hash values, JSON-style control-char escaping —
+`emit_event()`), written to
+`<YYYY-MM>/<lineage>/<id>.<kind>.md` after a shared `check_base` pre-check
+(nothing is written onto an invalid base), and followed by a full post-write
+`check_base` — a post-check failure unlinks the just-written file and reports
+the diagnostics, so a tool never returns success on an invalid tree (FORMAT.md
+§6 atomicity). Every git spawn goes through `sync.git_env()`; `MASORA_HOME`
+relocates config, bases and indexes as everywhere else.
+
 ## Not built yet
 
 All listed in TODO.md — statements below are facts, not plans in code:
 
-- MCP tools (`note`, `verify`, `doubt`, `undoubt`, `refute`, `search`,
-  `list_stale`) — events are written by hand/agent following FORMAT.md §5.
-- Credential-shaped content rejection, `SessionStart` hook, injection of facts
-  into cppgraph responses. (The `code` anchor provider itself is built:
-  `masora/providers.py` fingerprints code anchors against a cppgraph graph
-  store for the index; the write path that records fingerprints at note/verify
-  time lands with the MCP tools.)
+- Credential-shaped content rejection at `note`, `SessionStart` hook,
+  unrefute/recheck/history MCP tools; injection of facts into cppgraph
+  responses — its wire contract is pinned in
+  [docs/CPPGRAPH_INTEGRATION.md](CPPGRAPH_INTEGRATION.md) and the Masora-side
+  `masora facts --repo [--symbol]` command is delivery pending (TODO.md). (The
+  MCP write path itself is built: `masora/mcp.py` + `masora/write.py` — the
+  code anchor snapshots are recorded at note/verify time.)

@@ -23,9 +23,11 @@ currency policy; `--cppgraph`/`--no-cppgraph` on the index CLI; W-IDX-GRAPH;
 28 new tests — 344 total green), and the MCP server + write path
 (masora/mcp.py: hand-rolled stdio JSON-RPC 2.0, protocol pinned 2025-06-18
 and negotiated the standard way; masora/write.py: shared write path, E-MCP-*
-codes; 39 new tests — 383 total green), and the cppgraph injection handoff
-contract (docs/CPPGRAPH_INTEGRATION.md — `masora facts --repo [--symbol]`
-pinned, delivery pending). Next task: write-path credential
+codes; 39 new tests — 383 total green), the cppgraph injection handoff
+contract (docs/CPPGRAPH_INTEGRATION.md), and its Masora side — `masora
+facts --repo [--symbol]` (masora/facts.py: read-only contract command,
+never builds the index; E-FACTS-NO-BASE/E-FACTS-NOINDEX; 11 new tests —
+394 total green). Next task: write-path credential
 rejection ("Write path rejects credential-shaped content").
 
 ## Steps

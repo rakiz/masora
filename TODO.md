@@ -33,7 +33,7 @@ Tasks:
 - [x] Edge-set fingerprint per symbol (hash of outgoing edges) — input to the settled `suspect` rule (§12.4).
 - [x] Neighbour snapshot (per-anchor snapshot: each anchor's own edge-set hash plus its direct neighbours, identity → edge-set hash) recorded at write time and in `.verify` events — baseline for `suspect` comparison. (Provider-side computation: `masora/providers.py` answers both for the index; the recording at write/verify time lands with the MCP tools.)
 - [ ] Injection of known facts into cppgraph responses (requires changes in the separate cppgraph repo).
-- [ ] `masora facts --repo [--symbol]`: versioned JSON contract for the cppgraph injection (docs/CPPGRAPH_INTEGRATION.md).
+- [x] `masora facts --repo [--symbol]`: versioned JSON contract for the cppgraph injection (docs/CPPGRAPH_INTEGRATION.md). → `masora/facts.py` (strictly read-only: base resolved via the config mappings/default_base for `--repo`, existing index read and never built — missing/unusable = exit 1 with `E-FACTS-NOINDEX`/`E-IDX-CORRUPT` on stderr, nothing on stdout; one compact JSON document `{contract_version, repo_head, graph_commit, stale_warning, facts[]}`; `--symbol` matches the displayed version's anchors verbatim, or the newest version for `resolution: none`/founderless lineages where `displayed` is null; `stale_warning` = the `index_stale()` three-axis drift comparison, `null` when nothing is comparable; the two warning classes stay in-band and never error).
 - [ ] Fallback without cppgraph: exercise the base via CLI/MCP `search` by symbol.
 - [ ] Injections emitted as evidence envelopes (validity, anchor, provenance).
 - [ ] `SessionStart` hook: pull + stale summary.

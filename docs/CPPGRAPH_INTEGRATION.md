@@ -2,8 +2,8 @@
 
 Handoff document for implementing Masora fact injection inside **cppgraph**.
 Written from the Masora side; everything cppgraph codes against is pinned
-here. Status: the contract is final, the Masora-side command
-(`masora facts`) is **delivery pending** — tracked in Masora's TODO.md.
+here. Status: the contract is final and implemented — `masora facts` ships
+with Masora; the cppgraph side (registering the call, §8) is pending.
 
 ## 1. Context
 
@@ -41,9 +41,8 @@ masora facts --repo <path> [--symbol <scip-string>]
   of the matching base(s) are returned.
 
 Output: a single JSON document on stdout (one line, but parse it as a
-document, not as a line protocol). The command is Masora-side and **delivery
-pending**; cppgraph should code against the shape of §3 only — never against
-Masora's SQLite schema (§7).
+document, not as a line protocol). cppgraph should code against the shape of
+§3 only — never against Masora's SQLite schema (§7).
 
 ## 3. Output contract — version 1
 
@@ -123,10 +122,11 @@ command handles it.
      `unknown` flag (Masora's `W-IDX-GRAPH` semantics: an anchor provider was
      unavailable, so `unknown` shadows the resolution instead of a guessed
      status). The shape does not change.
-- **non-zero (1)** — hard failure: no base resolved, unreadable config, or an
-  unusable index that could not be rebuilt. stdout carries no contract
-  document. **Any non-zero exit — including 127 (Masora not installed) — and
-  any timeout mean: render nothing.**
+- **non-zero (1)** — hard failure: no base resolved, unreadable config, or a
+  missing/unusable index (the command is read-only: it never builds the
+  index — build it with `masora index <base-dir> --repo <path>`). stdout
+  carries no contract document. **Any non-zero exit — including 127 (Masora
+  not installed) — and any timeout mean: render nothing.**
 - Budget: run with a wall-clock timeout of **2 s**; on timeout, kill and skip
   silently. The command is read-only and never blocks on git network access.
 

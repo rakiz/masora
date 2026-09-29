@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .checker import check_base
 from .diagnostics import E_IDX_QUERY, W_IDX_STALE, Diag
+from .facts import run as run_facts
 from .gc import run as run_gc
 from .index import IndexingError, build_index, index_db_path, index_stale, search_index
 from .mcp import PROTOCOL_VERSION
@@ -125,6 +126,29 @@ def main(argv: list[str] | None = None) -> int:
         " doubt, undoubt, refute, search, list_stale. Responses go to stdout; protocol anomalies"
         " to stderr (W-MCP-PROTO); the loop survives malformed input.",
     )
+    facts = sub.add_parser(
+        "facts",
+        help="emit the cppgraph injection facts document (docs/CPPGRAPH_INTEGRATION.md)",
+        description="Read-only: resolves the base from the user config for --repo (mappings on the"
+        " normalized origin remote, then default_base) and prints ONE compact JSON document per"
+        " docs/CPPGRAPH_INTEGRATION.md §3. Exit 0 with facts — possibly empty — the two warning"
+        " classes in-band (stale_warning, per-lineage unknown flags); exit 1 on hard failure"
+        " (diagnostic on stderr, nothing on stdout). Never builds the index, never touches the"
+        " network.",
+    )
+    facts.add_argument(
+        "--repo",
+        type=Path,
+        required=True,
+        help="path to the code repo checkout the facts are resolved for",
+    )
+    facts.add_argument(
+        "--symbol",
+        default=None,
+        metavar="SCIP",
+        help="exact SCIP symbol string; only lineages whose displayed version (or newest version"
+        " for resolution none) anchors on it are returned",
+    )
     args = parser.parse_args(argv)
 
     if args.command == "check":
@@ -143,6 +167,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_search(args.base_dir, args.query, args.repo)
     if args.command == "mcp":
         return run_mcp()
+    if args.command == "facts":
+        return run_facts(args.repo, symbol=args.symbol)
     return 2
 
 

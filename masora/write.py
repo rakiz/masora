@@ -76,27 +76,14 @@ def base_dir_for_name(data: dict, name: str) -> Path | None:
     return path
 
 
-def resolve_base(repo_root: Path | None, base: str | None) -> Path:
-    """Explicit base first, then mapping match on the code remote, then `default_base` (§8-§9).
+def auto_base(repo_root: Path | None) -> Path | None:
+    """Mapping match on the code remote, then `default_base` (MASORA_DESIGN.md §9).
 
-    A caller-provided base always wins; an unmatched or missing base is never
-    guessed: `E-MCP-NO-BASE` asks for an explicit base.
+    None when nothing matches; WriteError when the config is unreadable or a
+    MATCHED base's checkout is missing — matched-but-broken is never silently
+    skipped. Shared by the MCP write tools and the read-only `masora facts`.
     """
     data = load_user_config()
-    if base is not None:
-        explicit = Path(base)
-        if explicit.is_dir():
-            return explicit
-        named = base_dir_for_name(data, base)
-        if named is not None and named.is_dir():
-            return named
-        raise WriteError(
-            Diag(
-                "error",
-                E_MCP_NO_BASE,
-                f"base {base!r} is neither an existing directory nor a configured base",
-            )
-        )
     remote = origin_remote(repo_root) if repo_root is not None else None
     if remote is not None:
         mappings = data.get("mappings")
@@ -142,6 +129,32 @@ def resolve_base(repo_root: Path | None, base: str | None) -> Path:
                 str(path or config.bases_root() / default),
             )
         )
+    return None
+
+
+def resolve_base(repo_root: Path | None, base: str | None) -> Path:
+    """Explicit base first, then `auto_base` (§8-§9).
+
+    A caller-provided base always wins; an unmatched or missing base is never
+    guessed: `E-MCP-NO-BASE` asks for an explicit base.
+    """
+    if base is not None:
+        explicit = Path(base)
+        if explicit.is_dir():
+            return explicit
+        named = base_dir_for_name(load_user_config(), base)
+        if named is not None and named.is_dir():
+            return named
+        raise WriteError(
+            Diag(
+                "error",
+                E_MCP_NO_BASE,
+                f"base {base!r} is neither an existing directory nor a configured base",
+            )
+        )
+    matched = auto_base(repo_root)
+    if matched is not None:
+        return matched
     raise WriteError(
         Diag(
             "error",

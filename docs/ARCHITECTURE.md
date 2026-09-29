@@ -339,14 +339,33 @@ the diagnostics, so a tool never returns success on an invalid tree (FORMAT.md
 §6 atomicity). Every git spawn goes through `sync.git_env()`; `MASORA_HOME`
 relocates config, bases and indexes as everywhere else.
 
+## Facts command (`masora/facts.py`, docs/CPPGRAPH_INTEGRATION.md)
+
+`masora facts --repo <path> [--symbol <scip-string>]` is the Masora side of
+the cppgraph injection contract: strictly read-only (no index build, no git
+network access), it resolves the base via `write.auto_base()` (mappings on
+the normalized `origin` remote, then `default_base` — the same chain the MCP
+write tools use, minus the explicit parameter the contract forbids), reads
+the existing index and prints ONE compact JSON document (`contract_version`
+1) per the contract: `{contract_version, repo_head, graph_commit,
+stale_warning, facts[]}`. `--symbol` filters to lineages whose **effective**
+version anchors on the exact identity — the displayed version, or the newest
+when `displayed` is null (`resolution: none` / founderless-unknown, per the
+§6 fold) — and fills `anchors_matched`. The two warning classes are in-band
+and never errors: `stale_warning` is `index_stale()`'s three-axis drift
+comparison (`true`/`false`, `null` when nothing is comparable) and provider
+unavailability shows as per-lineage `unknown` flags. Hard failures (no base
+`E-FACTS-NO-BASE`, missing index `E-FACTS-NOINDEX`, unusable index
+`E-IDX-CORRUPT`, bad `--repo` `E-IDX-REPO`) print the diagnostic on stderr
+and nothing on stdout, exit 1.
+
 ## Not built yet
 
 All listed in TODO.md — statements below are facts, not plans in code:
 
 - Credential-shaped content rejection at `note`, `SessionStart` hook,
-  unrefute/recheck/history MCP tools; injection of facts into cppgraph
-  responses — its wire contract is pinned in
-  [docs/CPPGRAPH_INTEGRATION.md](CPPGRAPH_INTEGRATION.md) and the Masora-side
-  `masora facts --repo [--symbol]` command is delivery pending (TODO.md). (The
+  unrefute/recheck/history MCP tools; the cppgraph side of the injection
+  (its wire contract is implemented: `masora facts`, pinned in
+  [docs/CPPGRAPH_INTEGRATION.md](CPPGRAPH_INTEGRATION.md)). (The
   MCP write path itself is built: `masora/mcp.py` + `masora/write.py` — the
   code anchor snapshots are recorded at note/verify time.)

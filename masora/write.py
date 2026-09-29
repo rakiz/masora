@@ -3,7 +3,9 @@
 One pipeline for all write tools (FORMAT.md §4-§6): resolve the base per
 MASORA_DESIGN.md §8-§9 (mapping on the normalized code remote, else
 `default_base`, else explicit), emit the event file in the canonical block
-style of FORMAT.md §4, pre-validate with `schema.validate_event`, write, then
+style of FORMAT.md §4, pre-validate with `schema.validate_event`, refuse
+high-confidence credential shapes in the content fields (E-WRITE-SECRET —
+secrets belong in a secret manager, never in a Masora base), write, then
 re-run `check_base` — a tool that returns success on an invalid tree is
 forbidden, so a failed post-check unlinks the just-written file (FORMAT.md §6:
 nothing is written).
@@ -12,6 +14,7 @@ nothing is written).
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import tomllib
 from datetime import UTC, datetime
@@ -19,7 +22,7 @@ from pathlib import Path, PurePosixPath
 
 from . import config
 from .checker import check_base
-from .diagnostics import E_MCP_NO_BASE, CheckFailure, Diag
+from .diagnostics import E_MCP_NO_BASE, E_WRITE_SECRET, CheckFailure, Diag
 from .index import ParsedEvent, _parse_events
 from .schema import validate_event
 from .sync import git_env
@@ -264,8 +267,89 @@ def precheck(base_dir: Path) -> None:
         raise WriteError(*result.errors)
 
 
+# Credential-shaped content guard (HIGH CONFIDENCE only — a claim legitimately
+# discussing passwords must pass). Deterministic regexes, no dependency.
+_PEM_PRIVATE_KEY_RE = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
+_AWS_ACCESS_KEY_RE = re.compile(r"\bAKIA[0-9A-Z]{16}\b")
+_TOKEN_PREFIX_RES = (
+    ("ghp_", re.compile(r"\bghp_[A-Za-z0-9]{20,}\b")),
+    ("github_pat_", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b")),
+    ("sk-", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b")),
+    ("xox", re.compile(r"\bxox[abp]-[A-Za-z0-9-]{10,}\b")),
+)
+# Assignment to a secret name followed by a long value mixing at least three
+# character classes (lower/upper/digit/punct) — a bare 20-char lowercase word
+# or a code reference does not qualify.
+_ASSIGNED_SECRET_RE = re.compile(
+    r"\b(password|passwd|secret|token|api[_-]?key|access[_-]?token)\s*[:=]\s*['\"]?([^\s'\"]{20,})",
+    re.IGNORECASE,
+)
+_SECRET_FIELD_NAMES = ("summary", "statement", "reason")
+
+
+def _high_entropy(value: str) -> bool:
+    classes = sum(
+        (
+            any(c.islower() for c in value),
+            any(c.isupper() for c in value),
+            any(c.isdigit() for c in value),
+            any(not c.isalnum() for c in value),
+        )
+    )
+    return len(value) >= 20 and classes >= 3
+
+
+def _secret_scan_texts(data: dict) -> list[tuple[str, str]]:
+    """(field, text) pairs the guard scans: summary, statement, reason, evidence."""
+    texts = [(name, data[name]) for name in _SECRET_FIELD_NAMES if isinstance(data.get(name), str)]
+    evidence = data.get("evidence")
+    if isinstance(evidence, list):
+        texts.extend(("evidence", item) for item in evidence if isinstance(item, str))
+    return texts
+
+
+def scan_for_secrets(data: dict) -> str | None:
+    """Return a refusal message when high-confidence credential shapes appear.
+
+    Families: PEM private-key blocks, AWS access key ids, known token prefixes
+    (`ghp_`, `github_pat_`, `sk-`, `xoxb/bp/app`), and assignment to a secret
+    name followed by a 20+ char mixed-class value. Discussing passwords —
+    naming fields, short or single-class values — passes.
+    """
+    for field, text in _secret_scan_texts(data):
+        if _PEM_PRIVATE_KEY_RE.search(text):
+            return f"PEM private key block in {field!r}"
+        if _AWS_ACCESS_KEY_RE.search(text):
+            return f"AWS access key id in {field!r}"
+        for prefix, pattern in _TOKEN_PREFIX_RES:
+            if pattern.search(text):
+                return f"token with known prefix {prefix!r} in {field!r}"
+        for match in _ASSIGNED_SECRET_RE.finditer(text):
+            if _high_entropy(match.group(2)):
+                return (
+                    f"assigned high-entropy value to a secret name in {field!r}"
+                    f" ({match.group(1).lower()}=…)"
+                )
+    return None
+
+
+def _scan_secrets(data: dict, path: str) -> None:
+    """Raise as a CheckFailure so the write path refuses before touching disk."""
+    message = scan_for_secrets(data)
+    if message is not None:
+        raise CheckFailure(
+            Diag(
+                "error",
+                E_WRITE_SECRET,
+                f"credential-shaped content refused: {message} (nothing is written,"
+                " FORMAT.md §6 — store secrets in a secret manager, not a Masora base)",
+                path,
+            )
+        )
+
+
 def write_and_check(base_dir: Path, data: dict) -> tuple[str, list[Diag]]:
-    """Pre-check, pre-validate, write, re-validate; unlink on post-check failure.
+    """Pre-check, pre-validate, secret-scan, write, re-validate; unlink on post-check failure.
 
     Returns the base-relative path and the checker warnings (they ride along).
     """
@@ -273,6 +357,7 @@ def write_and_check(base_dir: Path, data: dict) -> tuple[str, list[Diag]]:
     rel = event_relpath(data)
     try:
         validate_event(data, data["kind"], rel)
+        _scan_secrets(data, rel)
     except CheckFailure as exc:
         raise WriteError(exc.diag) from exc
     path = base_dir / rel

@@ -521,6 +521,40 @@ def test_code_graph_behind_head_reports_unknown_with_warning(base, home, tmp_pat
     assert db_rows(result.db_path, "SELECT resolution, unknown FROM lineages") == [("unknown", 1)]
 
 
+@pytest.mark.parametrize("seen", ["6", "4"])
+def test_code_graph_schema_version_mismatch_unknown_with_warning(base, home, tmp_path, seen):
+    repo, head = cpp_repo(tmp_path)
+    db = write_cppgraph(repo, head, V1_SYMBOLS, [(SYM_A, SYM_B), (SYM_A, SYM_C)])
+    snap = code_anchor(repo)
+    conn = sqlite3.connect(db)
+    conn.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'", (seen,))
+    conn.commit()
+    conn.close()
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, anchors=[snap]))
+    result = build_index(base, repo)
+    assert result.exit_code() == 2
+    (warning,) = result.warnings
+    assert warning.code == "W-IDX-GRAPH"
+    assert f"schema_version {seen}" in warning.message
+    assert db_rows(result.db_path, "SELECT resolution, unknown FROM lineages") == [("unknown", 1)]
+
+
+def test_code_graph_missing_schema_version_row_unknown_with_warning(base, home, tmp_path):
+    repo, head = cpp_repo(tmp_path)
+    db = write_cppgraph(repo, head, V1_SYMBOLS, [(SYM_A, SYM_B), (SYM_A, SYM_C)])
+    snap = code_anchor(repo)
+    conn = sqlite3.connect(db)
+    conn.execute("DELETE FROM meta WHERE key = 'schema_version'")
+    conn.commit()
+    conn.close()
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, anchors=[snap]))
+    result = build_index(base, repo)
+    (warning,) = result.warnings
+    assert warning.code == "W-IDX-GRAPH"
+    assert "no schema_version meta row" in warning.message
+    assert db_rows(result.db_path, "SELECT resolution, unknown FROM lineages") == [("unknown", 1)]
+
+
 def test_code_graph_warning_suppressed_without_code_anchors(base, home, tmp_path):
     repo, _head = cpp_repo(tmp_path)
     write_cppgraph(repo, SHA, V1_SYMBOLS, [(SYM_A, SYM_B), (SYM_A, SYM_C)])

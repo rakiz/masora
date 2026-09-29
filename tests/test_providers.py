@@ -295,7 +295,69 @@ def test_open_graph_refuses_non_integer_schema_version(tmp_path):
     conn.commit()
     conn.close()
     assert open_graph(db) is None
-    assert cppgraph_registry(repo).reason is not None
+    registry = cppgraph_registry(repo)
+    assert registry.reason is not None
+    assert "unparsable schema_version 'five'" in registry.reason
+
+
+def _set_schema_version(db: Path, value: str | None) -> None:
+    import sqlite3
+
+    conn = sqlite3.connect(db)
+    if value is None:
+        conn.execute("DELETE FROM meta WHERE key = 'schema_version'")
+    else:
+        conn.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'", (value,))
+    conn.commit()
+    conn.close()
+
+
+def test_open_graph_refuses_newer_schema_version_naming_it(tmp_path):
+    repo, head = make_repo(tmp_path)
+    db = write_current_graph(repo, head)
+    _set_schema_version(db, "6")
+    assert open_graph(db) is None
+    registry = cppgraph_registry(repo)
+    assert registry.fingerprints is None and registry.edges is None
+    assert registry.reason is not None
+    assert "schema_version 6" in registry.reason
+    assert "newer" in registry.reason
+    assert "5" in registry.reason
+    assert registry.graph_commit is None
+
+
+def test_open_graph_refuses_older_schema_version_naming_it(tmp_path):
+    repo, head = make_repo(tmp_path)
+    db = write_current_graph(repo, head)
+    _set_schema_version(db, "4")
+    assert open_graph(db) is None
+    registry = cppgraph_registry(repo)
+    assert registry.fingerprints is None
+    assert registry.reason is not None
+    assert "schema_version 4" in registry.reason
+    assert "older" in registry.reason
+
+
+def test_open_graph_refuses_missing_schema_version_row(tmp_path):
+    repo, head = make_repo(tmp_path)
+    db = write_current_graph(repo, head)
+    _set_schema_version(db, None)
+    assert open_graph(db) is None
+    registry = cppgraph_registry(repo)
+    assert registry.fingerprints is None
+    assert registry.reason is not None
+    assert "no schema_version meta row" in registry.reason
+
+
+def test_open_graph_accepts_exact_learned_schema_version(tmp_path):
+    repo, head = make_repo(tmp_path)
+    db = write_current_graph(repo, head)
+    handle = open_graph(db)
+    assert handle is not None
+    assert handle.source_commit == head
+    handle.conn.close()
+    registry = cppgraph_registry(repo)
+    assert registry.available and registry.reason is None
 
 
 def test_open_graph_reads_provenance(tmp_path):

@@ -32,8 +32,20 @@ unified-provenance format is in place (MASORA_DESIGN.md §12.10 — `source`
 verify sources, `E-PROVENANCE` diagnostic, MCP write tools sign the human
 name from the base repo's git config + effort llm-only, `masora facts`
 contract 1 exposing per-fact `source`/`name`/`effort`/`anchors`; format
-version 1; 419 tests green). Next task: the first rollout (TODO.md — the real
-base on the author's `employees/` dir + the Confluence install page). The
+version 1). Three-item hardening pass on top: the credential guard in the
+shared write path (masora/write.py: HIGH-CONFIDENCE shapes only — PEM
+private-key blocks, AWS ids, `ghp_`/`github_pat_`/`sk-`/`xox` token prefixes,
+20+ char mixed-class secret assignments — refused with `E-WRITE-SECRET`
+before anything touches disk, password discussion passes); the exact-version
+graph-store gate (masora/providers.py: ONLY schema_version 5 accepted —
+missing/unparsable/older/newer → store unavailable, `unknown` shadows,
+`W-IDX-GRAPH` names the seen version); the trust-rendering matrix pinned in
+docs/CPPGRAPH_INTEGRATION.md §6 (verify label always renders; `low-effort`
+token only for `verified(llm)` at `effort: low`, never under `verified(human)`;
+`verified(graph)` bare;
+`unverified` renders nothing); 441 tests green. Next task: the first rollout
+(TODO.md — the real base on the author's `employees/` dir + the Confluence
+install page). The
 `SessionStart`/`UserPromptSubmit` hooks belong to Phase 2 (no client before
 non-code knowledge; the graph channel is validated first).
 

@@ -109,7 +109,7 @@ Field semantics:
 
 | Field | Meaning |
 |---|---|
-| `contract_version` | integer `1`; a major-version change means an incompatible shape — cppgraph rejects unknown major versions and renders nothing; checked as a strict integer: a JSON boolean is invalid even where the language conflates bool and int (e.g. Python `True == 1`) |
+| `contract_version` | integer `1`; §3's shape IS version 1's shape — any field addition or change lands as a new major `contract_version`, and producers never enrich a shipped shape in place; a major-version change means an incompatible shape — cppgraph rejects unknown major versions and renders nothing; checked as a strict integer: a JSON boolean is invalid even where the language conflates bool and int (e.g. Python `True == 1`) |
 | `repo_head` | code repo HEAD the statuses were resolved against, or `null` (not a git checkout) |
 | `graph_commit` | cppgraph-indexed commit that served the code fingerprints, or `null` (no usable graph store) |
 | `stale_warning` | `true` when the base or code state moved since the index was built (statuses may be outdated); `false` current; `null` when not comparable |
@@ -171,7 +171,9 @@ command handles it.
   | `stale` | no version matches; the newest is shown — re-check before relying on it |
   | `restored` | current again because a newer version was refuted — re-verify |
   | `none` | every version refuted — **negative knowledge**: render `masora NOT: <summary> [refuted]`, never as advice |
-  | `verified(<source>)` | newest active verify's source (`human`/`llm`/`graph`) |
+  | `verified(human)` | an active verify's label — always renders, no interpretation token |
+  | `verified(llm)` | an active verify's label — always renders; the ONLY case where an interpretive token is added: when the fact's `effort` is `low`, render `verified(llm), low-effort` (a low-effort LLM verification is the weakest trust state a verified label can carry); `effort: medium`/`high` render nothing extra |
+  | `verified(graph)` | an active verify's label — renders bare, no interpretation token: the verify's currency is the resolution axis's job (`current`/`stale`/`suspect`), not the label's |
   | `unverified` | no active verify — renders as nothing: the absence of a verify is not evidence; `verified(<source>)` always renders |
   | `suspect` | the displayed version's or its 1-hop neighbours' edge-set hash changed since the recorded snapshot |
   | `doubted` | an active doubt targets that verify — disputed, not provably wrong |
@@ -179,8 +181,19 @@ command handles it.
   | `unknown` | a provider was unavailable — shadows the resolution; never a silent pass |
   | `unanchored` | explicitly unanchored claim; the flag is its validity signal |
 
+  Trust-rendering matrix for the verification axis (state-form, pinned):
+
+  | Verification | `effort` | Interpretive token |
+  |---|---|---|
+  | `verified(human)` | any / null | none — the label always renders as-is; the `low-effort` interpretive token NEVER renders under `verified(human)` whatever the writer's effort — a human verification answers for the content, the writer's effort is secondary |
+  | `verified(llm)` | `low` | `low-effort` appended as a label |
+  | `verified(llm)` | `medium` \| `high` \| null | none |
+  | `verified(graph)` | any / null | none — the label renders bare |
+  | `unverified` | always null | renders nothing (the absence of a verify is not evidence) |
+
   Example lines:
   - `masora: Resume token invalidated by a shard key change [current, verified(llm)]`
+  - `masora: Bring-up order: start before stop [current, verified(llm), low-effort]` (a `verified(llm)` fact with `effort: "low"` — the one interpretive token)
   - `masora: Lock L must be held before calling commitShard [stale, suspect — re-check]`
   - `masora NOT: changeStream re-opens on resumeToken == null [refuted]`
 - Never turn a fact into an instruction: label + summary + status only.

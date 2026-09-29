@@ -1,7 +1,11 @@
 """`code` anchor provider over a cppgraph graph store (FORMAT.md §4; MASORA_DESIGN.md §5.2, §5.4, §11, §12.4).
 
-Reads the cppgraph SQLite index (`<repo>/.cppgraph/*.graph.db`, store schema v5:
-`files`/`symbols`/`edges`/`meta`) read-only. The anchor identity is the SCIP
+Reads the cppgraph SQLite index (`<repo>/.cppgraph/*.graph.db`, store schema
+v5: `files`/`symbols`/`edges`/`meta`) read-only. The store schema-version gate
+accepts ONLY the exact version `SCHEMA_VERSION` the reader was learned
+against — missing, unparsable, older or newer rows make the store unavailable
+(`unknown` shadows + `W-IDX-GRAPH` naming the seen version, §6.2). The anchor
+identity is the SCIP
 symbol string exactly as FORMAT.md records it (opaque-but-structured): matched
 verbatim against `symbols.symbol`, never decomposed. Fingerprints per §5.2/§5.4:
 definition = sha256 of the whitespace/comment-normalized source of the
@@ -124,34 +128,61 @@ def repo_head(repo: Path) -> str | None:
 def open_graph(db: Path) -> GraphHandle | None:
     """Read-only handle, or None when the file is not a usable cppgraph store.
 
-    Usable = readable as SQLite, carrying `symbols(symbol, file_id, line)`,
-    `edges(kind, src_id, dst_id)` and `meta`; a store newer than
-    SCHEMA_VERSION is refused (an old reader must not misread a new format,
-    mirroring cppgraph's own `GraphStore._check_schema_compat`). `end_line`
-    predates v3 and reads as NULL there (no body extent).
+    Compatibility wrapper over `_open_graph`: usable = readable as SQLite,
+    carrying `symbols(symbol, file_id, line)`, `edges(kind, src_id, dst_id)`
+    and `meta`, with a `schema_version` meta row exactly equal to
+    SCHEMA_VERSION (see the gate there). `end_line` predates v3 and reads as
+    NULL there (no body extent).
+    """
+    handle, _reason = _open_graph(db)
+    return handle
+
+
+def _open_graph(db: Path) -> tuple[GraphHandle | None, str | None]:
+    """Handle + refusal reason (None handle = unusable; None reason = silent).
+
+    Schema-version gate: ONLY the exact version this reader was learned
+    against (`SCHEMA_VERSION`) is accepted — a missing, unparsable, older or
+    newer row all refuse, each with a reason naming the seen version (an old
+    reader must not misread another format, mirroring cppgraph's own
+    `GraphStore._check_schema_compat`). The caller turns the reason into
+    `W-IDX-GRAPH` / unavailability; nothing is ever guessed.
     """
     try:
         conn = sqlite3.connect(f"file:{quote(str(db))}?mode=ro", uri=True)
     except sqlite3.Error:
-        return None
+        return None, None
     try:
         meta = dict(conn.execute("SELECT key, value FROM meta").fetchall())
         conn.execute("SELECT symbol, file_id, line FROM symbols LIMIT 1").fetchone()
         conn.execute("SELECT kind, src_id, dst_id FROM edges LIMIT 1").fetchone()
     except sqlite3.Error:
         conn.close()
-        return None
+        return None, None
     raw = meta.get("schema_version")
-    if raw is not None:
-        try:
-            version = int(raw)
-        except ValueError:
-            conn.close()
-            return None
-        if version > SCHEMA_VERSION:
-            conn.close()
-            return None
-    return GraphHandle(db=db, conn=conn, meta=meta)
+    if raw is None:
+        conn.close()
+        return None, (
+            f"{db} carries no schema_version meta row (this build reads store schema"
+            f" {SCHEMA_VERSION} exactly) — re-index with cppgraph; code anchors report unknown"
+        )
+    try:
+        version = int(raw)
+    except ValueError:
+        conn.close()
+        return None, (
+            f"{db} has an unparsable schema_version {raw!r} (this build reads store schema"
+            f" {SCHEMA_VERSION} exactly) — re-index with cppgraph; code anchors report unknown"
+        )
+    if version != SCHEMA_VERSION:
+        conn.close()
+        direction = "newer" if version > SCHEMA_VERSION else "older"
+        return None, (
+            f"{db} was built by a {direction} cppgraph (store schema_version {version}, this"
+            f" build reads schema {SCHEMA_VERSION} exactly) — re-index with cppgraph;"
+            " code anchors report unknown"
+        )
+    return GraphHandle(db=db, conn=conn, meta=meta), None
 
 
 def cppgraph_registry(
@@ -173,14 +204,15 @@ def cppgraph_registry(
         return CppgraphRegistry(None, None, None, None, None)
     if not db.is_file():
         return CppgraphRegistry(None, None, None, None, f"--cppgraph path is not a file: {db}")
-    handle = open_graph(db)
+    handle, version_reason = _open_graph(db)
     if handle is None:
         return CppgraphRegistry(
             None,
             None,
             None,
             None,
-            f"{db} is not a readable cppgraph store (unreadable, or built by a newer cppgraph)",
+            version_reason
+            or f"{db} is not a readable cppgraph store (unreadable, or built by a newer cppgraph)",
         )
     commit = handle.source_commit
     head = repo_head(repo)

@@ -219,11 +219,14 @@ and adds FTS5 search. Section references are to MASORA_DESIGN.md.
   unknown symbol or unreadable/escaping definition file is `not_found` (fails
   to match). Edge-set fingerprint (§5.4): sha256 of the sorted distinct callee
   SCIP strings from `calls` edges only. Neighbour snapshot (§12.4): 1-hop
-  callers ∪ callees, identity → that neighbour's edge-set hash. **Graph
+  callers ∪ callees, identity → that neighbour's edge-set hash. **Store
+  schema-version gate**: ONLY the exact store schema the reader was learned
+  against is accepted — a missing, unparsable, older or newer
+  `schema_version` meta row makes the store unavailable (`unknown` shadows +
+  `W-IDX-GRAPH` naming the seen version). **Graph
   currency policy (§5.2)**: the store's `meta.source_commit` must equal the
   `--repo` git HEAD, decided once per index build — on mismatch, missing
-  commit/HEAD, unreadable store or one newer than the schema this provider
-  reads, ALL code anchors are unavailable (`unknown` shadows; a warning
+  commit/HEAD, or an unreadable store, ALL code anchors are unavailable (`unknown` shadows; a warning
   `W-IDX-GRAPH` states why when code anchors exist) — never per-anchor, since
   the registry contract has no per-anchor availability channel (callable None
   = `not_found`) and §5.2 refuses fingerprints from a stale graph wholesale.
@@ -333,7 +336,11 @@ base always wins), then matches the code repo's `origin` remote (normalized via
 `default_base` — otherwise `E-MCP-NO-BASE` asks for an explicit base (§9: it
 never guesses); ULIDs come from
 `ulid.new_ulid()` (monotonic in-process); the event dict is pre-validated with
-`schema.validate_event`, emitted in the canonical block style (plain keys,
+`schema.validate_event` and secret-scanned — high-confidence credential shapes
+in `summary`/`statement`/`reason`/`evidence` are refused with
+`E-WRITE-SECRET`, nothing written (discussing passwords passes: naming
+fields, short or single-class values) —, then emitted in the canonical block
+style (plain keys,
 quoted identity/hash values, JSON-style control-char escaping —
 `emit_event()`), written to
 `<YYYY-MM>/<lineage>/<id>.<kind>.md` after a shared `check_base` pre-check

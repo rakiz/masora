@@ -19,6 +19,7 @@ from masora.frontmatter import load_frontmatter
 from masora.index import build_index, index_db_path, normalize_source
 from masora.sync import git_env
 from masora.ulid import new_ulid
+from masora.write import WriteError, write_and_check
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PIN = "2025-06-18"
@@ -1004,3 +1005,106 @@ def test_server_exit_code_zero_on_eof(server):
     server.ready()
     code, _stderr = server.finish()
     assert code == 0
+
+
+# --- credential guard in the shared write path (E-WRITE-SECRET) ---
+
+UNANCHORED = {"anchors": None, "unanchored": True, "unanchored_reason": "no anchor applies"}
+
+PEM_BLOCK = (
+    "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA7nHzOFytcqT0\n-----END RSA PRIVATE KEY-----"
+)
+
+SECRET_STATEMENTS = {
+    "pem": PEM_BLOCK,
+    "aws": "the client id is AKIAI44QH8DHBEXAMPLE in staging",
+    "ghp": "the leaked token was ghp_Az09BcdEfGhIjKlMnOpQrStUvWxz",
+    "github_pat": "token github_pat_Az09BcdEfGhIjKlMnOpQrStUvWx123",
+    "sk": "key sk-az3BcDeFgHiJkLmNoPqRsTuVwXy012345",
+    "xoxb": "bot token xoxb-123456789012-ABCDEFabcdef",
+    "assigned": "the config had password=Ht7#kLm2Qx9Zr4Vb8Nc1 written in it",
+}
+
+
+@pytest.mark.parametrize("family", sorted(SECRET_STATEMENTS))
+def test_note_refuses_credential_shapes_per_family(server, code_repo, base, family):
+    repo, _head = code_repo
+    server.ready()
+    text, is_error = server.tool(
+        "note", note_args(repo, base, statement=SECRET_STATEMENTS[family], **UNANCHORED)
+    )
+    assert is_error is True, family
+    assert "E-WRITE-SECRET" in text, family
+    assert "nothing is written" in text, family
+    assert not list(base.rglob("*.md")), family
+
+
+def test_verify_refuses_secret_in_evidence(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+    note_text, _ = server.tool("note", note_args(repo, base, **UNANCHORED))
+    uid = note_text.splitlines()[1].split()[1]
+    text, is_error = server.tool(
+        "verify",
+        {
+            "id": uid,
+            "evidence": ["reviewed the auth flow", SECRET_STATEMENTS["ghp"]],
+            "repo_root": str(repo),
+            "base": str(base),
+        },
+    )
+    assert is_error is True
+    assert "E-WRITE-SECRET" in text and "evidence" in text
+    assert not list(base.rglob("*.verify.md"))
+
+
+def test_doubt_refuses_secret_in_reason(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+    note_text, _ = server.tool("note", note_args(repo, base, **UNANCHORED))
+    uid = note_text.splitlines()[1].split()[1]
+    server.tool(
+        "verify", {"id": uid, "evidence": ["ok"], "repo_root": str(repo), "base": str(base)}
+    )
+    text, is_error = server.tool(
+        "doubt",
+        {
+            "id": uid,
+            "reason": SECRET_STATEMENTS["assigned"],
+            "repo_root": str(repo),
+            "base": str(base),
+        },
+    )
+    assert is_error is True
+    assert "E-WRITE-SECRET" in text
+    assert not list(base.rglob("*.doubt.md"))
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "we hash the password field with bcrypt before storage",
+        "the login form has a password field and a token bucket rate limiter",
+        "auth uses JWT; set password=abc123 in the test fixture",  # short/single-class value
+        "the service reads api_key from process.env at startup",
+        "token bucket refills at 10 requests per second",
+    ],
+)
+def test_note_accepts_password_discussion_lookalikes(server, code_repo, base, statement):
+    repo, _head = code_repo
+    server.ready()
+    text, is_error = server.tool("note", note_args(repo, base, statement=statement, **UNANCHORED))
+    assert is_error is False, text
+    rel = text.splitlines()[0].removeprefix("wrote ")
+    assert (base / rel).is_file()
+    assert check_base(base).errors == []
+
+
+def test_write_and_check_refuses_secret_in_summary_directly(tmp_path):
+    base_dir = tmp_path / "base"
+    base_dir.mkdir()
+    data = make_claim("01J8Z3K0000000000000000000", summary=SECRET_STATEMENTS["aws"])
+    with pytest.raises(WriteError) as exc:
+        write_and_check(base_dir, data)
+    assert exc.value.code == "E-WRITE-SECRET"
+    assert not list(base_dir.rglob("*.md"))

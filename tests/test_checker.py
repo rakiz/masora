@@ -45,9 +45,9 @@ def test_valid_fixture_envelope():
         {"id": ULID_L1, "refuted": False},
     ]
     assert envelope["verification"]["status"] == "verified"
-    assert envelope["verification"]["actor"] == "llm"
+    assert envelope["verification"]["source"] == "llm"
     assert envelope["verification"]["id"] == ULID_V1A
-    assert envelope["actors"] == ["llm"]
+    assert envelope["sources"] == ["llm"]
     assert envelope["doubted"] is False
     assert envelope["recorded_at"]["commit"] == SHA
     unanchored = next(e for e in result.envelopes if e["lineage"] == ULID_L2)
@@ -61,7 +61,7 @@ def test_structural_fixture_replay_unknown_warning():
     assert codes(result) == {"W-REPLAY"}
     envelope = result.envelopes[0]
     assert envelope["proof_replay"] == "unknown"
-    assert envelope["verification"]["actor"] == "llm"
+    assert envelope["verification"]["source"] == "llm"
 
 
 @pytest.mark.parametrize(
@@ -264,17 +264,17 @@ def test_two_verifies_newest_shown(base):
     write_event(
         base,
         "x/01J8Z3K0000000000000000001.verify.md",
-        make_verify(ULID_V1A, ULID_L1, ULID_L1, actor="human"),
+        make_verify(ULID_V1A, ULID_L1, ULID_L1, source="human"),
     )
     write_event(
         base,
         "x/01J8Z3K0000000000000000005.verify.md",
-        make_verify(ULID_V2A, ULID_L1, ULID_L1, actor="llm"),
+        make_verify(ULID_V2A, ULID_L1, ULID_L1, source="llm"),
     )
     result = check_base(base)
     envelope = result.envelopes[0]
     assert envelope["verification"]["id"] == ULID_V2A
-    assert envelope["actors"] == ["human", "llm"]
+    assert envelope["sources"] == ["human", "llm"]
 
 
 def test_all_refuted_status_none(base):

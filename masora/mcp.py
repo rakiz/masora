@@ -37,7 +37,7 @@ from .index import (
     search_index,
 )
 from .ulid import new_ulid
-from .write import WriteError, envelopes, records, resolve_base, write_and_check
+from .write import WriteError, envelopes, human_name, records, resolve_base, write_and_check
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "masora"
@@ -270,8 +270,8 @@ def _tool_note(args: dict) -> str:
     base_dir = resolve_base(repo_root, _opt_str(args, "base"))
     head = _require_head(repo_root, "recorded_at")
     claim_class = _opt_enum(args, "class", schema.CLAIM_CLASS_VALUES, "semantic")
-    source = _opt_enum(args, "source", schema.SOURCE_VALUES, "llm")
-    model = _opt_str(args, "model")
+    source = _opt_enum(args, "source", schema.WRITABLE_SOURCE_VALUES, "llm")
+    name = _opt_str(args, "name")
     cost_tokens = _opt_int(args, "cost_tokens")
     proof_query = args.get("proof_query")
     unanchored = _opt_bool(args, "unanchored") or False
@@ -324,15 +324,14 @@ def _tool_note(args: dict) -> str:
 
     uid = new_ulid()
     data: dict = {
-        "format_version": 1,
+        "format_version": schema.SUPPORTED_FORMAT_VERSION,
         "id": uid,
         "lineage": uid,
         "kind": "claim",
         "class": claim_class,
         "source": source,
     }
-    if model:
-        data["model"] = model
+    _apply_provenance(data, base_dir, source, name, args.get("effort"))
     data["summary"] = summary
     data["statement"] = statement
     data["anchors"] = anchors
@@ -351,14 +350,34 @@ def _tool_note(args: dict) -> str:
     return "\n".join(lines)
 
 
+def _apply_provenance(
+    data: dict, base_dir: Path, source: str, name: str | None, effort: object
+) -> None:
+    """Fill `name`/`effort` on an event dict (MASORA_DESIGN.md §12.10).
+
+    llm: the caller passes the model string as `name`; human: the name is
+    self-signed from the base repo's `git config user.name` (null when unset).
+    `effort` is passed through untouched whenever present — `validate_event`
+    refuses a bad enum or effort on a non-llm writer with `E-PROVENANCE`.
+    """
+    if effort is not None:
+        data["effort"] = effort
+    if source == "human":
+        derived = human_name(base_dir)
+        if derived:
+            data["name"] = derived
+    elif name:
+        data["name"] = name
+
+
 def _tool_verify(args: dict) -> str:
     target_id = _req_str(args, "id")
     evidence = _req_strlist(args, "evidence")
     repo_root = Path(_req_str(args, "repo_root"))
     base_dir = resolve_base(repo_root, _opt_str(args, "base"))
     head = _require_head(repo_root, "verified_at")
-    actor = _opt_enum(args, "actor", schema.ACTOR_VALUES, "llm")
-    model = _opt_str(args, "model")
+    source = _opt_enum(args, "source", schema.WRITABLE_SOURCE_VALUES, "llm")
+    name = _opt_str(args, "name")
 
     parsed = records(base_dir)
     target, lineage = _resolve_target(base_dir, parsed, target_id, "verify", "claim")
@@ -397,15 +416,14 @@ def _tool_verify(args: dict) -> str:
 
     uid = new_ulid()
     data: dict = {
-        "format_version": 1,
+        "format_version": schema.SUPPORTED_FORMAT_VERSION,
         "id": uid,
         "lineage": lineage,
         "kind": "verify",
         "targets": target,
-        "actor": actor,
+        "source": source,
     }
-    if model:
-        data["model"] = model
+    _apply_provenance(data, base_dir, source, name, args.get("effort"))
     data["verified_at"] = {"commit": head, "graph_commit": graph_commit}
     data["evidence"] = evidence
     data["snapshots"] = snapshots
@@ -416,7 +434,7 @@ def _tool_verify(args: dict) -> str:
         f"id {uid}",
         f"lineage {lineage}",
         f"target {target}",
-        f"actor {actor}",
+        f"source {source}",
         f"snapshots {len(snapshots)}",
     ]
     lines.extend(f"warning {diag.render()}" for diag in warnings)
@@ -429,9 +447,9 @@ def _tool_targeted(kind: str, args: dict) -> str:
     repo_root = Path(_req_str(args, "repo_root"))
     base_dir = resolve_base(repo_root, _opt_str(args, "base"))
     head = _require_head(repo_root, "recorded_at")
-    source = _opt_enum(args, "source", schema.SOURCE_VALUES, "llm")
+    source = _opt_enum(args, "source", schema.WRITABLE_SOURCE_VALUES, "llm")
     evidence = _opt_strlist(args, "evidence")
-    model = _opt_str(args, "model")
+    name = _opt_str(args, "name")
 
     parsed = records(base_dir)
     wants = {"doubt": "verify", "undoubt": "doubt", "refute": "any"}[kind]
@@ -446,7 +464,7 @@ def _tool_targeted(kind: str, args: dict) -> str:
 
     uid = new_ulid()
     data: dict = {
-        "format_version": 1,
+        "format_version": schema.SUPPORTED_FORMAT_VERSION,
         "id": uid,
         "lineage": lineage,
         "kind": kind,
@@ -454,8 +472,7 @@ def _tool_targeted(kind: str, args: dict) -> str:
         "source": source,
         "reason": reason,
     }
-    if model:
-        data["model"] = model
+    _apply_provenance(data, base_dir, source, name, args.get("effort"))
     data["recorded_at"] = {"commit": head, "graph_commit": graph_commit}
     if evidence:
         data["evidence"] = evidence
@@ -641,13 +658,20 @@ TOOLS = [
                 },
                 "source": {
                     "type": "string",
-                    "enum": ["human", "llm", "derived_from_graph"],
-                    "description": "default llm",
+                    "enum": ["human", "llm"],
+                    "description": "provenance of this event; default llm (graph is reserved for deriving tools, not writable here)",
                 },
-                "model": _str(description="free string when the writer is an LLM"),
+                "name": _str(
+                    description="free string when source is llm: the model name; when source is human the name is self-signed from the base repo's git config"
+                ),
+                "effort": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high"],
+                    "description": "declared strength of the writing analysis, only when source is llm",
+                },
                 "cost_tokens": {
                     "type": "integer",
-                    "description": "integer >= 0, read against model",
+                    "description": "integer >= 0, read against name",
                 },
             },
             ["statement", "summary", "repo_root"],
@@ -670,8 +694,19 @@ TOOLS = [
                 },
                 "repo_root": _str(description="path to the code repo checkout"),
                 **_BASE_PROPS,
-                "actor": {"type": "string", "enum": ["human", "llm"], "description": "default llm"},
-                "model": _str(description="free string when the actor is an LLM"),
+                "source": {
+                    "type": "string",
+                    "enum": ["human", "llm"],
+                    "description": "who ran the verification; default llm",
+                },
+                "name": _str(
+                    description="free string when source is llm: the model name; when source is human the name is self-signed from the base repo's git config"
+                ),
+                "effort": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high"],
+                    "description": "declared strength of the verification analysis, only when source is llm",
+                },
             },
             ["id", "evidence", "repo_root"],
         ),
@@ -691,11 +726,16 @@ TOOLS = [
                 **_BASE_PROPS,
                 "source": {
                     "type": "string",
-                    "enum": ["human", "llm", "derived_from_graph"],
+                    "enum": ["human", "llm"],
                     "description": "default llm",
                 },
                 "evidence": {"type": "array", "items": _str()},
-                "model": _str(description="free string when the writer is an LLM"),
+                "name": _str(description="free string when source is llm: the model name"),
+                "effort": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high"],
+                    "description": "only when source is llm",
+                },
             },
             ["id", "reason", "repo_root"],
         ),
@@ -711,11 +751,16 @@ TOOLS = [
                 **_BASE_PROPS,
                 "source": {
                     "type": "string",
-                    "enum": ["human", "llm", "derived_from_graph"],
+                    "enum": ["human", "llm"],
                     "description": "default llm",
                 },
                 "evidence": {"type": "array", "items": _str()},
-                "model": _str(description="free string when the writer is an LLM"),
+                "name": _str(description="free string when source is llm: the model name"),
+                "effort": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high"],
+                    "description": "only when source is llm",
+                },
             },
             ["id", "reason", "repo_root"],
         ),
@@ -734,11 +779,16 @@ TOOLS = [
                 **_BASE_PROPS,
                 "source": {
                     "type": "string",
-                    "enum": ["human", "llm", "derived_from_graph"],
+                    "enum": ["human", "llm"],
                     "description": "default llm",
                 },
                 "evidence": {"type": "array", "items": _str()},
-                "model": _str(description="free string when the writer is an LLM"),
+                "name": _str(description="free string when source is llm: the model name"),
+                "effort": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high"],
+                    "description": "only when source is llm",
+                },
             },
             ["id", "reason", "repo_root"],
         ),

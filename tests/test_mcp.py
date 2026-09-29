@@ -316,6 +316,163 @@ def test_note_happy_path_writes_canonical_event(server, code_repo, base):
     assert check_base(base).errors == []
 
 
+def test_note_human_name_from_base_git_config(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+    text, is_error = server.tool("note", note_args(repo, base, source="human"))
+    assert is_error is False
+    rel = text.splitlines()[0].removeprefix("wrote ")
+    data = load_frontmatter((base / rel).read_text(encoding="utf-8"), rel)
+    assert data["source"] == "human"
+    assert data["name"] == "Masora Test"
+    assert "effort" not in data
+
+
+def test_note_human_name_absent_when_git_config_unset(code_repo, env, tmp_path):
+    repo, _head = code_repo
+    bare = tmp_path / "bare-base"
+    bare.mkdir()
+    git(bare, "init", "-b", "main")
+    git(bare, "add", "-A")
+    # one-off identity for the commit only: the repo config stays without user.name
+    git(
+        bare,
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t.invalid",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "init",
+    )
+    hermetic = dict(env)
+    hermetic["GIT_CONFIG_GLOBAL"] = "/dev/null"
+    hermetic["GIT_CONFIG_SYSTEM"] = "/dev/null"
+    server_env = Server(hermetic)
+    try:
+        server_env.ready()
+        text, is_error = server_env.tool("note", note_args(repo, bare, source="human"))
+        assert is_error is False
+        rel = text.splitlines()[0].removeprefix("wrote ")
+        data = load_frontmatter((bare / rel).read_text(encoding="utf-8"), rel)
+        assert data["source"] == "human"
+        assert "name" not in data
+    finally:
+        server_env.proc.stdin.close()
+        server_env.proc.wait(timeout=15)
+
+
+def test_note_llm_name_and_effort_from_tool_params(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+    text, is_error = server.tool("note", note_args(repo, base, name="glm-5p3-flash", effort="high"))
+    assert is_error is False
+    rel = text.splitlines()[0].removeprefix("wrote ")
+    data = load_frontmatter((base / rel).read_text(encoding="utf-8"), rel)
+    assert data["source"] == "llm"
+    assert data["name"] == "glm-5p3-flash"
+    assert data["effort"] == "high"
+
+
+def test_note_effort_on_human_source_refused(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+    text, is_error = server.tool("note", note_args(repo, base, source="human", effort="high"))
+    assert is_error is True
+    assert "E-PROVENANCE" in text and "effort" in text
+    assert not list(base.rglob("*.md"))
+
+
+def test_verify_effort_on_human_source_refused(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+    note_text, _ = server.tool("note", note_args(repo, base))
+    uid = note_text.splitlines()[1].split()[1]
+    text, is_error = server.tool(
+        "verify",
+        {
+            "id": uid,
+            "evidence": ["x"],
+            "repo_root": str(repo),
+            "base": str(base),
+            "source": "human",
+            "effort": "low",
+        },
+    )
+    assert is_error is True
+    assert "E-PROVENANCE" in text
+    assert not list(base.rglob("*.verify.md"))
+
+
+def test_verify_graph_source_not_writable_via_mcp(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+    note_text, _ = server.tool("note", note_args(repo, base))
+    uid = note_text.splitlines()[1].split()[1]
+    text, is_error = server.tool(
+        "verify",
+        {
+            "id": uid,
+            "evidence": ["x"],
+            "repo_root": str(repo),
+            "base": str(base),
+            "source": "graph",
+        },
+    )
+    assert is_error is True
+    assert "E-MCP-ARGS" in text and "source" in text
+    assert not list(base.rglob("*.verify.md"))
+
+
+def test_verify_human_uses_git_config_name_and_renders_verified_human(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+    note_text, _ = server.tool("note", note_args(repo, base))
+    uid = note_text.splitlines()[1].split()[1]
+    text, is_error = server.tool(
+        "verify",
+        {
+            "id": uid,
+            "evidence": ["I read the code"],
+            "repo_root": str(repo),
+            "base": str(base),
+            "source": "human",
+        },
+    )
+    assert is_error is False
+    rel = text.splitlines()[0].removeprefix("wrote ")
+    data = load_frontmatter((base / rel).read_text(encoding="utf-8"), rel)
+    assert data["source"] == "human" and data["name"] == "Masora Test"
+    (status,) = build_index(base, repo).statuses
+    assert status.verification == "verified(human)"
+
+
+def test_verify_llm_effort_recorded_and_rendered(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+    note_text, _ = server.tool("note", note_args(repo, base))
+    uid = note_text.splitlines()[1].split()[1]
+    text, is_error = server.tool(
+        "verify",
+        {
+            "id": uid,
+            "evidence": ["replay: 2 edges, expected 2"],
+            "repo_root": str(repo),
+            "base": str(base),
+            "name": "glm-5p3-flash",
+            "effort": "medium",
+        },
+    )
+    assert is_error is False
+    rel = text.splitlines()[0].removeprefix("wrote ")
+    data = load_frontmatter((base / rel).read_text(encoding="utf-8"), rel)
+    assert data["source"] == "llm" and data["name"] == "glm-5p3-flash"
+    assert data["effort"] == "medium"
+    (status,) = build_index(base, repo).statuses
+    assert status.verification == "verified(llm)"
+
+
 def test_note_behind_head_graph_refuses_and_writes_nothing(server, code_repo, base):
     repo, _head = code_repo
     behind = write_graph_db(
@@ -483,7 +640,7 @@ def test_verify_round_trip_moves_index_status(server, code_repo, base):
     assert rel.endswith(f"{verify_id}.verify.md")
     data = load_frontmatter((base / rel).read_text(encoding="utf-8"), rel)
     assert data["targets"] == uid
-    assert data["actor"] == "llm"
+    assert data["source"] == "llm"
     assert data["verified_at"] == {"commit": head, "graph_commit": head}
     assert sorted(data["snapshots"]) == sorted([SYM_A, SYM_C])
     assert data["snapshots"][SYM_A]["edges"] == digest("\n".join(sorted([SYM_B, SYM_C])))
@@ -539,7 +696,13 @@ def test_verify_wrong_target_kind_is_arg_error(server, code_repo, base):
     uid = note_text.splitlines()[1].split()[1]
     text, is_error = server.tool(
         "verify",
-        {"id": uid, "evidence": ["x"], "repo_root": str(repo), "base": str(base), "actor": "human"},
+        {
+            "id": uid,
+            "evidence": ["x"],
+            "repo_root": str(repo),
+            "base": str(base),
+            "source": "human",
+        },
     )
     assert is_error is False
     verify_id = text.splitlines()[1].split()[1]

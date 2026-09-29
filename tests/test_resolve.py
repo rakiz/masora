@@ -257,7 +257,7 @@ MATRIX = [
         (vrow(F),),
         [
             *events_for(F),
-            Event(id=VERIFY, kind="verify", lineage=L, targets=F, actor="llm"),
+            Event(id=VERIFY, kind="verify", lineage=L, targets=F, source="llm"),
             Event(id=DOUBT, kind="doubt", lineage=L, targets=VERIFY),
         ],
         registry("code", {IDENT_MAIN: FP}),
@@ -269,7 +269,7 @@ MATRIX = [
         (vrow(F),),
         [
             *events_for(F),
-            Event(id=VERIFY, kind="verify", lineage=L, targets=F, actor="llm"),
+            Event(id=VERIFY, kind="verify", lineage=L, targets=F, source="llm"),
             Event(id=DOUBT, kind="doubt", lineage=L, targets=VERIFY),
             Event(id=REF, kind="refute", lineage=L, targets=VERIFY),
         ],
@@ -282,9 +282,9 @@ MATRIX = [
         (vrow(F),),
         [
             *events_for(F),
-            Event(id=VERIFY, kind="verify", lineage=L, targets=F, actor="llm"),
+            Event(id=VERIFY, kind="verify", lineage=L, targets=F, source="llm"),
             Event(id=DOUBT, kind="doubt", lineage=L, targets=VERIFY),
-            Event(id=UNDOUBT, kind="verify", lineage=L, targets=F, actor="human"),
+            Event(id=UNDOUBT, kind="verify", lineage=L, targets=F, source="human"),
         ],
         registry("code", {IDENT_MAIN: FP}),
         {},
@@ -329,7 +329,7 @@ def test_suspect_uses_newest_active_verify_snapshot():
             kind="verify",
             lineage=L,
             targets=F,
-            actor="llm",
+            source="llm",
             snapshots={IDENT_MAIN: {"edges": FP2, "neighbours": {}}},
         ),
     ]
@@ -348,7 +348,7 @@ def test_refuted_verify_snapshot_unused():
             kind="verify",
             lineage=L,
             targets=F,
-            actor="llm",
+            source="llm",
             snapshots={IDENT_MAIN: {"edges": FP2, "neighbours": {}}},
         ),
         Event(id=REF, kind="refute", lineage=L, targets=VERIFY),

@@ -1,6 +1,6 @@
 # Masora — design brief (bootstrap document)
 
-Status: **contract frozen (FORMAT.md); masora check and masora sync implemented (Phase 1 in progress).** This document
+Status: **contract frozen (FORMAT.md); Phase 1 core implemented — check, sync, setup, gc, index/search, MCP server, facts, unified provenance (remaining tasks in TODO.md).** This document
 captures every decision made so far, the reasoning behind it, the open questions,
 and the prior art to study before writing the schema. It is meant to bootstrap an
 agent that will build Masora. Where something is marked *open*, do not decide it
@@ -91,7 +91,13 @@ A claim is a statement plus:
 - **anchors**: one or more stable identities (SCIP symbol string for code — **never**
   an interned DB row id, which changes on every rebuild); single symbols only,
   multiple anchors per claim — no edge/subgraph anchor types (§12 item 3);
-- **source** (axis 1): `human` | `llm` | `derived_from_graph`;
+- **source** (axis 1): `human` | `llm` | `graph` — unified on **every** event
+  kind, including `.verify` (§12.10); declarative, writer-asserted;
+- **name** (optional): free string self-signed by the writer — the git
+  `user.name` when `human`, the model name when `llm`, empty/absent for
+  `graph` today (a later deriving tool may sign e.g. `cppgraph@0.4`);
+- **effort** (optional, llm only): `low` | `medium` | `high` — the declared
+  strength of the writing analysis, calibrating doubt-escalation (§12.10);
 - **verification** (axis 2): `unverified` | `verified` — recorded as `.verify`
   events like refutations (§6.4, §12 item 5), never a frontmatter field on the
   claim: no `.md` file is ever modified after creation. *Stale is never stored*
@@ -102,9 +108,10 @@ A claim is a statement plus:
 - **evidence**: links that prove the verification (graph queries, file ranges,
   tests, URLs);
 - **cost_tokens**: how much it cost to establish (tells how expensive a re-check
-  will be) — read against the writer's **model** (48k tokens are not the same
+  will be) — read against the writer's **name** (48k tokens are not the same
   cost depending on the model); the agent passes both when it knows them, the
-  tool never invents them;
+  tool never invents them. `cost_tokens` is economics only; `effort` is the
+  trust dial (§12.10).
 - **contradicts / reason**: if it replaces or disagrees with an earlier version,
   it must say what is wrong with it and why (enables later arbitration);
 - a **lineage id** (§6.1).
@@ -197,7 +204,7 @@ next indexer does the same computation; files are never touched for status.
   and match fingerprints) | `stale` (no version matches; the newest is shown) |
   `restored` (current because a newer version of the lineage was refuted) |
   `none` (every version of the lineage is refuted);
-- `verification`: `verified(<actor>)` | `unverified` — folded from `.verify`
+- `verification`: `verified(<source>)` | `unverified` — folded from `.verify`
   events;
 - flags: `suspect` (§12 item 4), `doubted` (iff some active doubt targets an
   active verify of the displayed version), `pending` (events not yet merged —
@@ -284,8 +291,9 @@ id: "01JA4QX…"               # version ULID
 lineage: "01J8Z3K…"
 kind: claim
 class: semantic              # structural | semantic
-source: llm                  # human | llm | derived_from_graph
-model: "glm-5p3-flash"       # optional: which LLM wrote it (free string)
+source: llm                  # human | llm | graph
+name: "glm-5p3-flash"        # optional: git user.name when human, model name when llm
+effort: high                 # optional, llm only: low | medium | high
 summary: "Resume token invalidated by a shard key change"   # mandatory one-liner, used verbatim in injections
 statement: "The resume token of a change stream is invalidated if the shard key changes, via …"
 anchors:                     # >=1, unless unanchored
@@ -303,7 +311,7 @@ contradicts: "01J8Z3K…"      # optional, with reason
 reason: "v1 assumed … but …"
 cost_tokens: 48000
 # no `verification` / `verified_at` here: they live on `.verify` events, e.g.
-#   .verify: { format_version: 1, id, lineage, kind: verify, targets: "01JA4QX…", actor: llm,
+#   .verify: { format_version: 1, id, lineage, kind: verify, targets: "01JA4QX…", source: llm,
 #              verified_at: { commit: def456, graph_commit: 9a01bb }, evidence: […], snapshots: { … } }
 ```
 
@@ -434,7 +442,7 @@ Also: re-compute statuses automatically on git HEAD change (pull, branch switch)
   ranges, graph queries, tests, URLs) plus an explanation of why it proves the
   statement. Humans keep the say: any verification is refutable (reversibly), and
   on shared bases verifications travel through PR review (§8). The `.verify`
-  event records the actual writer (`actor`: human | llm | ci).
+  event records the actual writer in its `source` (unified provenance, §12.10).
 
 ### 10.3 When to save (by value)
 
@@ -482,6 +490,28 @@ SPEC.md). Items 6 and 8 remain postponed.
    `list_stale` (`history`/`recheck`/`unrefute` stay out — TODO "out of
    scope").
 
+10. **Unified provenance (`source`/`name`/`effort`) — *settled 2026-09-29 with
+   the design owner*:** provenance is **declarative and unified on every
+   event kind**: every event carries `source` — `human` | `llm` | `graph`,
+   the writer's nature, writer-asserted — plus an OPTIONAL `name`, a free
+   string self-signed by the writer: the git `user.name` when `human`
+   (human identity is the base repo's git history; the tool reads the name
+   from the base repo's git config at write time), the model name when `llm`
+   (the verifying session may sign its own, distinct from the claim
+   writer's), empty/absent for `graph` today — a later deriving tool may
+   sign e.g. `cppgraph@0.4` — and an OPTIONAL `effort` (`low` | `medium` |
+   `high`), ONLY meaningful when `source: llm`: the declared strength of the
+   writing analysis, calibrating doubt-escalation. `cost_tokens` is
+   economics-only (how expensive a re-check is), read against `name`;
+   `effort` is the trust dial (how hard the writing analysis claimed to
+   look). All of it is **declarative only**: no credential system,
+   writer-asserted; git history + PR review remain the trust path. The fold
+   keeps the set
+   of `source`s of the active verifies and resolution renders
+   `verified(<source>)` / `unverified`. `graph` is NOT writable via the MCP
+   tools for now (reserved for deriving tools); graph self-signing is
+   deferred.
+
 1. **v1 scope** — *settled*: both classes in v1. Semantic claims are the original
    problem (§1); they can only auto-doubt (`stale`/`suspect`), never auto-confirm
    (SPEC non-goal). The structural machinery (proof queries, replayed at verify
@@ -493,12 +523,13 @@ SPEC.md). Items 6 and 8 remain postponed.
    (file ranges, graph queries, tests, URLs) plus an explanation of why it proves
    the statement. Humans keep the say: any verification is refutable (reversibly),
    and on shared bases verifications go through PR review (§8). The `.verify`
-   event records the actual writer (`actor`: human | llm | ci). (The minni /
-   Provena human-credential gate is answered: they gate all promotion because they
-   have no machine-checkable proof class; Masora requires recorded evidence
-   instead and keeps refutation + review as the human override.) `source`,
-   `actor` and `model` are writer-asserted with no credential system; forgery is
-   an accepted risk left to PR review (the trust path).
+   event records the actual writer in its `source` (§12.10's unified
+   provenance). (The minni /
+    Provena human-credential gate is answered: they gate all promotion because they
+    have no machine-checkable proof class; Masora requires recorded evidence
+    instead and keeps refutation + review as the human override.) `source`
+    and `name` are writer-asserted with no credential system; forgery is
+    an accepted risk left to PR review (the trust path).
 3. **Anchor granularity** — *settled*: symbols only, multiple anchors per claim
    (an indirect dependency = one claim anchored to ≥2 symbols). No edge/subgraph
    anchor types: structural claims name their edge/subgraph precisely in the
@@ -516,8 +547,7 @@ SPEC.md). Items 6 and 8 remain postponed.
    `unknown`, never a silent
    "not suspect". Neighbour body changes are ignored. `suspect` is computed in
    the index only (§6.2 rule unchanged) and composes with `stale`.
-5. **Frontmatter schema & event kinds** — *settled 2026-09-25; amended same day
-   after the user-journey review*: six event kinds — `.claim`, `.verify`,
+5. **Frontmatter schema & event kinds** — *settled 2026-09-25*: six event kinds — `.claim`, `.verify`,
    `.doubt`, `.undoubt`, `.refute`, `.unrefute` (`.same-as` later). Verification
    is an event, not a claim field: no `.md` file is ever modified after creation
    (§6.4's merge-conflict-freedom now holds for every event); promotion and
@@ -532,30 +562,33 @@ SPEC.md). Items 6 and 8 remain postponed.
     reason"; `.undoubt` lifts it. Refutation stays for "provably wrong".
     Claim fields: `id`, `lineage`, `kind`, `class`, `source`, `summary` (mandatory
     one-liner, used verbatim in injections — OpenViking L0 lesson), `statement`,
-    `format_version` (1; strict MAJOR-version rejection), `anchors` [{provider,
-    identity, fingerprint, snapshot?}] — `snapshot` is provider-typed (code:
-    `{edges, neighbours}`: the anchor's write-time edge-set hash and its
+    `format_version` (1; strict MAJOR-version rejection), `anchors`
+    [{provider, identity, fingerprint, snapshot?}] — `snapshot` is provider-typed
+    (code: `{edges, neighbours}`: the anchor's write-time edge-set hash and its
     per-anchor neighbour snapshot, input to `suspect`), `recorded_at` {commit,
     graph_commit} — the source version at write time (§10.2); fingerprints
     decide validity, the commit only qualifies (§6.2) —, `unanchored` (explicit;
-    true only with a reason), `proof_query` (structural), `contradicts` + `reason`
-    (optional pair, mandatory together),
-    `model` (optional free string, recorded when `source: llm` — e.g.
-    "glm-5p3-flash"; `cost_tokens` is read against it), `cost_tokens`
-    (optional). `.verify`: `format_version` (1), `targets` (version ULID), `actor`
-   (human | llm; always shown in envelopes — with no credential system, review is
-   the trust path), `verified_at` {commit + graph_commit; the per-anchor
-   fingerprints are **not** repeated here — the verify attests to exactly the
-   immutable set recorded on the claim}, `evidence`, `snapshots` (per-anchor
-   mapping, same shape as the claim's anchor snapshots), with `model` (optional,
+    true only with a reason), `proof_query` (structural), `contradicts` +
+    `reason` (optional pair, mandatory together),
+    `name` (optional free string per §12.10 — the model name when `source: llm`,
+    e.g. "glm-5p3-flash"; `cost_tokens` is read against it), `effort`
+    (optional, llm only), `cost_tokens`
+    (optional). `.verify`: `format_version`, `targets` (version ULID), `source`
+    (unified provenance per §12.10; always shown in envelopes — with no
+    credential system, review is the trust path), `verified_at` {commit +
+    graph_commit; the per-anchor
+    fingerprints are **not** repeated here — the verify attests to exactly the
+    immutable set recorded on the claim}, `evidence`, `snapshots` (per-anchor
+    mapping, same shape as the claim's anchor snapshots), with `name` (optional,
     same rule as the claim's) since the verifying session may not be the writing
     one. `.refute`: `targets`
    (a version or event ULID), `reason` (mandatory), `source`, `evidence`. `.unrefute`: `targets`
    (the refute event's ULID), `reason`, `source`. `.doubt`/`.undoubt`: `.doubt`
-   targets a `.verify` event (disagreement with that verification, not with the
-   claim), carries `source` (human | llm) like every event — no credential
-   system exists, so no `actor` semantics beyond `.verify` — plus a reason;
-   `.undoubt` targets the doubt event's ULID. `.refute` and `.doubt` may target
+    targets a `.verify` event (disagreement with that verification, not with the
+    claim), carries `source` (unified provenance, §12.10) like every event — no
+    credential
+    system exists — plus a reason;
+    `.undoubt` targets the doubt event's ULID. `.refute` and `.doubt` may target
    **any event ULID**: refuting a claim version skips it in the §6.2 resolution;
    refuting a `.verify` (or `.doubt`) event makes the index ignore that event
    when folding. `masora check` validates the schema and

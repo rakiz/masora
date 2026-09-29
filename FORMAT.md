@@ -67,10 +67,10 @@ References between events are always **ULIDs**, never file paths.
 | `id` | ULID | = filename ULID |
 | `lineage` | ULID | stable across all versions and events of a lineage |
 | `kind` | enum | `claim` \| `verify` \| `doubt` \| `undoubt` \| `refute` \| `unrefute` |
-| `source` | enum | `human` \| `llm` \| `derived_from_graph` (claims, `.doubt`, `.undoubt`, `.refute`, `.unrefute`; `.verify` uses `actor` instead) |
-| `actor` | enum | `human` \| `llm`; only on `.verify`; always surfaced in envelopes |
-| `model` | string, optional | free string, e.g. `glm-5p3-flash`; only when the writer is an LLM; `cost_tokens` is read against it |
-| `cost_tokens` | integer, optional | integer ≥ 0 |
+| `source` | enum | `human` \| `llm` \| `graph`; unified on **every** event kind (claims, `.verify`, `.doubt`, `.undoubt`, `.refute`, `.unrefute`) — the writer's nature, declarative, no credential system |
+| `name` | string, optional | free string self-signed by the writer: the git `user.name` when `source: human`, the model name when `source: llm` (the verifying session may sign its own, distinct from the claim writer's), empty/absent for `graph` today (a later deriving tool may sign e.g. `cppgraph@0.4`) |
+| `effort` | enum, optional | `low` \| `medium` \| `high`; ONLY meaningful when `source: llm` — the declared strength of the writing analysis, calibrating doubt-escalation |
+| `cost_tokens` | integer, optional | integer ≥ 0; economics only — read against `name` |
 | `targets` | ULID | event kinds only: the ULID this event is about |
 | `reason` | string | mandatory for `.refute`/`.unrefute`/`.undoubt` and for v2+ claims; on `.doubt` it is mandatory too |
 | `summary` | string | single line, no control characters, ≤ 120 characters |
@@ -120,12 +120,18 @@ accepted files use block style throughout.
 
 | Kind | Required | Optional | Forbidden |
 |---|---|---|---|
-| `claim` | `class`, `source`, `summary`, `statement`, `anchors` (unless unanchored), `recorded_at`, `unanchored`; conditional `unanchored_reason` (iff `unanchored`), `proof_query` (iff `class: structural`), `reason` (v2+ or `contradicts`) | `model`, `cost_tokens`, `contradicts` (⇒ `reason`) | `targets`, `actor`, `verified_at`, `evidence`, `snapshots` |
-| `verify` | `targets`, `actor`, `verified_at`, `evidence` (non-empty), `snapshots` | `model` | `source`, `reason`, `contradicts`, `summary`, `statement`, `anchors`, `class`, `unanchored`, `cost_tokens`, `recorded_at` |
-| `doubt` | `targets` (a verify ULID), `source`, `reason`, `recorded_at` | `model`, `evidence` | `actor`, `verified_at`, `snapshots`, `anchors`, `summary`, `statement`, `class`, `contradicts`, `cost_tokens` |
-| `undoubt` | `targets` (the doubt's ULID), `source`, `reason`, `recorded_at` | `model`, `evidence` | `actor`, `verified_at`, `snapshots`, `anchors`, `summary`, `statement`, `class`, `contradicts`, `cost_tokens` |
-| `refute` | `targets` (any event ULID), `source`, `reason`, `recorded_at` | `model`, `evidence` | `actor`, `verified_at`, `snapshots`, `anchors`, `summary`, `statement`, `class`, `contradicts`, `cost_tokens` |
-| `unrefute` | `targets` (the refute's ULID), `source`, `reason`, `recorded_at` | `model`, `evidence` | `actor`, `verified_at`, `snapshots`, `anchors`, `summary`, `statement`, `class`, `contradicts`, `cost_tokens` |
+| `claim` | `class`, `source`, `summary`, `statement`, `anchors` (unless unanchored), `recorded_at`, `unanchored`; conditional `unanchored_reason` (iff `unanchored`), `proof_query` (iff `class: structural`), `reason` (v2+ or `contradicts`) | `name`, `effort` (iff `source: llm`), `cost_tokens`, `contradicts` (⇒ `reason`) | `targets`, `actor`, `model`, `verified_at`, `evidence`, `snapshots` |
+| `verify` | `targets`, `source`, `verified_at`, `evidence` (non-empty), `snapshots` | `name`, `effort` (iff `source: llm`) | `actor`, `model`, `reason`, `contradicts`, `summary`, `statement`, `anchors`, `class`, `unanchored`, `cost_tokens`, `recorded_at` |
+| `doubt` | `targets` (a verify ULID), `source`, `reason`, `recorded_at` | `name`, `effort` (iff `source: llm`), `evidence` | `actor`, `model`, `verified_at`, `snapshots`, `anchors`, `summary`, `statement`, `class`, `contradicts`, `cost_tokens` |
+| `undoubt` | `targets` (the doubt's ULID), `source`, `reason`, `recorded_at` | `name`, `effort` (iff `source: llm`), `evidence` | `actor`, `model`, `verified_at`, `snapshots`, `anchors`, `summary`, `statement`, `class`, `contradicts`, `cost_tokens` |
+| `refute` | `targets` (any event ULID), `source`, `reason`, `recorded_at` | `name`, `effort` (iff `source: llm`), `evidence` | `actor`, `model`, `verified_at`, `snapshots`, `anchors`, `summary`, `statement`, `class`, `contradicts`, `cost_tokens` |
+| `unrefute` | `targets` (the refute's ULID), `source`, `reason`, `recorded_at` | `name`, `effort` (iff `source: llm`), `evidence` | `actor`, `model`, `verified_at`, `snapshots`, `anchors`, `summary`, `statement`, `class`, `contradicts`, `cost_tokens` |
+
+Provenance is **declarative only**: there is no credential system, fields are
+writer-asserted, and git history + PR review remain the trust path. `effort`
+(a trust dial for doubt escalation) and `cost_tokens` (economics) are
+independent: `effort` is the declared strength of an LLM's writing analysis,
+`cost_tokens` is how much establishing the knowledge cost, read against `name`.
 
 Every event carries exactly one timestamp: `recorded_at` on `claim`, `doubt`,
 `undoubt`, `refute` and `unrefute`; `verified_at` on `verify`. Omitted fields are
@@ -145,8 +151,9 @@ id: "01JA4QX…"                 # version ULID = filename
 lineage: "01J8Z3K…"
 kind: claim
 class: semantic                # structural | semantic
-source: llm                    # human | llm | derived_from_graph
-model: "glm-5p3-flash"         # optional, when source is llm
+source: llm                    # human | llm | graph
+name: "glm-5p3-flash"          # optional: git user.name when human, model name when llm
+effort: high                   # optional, ONLY when source is llm: low | medium | high
 summary: "One line, injected verbatim"          # mandatory
 statement: "Full statement of this version."
 anchors:                       # >=1, unless unanchored
@@ -193,8 +200,9 @@ id: "01JB1R…"
 lineage: "01J8Z3K…"
 kind: verify
 targets: "01JA4QX…"            # a claim version ULID
-actor: llm                     # human | llm; always surfaced in envelopes
-model: "glm-5p3-flash"         # optional; may differ from the claim writer's
+source: llm                    # human | llm; unified provenance — always surfaced in envelopes
+name: "glm-5p3-flash"          # optional; the verifying session's model (may differ from the claim writer's)
+effort: medium                 # optional, ONLY when source is llm
 verified_at:
   commit: "<40hex>"
   graph_commit: "<40hex>"
@@ -220,7 +228,8 @@ id: "01JB2S…"
 lineage: "01J8Z3K…"
 kind: doubt
 targets: "01JB1R…"             # a .verify event ULID (disagreement with that verification)
-source: human                  # no credential system: plain source, like every event
+source: human                  # unified provenance, like every event
+name: "Sebastien"              # optional: the git user.name when human
 recorded_at:
   commit: "<40hex>"
   graph_commit: "<40hex>"
@@ -239,6 +248,7 @@ lineage: "01J8Z3K…"
 kind: refute
 targets: "01JA4QX…"            # any event ULID (claim version, verify, doubt…)
 source: llm
+name: "glm-5p3-flash"          # optional
 recorded_at:
   commit: "<40hex>"
   graph_commit: "<40hex>"
@@ -274,10 +284,10 @@ dangling events are inactive. Example: for `V < R1 < R2`
 before learning `R1` is inactive; backward evaluation gives `V` active, `R1`
 inactive (refuted), `R2` active. A version is refuted iff an active refute
 targets it. The verification shown is the newest active verify of the displayed
-version; the folding keeps the set of `actor`s of all active verifies so
-envelopes can display them. Unrefute and refute-of-a-refute are equivalent;
-redundant ones are idempotent. `doubted` iff some active doubt targets an active
-verify of the displayed version.
+version; the folding keeps the set of `source`s of all active verifies so
+envelopes can display them (`verified(<source>)` — human, llm, graph). Unrefute
+and refute-of-a-refute are equivalent; redundant ones are idempotent. `doubted`
+iff some active doubt targets an active verify of the displayed version.
 
 Replay outcomes never invalidate existing events: a verification is a historical
 fact about the claim's immutable fingerprint set (see §4).

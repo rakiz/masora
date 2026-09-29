@@ -38,7 +38,7 @@ from .schema import EventRecord, validate_event
 from .sync import SyncError, _tombstone_pairs, git_env
 from .ulid import is_ulid
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 
 DDL = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -58,7 +58,10 @@ CREATE TABLE versions (
     lineage TEXT NOT NULL,
     refuted INTEGER NOT NULL,
     summary TEXT NOT NULL,
-    statement TEXT NOT NULL
+    statement TEXT NOT NULL,
+    source TEXT NOT NULL,
+    name TEXT,
+    effort TEXT
 );
 CREATE INDEX versions_by_lineage ON versions (lineage);
 CREATE TABLE anchors (
@@ -544,7 +547,7 @@ def _fold_event(pe: ParsedEvent) -> Event:
         kind=r.kind,
         lineage=r.lineage,
         targets=r.targets,
-        actor=r.actor,
+        source=r.source,
         verified_at=timestamp if r.kind == "verify" else None,
         recorded_at=timestamp if r.kind != "verify" else None,
         snapshots=pe.snapshots,
@@ -587,13 +590,16 @@ def _write_db(
             for claim in claims:
                 refuted = claim.record.id in status.refuted
                 conn.execute(
-                    "INSERT INTO versions VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO versions VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         claim.record.id,
                         status.lineage,
                         int(refuted),
                         claim.record.summary or "",
                         claim.statement,
+                        claim.record.source or "",
+                        claim.record.name,
+                        claim.record.effort,
                     ),
                 )
                 for a in claim.anchors:

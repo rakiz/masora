@@ -17,7 +17,7 @@ class Event:
     kind: str
     lineage: str
     targets: str | None = None
-    actor: str | None = None
+    source: str | None = None
     verified_at: dict | None = None
     recorded_at: dict | None = None
     snapshots: dict | None = None
@@ -34,9 +34,9 @@ class LineageFold:
     resolution: str | None
     verification_status: str
     verification_id: str | None
-    verification_actor: str | None
+    verification_source: str | None
     verification_time: dict | None
-    actors: tuple[str, ...] = field(default_factory=tuple)
+    sources: tuple[str, ...] = field(default_factory=tuple)
     doubted: bool = False
     verification_snapshots: dict | None = None
 
@@ -136,7 +136,7 @@ def fold_lineage(
     ]
     verifies.sort(key=lambda e: e.id)
     shown = verifies[-1] if verifies else None
-    actors = sorted({e.actor for e in verifies if e.actor is not None})
+    sources = sorted({e.source for e in verifies if e.source is not None})
     verify_ids = {e.id for e in verifies}
     doubts = [e for e in events if e.kind == "doubt" and e.targets in verify_ids and activity[e.id]]
     return LineageFold(
@@ -149,9 +149,9 @@ def fold_lineage(
         resolution=resolution,
         verification_status="verified" if shown is not None else "unverified",
         verification_id=shown.id if shown else None,
-        verification_actor=shown.actor if shown else None,
+        verification_source=shown.source if shown else None,
         verification_time=shown.verified_at if shown else None,
-        actors=tuple(actors),
+        sources=tuple(sources),
         doubted=bool(doubts),
         verification_snapshots=shown.snapshots if shown is not None else None,
     )

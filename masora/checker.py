@@ -402,7 +402,7 @@ def _to_fold_event(record: EventRecord) -> Event:
         kind=record.kind,
         lineage=record.lineage,
         targets=record.targets,
-        actor=record.actor,
+        source=record.source,
         verified_at={
             "commit": record.timestamp_commit,
             "graph_commit": record.timestamp_graph_commit,
@@ -429,11 +429,11 @@ def _envelope(fold, versions: list[EventRecord]) -> dict:
         "versions": version_states,
         "verification": {
             "status": fold.verification_status,
-            "actor": fold.verification_actor,
+            "source": fold.verification_source,
             "id": fold.verification_id,
             "verified_at": fold.verification_time,
         },
-        "actors": list(fold.actors),
+        "sources": list(fold.sources),
         "doubted": fold.doubted,
         "recorded_at": {
             "commit": displayed_record.timestamp_commit,

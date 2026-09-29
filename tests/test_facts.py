@@ -170,8 +170,52 @@ def test_facts_happy_path_with_symbol(tmp_path, base, capsys):
     assert fact["resolution"] == "current"
     assert fact["verification"] == "verified(llm)"
     assert fact["flags"] == "-"
+    assert fact["source"] == "llm"
+    assert fact["name"] is None
+    assert fact["effort"] is None
+    assert fact["anchors"] == [SYM_A]
     assert fact["anchors_matched"] == [SYM_A]
     assert capsys.readouterr().out == ""
+
+
+def test_facts_v2_provenance_and_full_anchor_list(tmp_path, base, capsys):
+    repo, head = make_repo(tmp_path)
+    uid = "01J8Z3K0000000000000000000"
+    write_event(
+        base,
+        f"2026-09/x/{uid}.claim.md",
+        claim_event(uid, repo, head, [SYM_A, SYM_B], name="glm-5p3-flash", effort="high"),
+    )
+    assert build_index(base, repo).errors == []
+
+    code, document, _err = facts(capsys, repo, symbol=SYM_B)
+
+    assert code == 0
+    (fact,) = document["facts"]
+    assert fact["source"] == "llm"
+    assert fact["name"] == "glm-5p3-flash"
+    assert fact["effort"] == "high"
+    assert fact["anchors"] == [SYM_A, SYM_B]
+    assert fact["anchors_matched"] == [SYM_B]
+
+
+def test_facts_v2_human_name_present(tmp_path, base, capsys):
+    repo, head = make_repo(tmp_path)
+    uid = "01J8Z3K0000000000000000000"
+    write_event(
+        base,
+        f"2026-09/x/{uid}.claim.md",
+        claim_event(uid, repo, head, [SYM_A], source="human", name="Sebastien"),
+    )
+    assert build_index(base, repo).errors == []
+
+    code, document, _err = facts(capsys, repo)
+
+    assert code == 0
+    (fact,) = document["facts"]
+    assert fact["source"] == "human"
+    assert fact["name"] == "Sebastien"
+    assert fact["effort"] is None
 
 
 def test_facts_stale_and_refuted_none_match_newest_version(tmp_path, base, capsys):

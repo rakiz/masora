@@ -34,7 +34,10 @@ FTS (`index`, searched by `search`).
   coupling, summary ≤ 120 single-line chars (`E-SUMMARY`), timestamp shape
   `{commit, graph_commit}` with full 40-hex SHAs (`E-TIMESTAMP`), anchor and
   snapshot shapes (`E-ANCHOR`), proof-query shape `{tool, args, expect,
-  provider_version}` with the `cppgraph.` tool prefix (`E-PROOFQUERY`).
+  provider_version}` with the `cppgraph.` tool prefix (`E-PROOFQUERY`), and
+  the unified provenance rules — `source` (`human`/`llm`/`graph`) on every
+  kind, optional `name`, optional `effort` only when `source: llm`
+  (`E-PROVENANCE`).
 - Every violation raises `CheckFailure` carrying a `Diag` (severity, code,
   message, path) from `diagnostics.py`; parsing never returns a partial
   record. `Diag.render()` is the single output format.
@@ -54,9 +57,9 @@ FTS (`index`, searched by `search`).
   (`id == lineage`) and versions whose founder resolves; `displayed` is the
   newest active eligible version (fingerprint matching when a provider is
   available — never in standalone check); non-active versions are refuted.
-  Verification shown = newest active verify targeting `displayed` (actors of
-  all active verifies are kept); `doubted` = some active doubt targets an
-  active verify of `displayed`.
+  Verification shown = newest active verify targeting `displayed` (the
+  `source`s of all active verifies are kept); `doubted` = some active doubt
+  targets an active verify of `displayed`.
 - Status precedence (MASORA_DESIGN.md §6.2): `none` > `unknown` > `current`/`restored` >
   `stale`. Standalone check has no provider, so any lineage with active
   versions reports `unknown` — never a silent `current`.
@@ -175,7 +178,7 @@ and adds FTS5 search. Section references are to MASORA_DESIGN.md.
   (refute/unrefute/doubt rules, founder-absent exclusion, newest-match-wins)
   and assembles the tuple: `resolution` via `apply_precedence`
   (`none` > `unknown` > `current`/`restored` > `stale`), `verification` as
-  `verified(<actor>)`/`unverified`, flags `suspect`/`doubted`/`pending`/
+  `verified(<source>)`/`unverified`, flags `suspect`/`doubted`/`pending`/
   `unknown`/`unanchored`. A founderless-only lineage maps to `unknown` (no
   eligible version to display). Unanchored claims skip fingerprint resolution:
   always surfaced, `current`, flagged `unanchored`.
@@ -281,10 +284,11 @@ and adds FTS5 search. Section references are to MASORA_DESIGN.md.
    `code_remote` stored in normalized form. Remotes are matched after
    normalization (`masora.config.normalize_remote`: lowercase host, no
    scheme, no user/port prefix, no trailing `.git`). Existing entries,
-   mappings and unknown keys are preserved; a mapping's `bases` list gains
-   the new name. Re-running against the same remote (normalized equality)
-   updates the entry in place; the same name with a different remote is
-   refused (`E-SETUP-DUPLICATE`). The writer re-emits the parsed TOML:
+   mappings and unknown keys are preserved; a merge adds the new name to the
+   mapping's `bases` list. Re-running against the same remote (normalized
+   equality) updates the entry in place; the same name with a different
+   remote is refused (`E-SETUP-DUPLICATE`). The writer re-emits the parsed
+   TOML:
    comments in a hand-edited config are not preserved, and a value the
    writer cannot serialize (e.g. a TOML date) is `E-SETUP-CONFIG`.
 5. `MASORA_HOME` relocates everything for special cases
@@ -314,9 +318,9 @@ context per call — the server does no repo discovery):
 
 | Tool | Params | Behaviour |
 |---|---|---|
-| `note` | `statement`, `summary`, `repo_root`; optional `base`, `anchors[]`, `unanchored`, `unanchored_reason`, `class`, `proof_query`, `source`, `model`, `cost_tokens` | Writes the lineage's v1 claim. Anchor refs resolve via the graph provider (exact SCIP match, else case-insensitive substring; `ambiguous`/`not_found` → `E-MCP-ANCHOR`, nothing written — FORMAT.md §6). Fingerprints + snapshots are recorded at write time (`providers.py`); a graph behind HEAD or absent → `E-MCP-GRAPH` (§5.2). Without anchors only an explicit `unanchored: true` + reason writes. |
-| `verify` | `id`, `evidence[]`, `repo_root`; optional `base`, `actor`, `model` | Targets the claim version (a lineage id rides the fold to its displayed version; unknown → `E-MCP-UNKNOWN-ID`). Re-fingerprints the claim's immutable anchor set at verify time — drift → `E-MCP-DRIFT` ("write a new claim version", §6.3); records fresh per-anchor snapshots and `verified_at {commit, graph_commit}`. |
-| `doubt` | `id`, `reason`, `repo_root`; optional `base`, `source`, `evidence[]`, `model` | Targets a `.verify` ULID, or a lineage → the active verify of its displayed version; none → `E-MCP-UNKNOWN-ID`. |
+| `note` | `statement`, `summary`, `repo_root`; optional `base`, `anchors[]`, `unanchored`, `unanchored_reason`, `class`, `proof_query`, `source` (`human`\|`llm` — `graph` is not writable via MCP), `name`, `effort` (llm only), `cost_tokens` | Writes the lineage's v1 claim. Anchor refs resolve via the graph provider (exact SCIP match, else case-insensitive substring; `ambiguous`/`not_found` → `E-MCP-ANCHOR`, nothing written — FORMAT.md §6). Fingerprints + snapshots are recorded at write time (`providers.py`); a graph behind HEAD or absent → `E-MCP-GRAPH` (§5.2). Without anchors only an explicit `unanchored: true` + reason writes. `source: human` self-signs `name` from the base repo's `git config user.name` (absent when unset); llm takes `name`/`effort` from the tool params; effort on a non-llm source → `E-PROVENANCE`. |
+| `verify` | `id`, `evidence[]`, `repo_root`; optional `base`, `source`, `name`, `effort` | Targets the claim version (a lineage id rides the fold to its displayed version; unknown → `E-MCP-UNKNOWN-ID`). Re-fingerprints the claim's immutable anchor set at verify time — drift → `E-MCP-DRIFT` ("write a new claim version", §6.3); records fresh per-anchor snapshots and `verified_at {commit, graph_commit}`. |
+| `doubt` | `id`, `reason`, `repo_root`; optional `base`, `source`, `evidence[]`, `name`, `effort` | Targets a `.verify` ULID, or a lineage → the active verify of its displayed version; none → `E-MCP-UNKNOWN-ID`. |
 | `undoubt` | same params as `doubt` | Targets the doubt event's ULID only (no lineage form). |
 | `refute` | same params as `doubt` | Targets any event ULID, or a lineage → its displayed version. |
 | `search` | `query`; optional `base`, `repo_root` | FTS over the index (auto-**built when missing**, never rebuilt when merely stale — the SessionStart hook owns freshness); `W-IDX-STALE` is surfaced in the result text; statuses rendered per lineage. |
@@ -348,7 +352,10 @@ the normalized `origin` remote, then `default_base` — the same chain the MCP
 write tools use, minus the explicit parameter the contract forbids), reads
 the existing index and prints ONE compact JSON document (`contract_version`
 1) per the contract: `{contract_version, repo_head, graph_commit,
-stale_warning, facts[]}`. `--symbol` filters to lineages whose **effective**
+stale_warning, facts[]}` — each fact carrying the status tuple, the
+effective version's provenance (`source`, `name`, `effort`) and its full
+anchor-identity list (`anchors`) beside `anchors_matched`.
+`--symbol` filters to lineages whose **effective**
 version anchors on the exact identity — the displayed version, or the newest
 when `displayed` is null (`resolution: none` / founderless-unknown, per the
 §6 fold) — and fills `anchors_matched`. The two warning classes are in-band

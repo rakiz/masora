@@ -62,7 +62,7 @@ def _event(kinds, combo, i) -> Event:
         kind=kinds[i],
         lineage=IDS[0],
         targets=IDS[target] if target is not None else None,
-        actor="llm"
+        source="llm"
         if kinds[i] == "verify" and i % 2 == 0
         else ("human" if kinds[i] == "verify" else None),
     )
@@ -240,7 +240,11 @@ def test_redundant_unrefutes_are_idempotent():
 def test_doubt_and_undoubt_flag():
     c = Event(id="01J8Z3K0000000000000000001", kind="claim", lineage="01J8Z3K0000000000000000001")
     v = Event(
-        id="01J8Z3K0000000000000000002", kind="verify", lineage=c.lineage, targets=c.id, actor="llm"
+        id="01J8Z3K0000000000000000002",
+        kind="verify",
+        lineage=c.lineage,
+        targets=c.id,
+        source="llm",
     )
     d = Event(id="01J8Z3K0000000000000000003", kind="doubt", lineage=c.lineage, targets=v.id)
     u = Event(id="01J8Z3K0000000000000000004", kind="undoubt", lineage=c.lineage, targets=d.id)
@@ -248,7 +252,7 @@ def test_doubt_and_undoubt_flag():
     fold = fold_lineage(c.lineage, [c, v, d], activity, [c.id])
     assert fold.doubted is True
     assert fold.verification_status == "verified"
-    assert fold.actors == ("llm",)
+    assert fold.sources == ("llm",)
     activity = resolve_activity([c, v, d, u])
     fold = fold_lineage(c.lineage, [c, v, d, u], activity, [c.id])
     assert fold.doubted is False
@@ -258,7 +262,11 @@ def test_doubt_and_undoubt_flag():
 def test_doubt_of_refuted_verify_does_not_flag():
     c = Event(id="01J8Z3K0000000000000000001", kind="claim", lineage="01J8Z3K0000000000000000001")
     v = Event(
-        id="01J8Z3K0000000000000000002", kind="verify", lineage=c.lineage, targets=c.id, actor="llm"
+        id="01J8Z3K0000000000000000002",
+        kind="verify",
+        lineage=c.lineage,
+        targets=c.id,
+        source="llm",
     )
     r = Event(id="01J8Z3K0000000000000000003", kind="refute", lineage=c.lineage, targets=v.id)
     d = Event(id="01J8Z3K0000000000000000004", kind="doubt", lineage=c.lineage, targets=v.id)
@@ -292,22 +300,26 @@ def test_skewed_refuter_below_target_still_deactivates():
     assert resolve_activity([r, c], order=[c.id, r.id]) == expected
 
 
-def test_newest_active_verify_wins_and_actors_accumulate():
+def test_newest_active_verify_wins_and_sources_accumulate():
     c = Event(id="01J8Z3K0000000000000000001", kind="claim", lineage="01J8Z3K0000000000000000001")
     v1 = Event(
         id="01J8Z3K0000000000000000002",
         kind="verify",
         lineage=c.lineage,
         targets=c.id,
-        actor="human",
+        source="human",
     )
     v2 = Event(
-        id="01J8Z3K0000000000000000003", kind="verify", lineage=c.lineage, targets=c.id, actor="llm"
+        id="01J8Z3K0000000000000000003",
+        kind="verify",
+        lineage=c.lineage,
+        targets=c.id,
+        source="llm",
     )
     fold = fold_lineage(c.lineage, [c, v1, v2], resolve_activity([c, v1, v2]), [c.id])
     assert fold.verification_id == v2.id
-    assert fold.verification_actor == "llm"
-    assert fold.actors == ("human", "llm")
+    assert fold.verification_source == "llm"
+    assert fold.sources == ("human", "llm")
 
 
 def test_all_refuted_resolves_none_and_restored_flag():
@@ -380,7 +392,7 @@ def test_exhaustive_envelope_invariants():
                 e.kind == "verify" and e.targets == fold.displayed and activity[e.id]
                 for e in events
             )
-            assert fold.verification_actor in fold.actors
+            assert fold.verification_source in fold.sources
         else:
             assert not any(
                 e.kind == "verify" and e.targets == fold.displayed and activity[e.id]

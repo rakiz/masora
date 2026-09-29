@@ -8,7 +8,9 @@ written. `--symbol` filters to lineages whose effective version anchors on
 that exact SCIP identity — the displayed version, or the NEWEST version when
 the displayed one is null (`resolution: none`, FORMAT.md §6 folding); for
 those lineages `anchors_matched` lists the matched identities, and facts are
-empty-matched and skipped when they don't anchor the symbol. Hard failures
+empty-matched and skipped when they don't anchor the symbol. Each fact also
+carries the effective version's provenance (`source`, `name`, `effort`) and
+its FULL anchor-identity list (`anchors`). Hard failures
 exit 1 with a diagnostic on stderr and nothing on stdout; the two warning
 classes are in-band and never errors: `stale_warning` (index drift,
 W-IDX-STALE semantics) and per-lineage `unknown` flags (W-IDX-GRAPH
@@ -102,11 +104,26 @@ def _facts(repo: Path, symbol: str | None) -> dict:
                 effective = newest[0] if newest else None
             matched: list[str] = []
             summary = ""
+            source: str | None = None
+            name: str | None = None
+            effort: str | None = None
+            anchor_identities: list[str] = []
             if effective is not None:
                 found = conn.execute(
-                    "SELECT summary FROM versions WHERE version = ?", (effective,)
+                    "SELECT summary, source, name, effort FROM versions WHERE version = ?",
+                    (effective,),
                 ).fetchone()
-                summary = (found[0] if found and found[0] else "")[:120]
+                if found is not None:
+                    summary = (found[0] if found[0] else "")[:120]
+                    source = found[1] or None
+                    name = found[2]
+                    effort = found[3]
+                anchor_identities = [
+                    identity[0]
+                    for identity in conn.execute(
+                        "SELECT identity FROM anchors WHERE version = ?", (effective,)
+                    )
+                ]
                 if symbol is not None:
                     matched = [
                         identity[0]
@@ -124,6 +141,10 @@ def _facts(repo: Path, symbol: str | None) -> dict:
                     "resolution": resolution,
                     "verification": verification,
                     "flags": _flags(tuple(flag_values)),
+                    "source": source,
+                    "name": name,
+                    "effort": effort,
+                    "anchors": anchor_identities,
                     "anchors_matched": matched,
                 }
             )

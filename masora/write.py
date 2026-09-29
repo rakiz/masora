@@ -63,6 +63,24 @@ def origin_remote(repo: Path) -> str | None:
     return value if proc.returncode == 0 and value else None
 
 
+def human_name(base_dir: Path) -> str | None:
+    """The base repo's `git config user.name` — the human writer's self-signed name.
+
+    Declarative provenance (MASORA_DESIGN.md §12.10): identity comes from the
+    base-repo git config (the commits are the trust path); None when unset —
+    the field is then simply absent from the event.
+    """
+    proc = subprocess.run(
+        ["git", "-C", str(base_dir), "config", "user.name"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=git_env(),
+    )
+    value = proc.stdout.strip()
+    return value if proc.returncode == 0 and value else None
+
+
 def base_dir_for_name(data: dict, name: str) -> Path | None:
     """`[bases.<name>]` entry → local checkout path (MASORA_DESIGN.md §9 layout)."""
     bases = data.get("bases")

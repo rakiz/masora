@@ -63,6 +63,12 @@ makes zero change (the §7 zero-change guarantee already covers this).
       "resolution": "current",
       "verification": "verified(llm)",
       "flags": "-",
+      "source": "llm",
+      "name": "glm-5p3-flash",
+      "effort": "high",
+      "anchors": [
+        "scip-clang cxx . . mongo/ResumeTokenData#makeResumeToken()."
+      ],
       "anchors_matched": [
         "scip-clang cxx . . mongo/ResumeTokenData#makeResumeToken()."
       ]
@@ -73,6 +79,12 @@ makes zero change (the §7 zero-change guarantee already covers this).
       "resolution": "stale",
       "verification": "unverified",
       "flags": "suspect",
+      "source": "human",
+      "name": null,
+      "effort": null,
+      "anchors": [
+        "scip-clang cxx . . mongo/Engine#commitShard()."
+      ],
       "anchors_matched": [
         "scip-clang cxx . . mongo/Engine#commitShard()."
       ]
@@ -83,6 +95,10 @@ makes zero change (the §7 zero-change guarantee already covers this).
       "resolution": "none",
       "verification": "unverified",
       "flags": "-",
+      "source": "llm",
+      "name": null,
+      "effort": null,
+      "anchors": ["scip-clang cxx . . mongo/Util#tick()."],
       "anchors_matched": ["scip-clang cxx . . mongo/Util#tick()."]
     }
   ]
@@ -93,7 +109,7 @@ Field semantics:
 
 | Field | Meaning |
 |---|---|
-| `contract_version` | integer `1`; bump = breaking change to this shape — cppgraph rejects unknown major versions and renders nothing; checked as a strict integer: a JSON boolean is invalid even where the language conflates bool and int (e.g. Python `True == 1`) |
+| `contract_version` | integer `1`; a major-version change means an incompatible shape — cppgraph rejects unknown major versions and renders nothing; checked as a strict integer: a JSON boolean is invalid even where the language conflates bool and int (e.g. Python `True == 1`) |
 | `repo_head` | code repo HEAD the statuses were resolved against, or `null` (not a git checkout) |
 | `graph_commit` | cppgraph-indexed commit that served the code fingerprints, or `null` (no usable graph store) |
 | `stale_warning` | `true` when the base or code state moved since the index was built (statuses may be outdated); `false` current; `null` when not comparable |
@@ -101,9 +117,13 @@ Field semantics:
 | `facts[].lineage` | lineage id — stable across versions; use it for dedup/caching |
 | `facts[].summary` | one line, ≤ 120 chars — rendered verbatim |
 | `facts[].resolution` | `current` \| `stale` \| `restored` \| `none` \| `unknown` (§6); `unknown` = provider unavailable, shadows the resolution |
-| `facts[].verification` | `verified(<actor>)` with actor `human` \| `llm`, or `unverified` |
+| `facts[].verification` | `verified(<source>)` with source `human` \| `llm` \| `graph`, or `unverified` |
 | `facts[].flags` | comma-joined subset of `suspect,doubted,pending,unknown,unanchored`, or `-` when none |
-| `facts[].anchors_matched` | the displayed version's anchor identities the query matched; for `resolution: "none"` they come from the newest version (displayed version is null); empty when no `--symbol` was passed |
+| `facts[].source` | the effective version's provenance (`human` \| `llm` \| `graph` — the claim writer's nature), or `null` when unavailable |
+| `facts[].name` | the writer's self-signed name (git user.name for `human`, model name for `llm`), or `null` when absent |
+| `facts[].effort` | the declared LLM effort (`low` \| `medium` \| `high`), or `null` unless the version was written by an llm with an effort recorded |
+| `facts[].anchors` | the effective version's FULL anchor-identity list (not only the ones matched by `--symbol`) — the anchor leg of the SPEC evidence envelope |
+| `facts[].anchors_matched` | the effective version's anchor identities the query matched; for `resolution: "none"` they come from the newest version (displayed version is null); empty when no `--symbol` was passed |
 
 ## 4. Discovery: cppgraph passes `--repo`, nothing else
 
@@ -151,8 +171,8 @@ command handles it.
   | `stale` | no version matches; the newest is shown — re-check before relying on it |
   | `restored` | current again because a newer version was refuted — re-verify |
   | `none` | every version refuted — **negative knowledge**: render `masora NOT: <summary> [refuted]`, never as advice |
-  | `verified(<actor>)` | newest active verify's actor (`human`/`llm`) |
-  | `unverified` | no active verify — renders as nothing: the absence of a verify is not evidence; `verified(<actor>)` always renders |
+  | `verified(<source>)` | newest active verify's source (`human`/`llm`/`graph`) |
+  | `unverified` | no active verify — renders as nothing: the absence of a verify is not evidence; `verified(<source>)` always renders |
   | `suspect` | the displayed version's or its 1-hop neighbours' edge-set hash changed since the recorded snapshot |
   | `doubted` | an active doubt targets that verify — disputed, not provably wrong |
   | `pending` | events not yet merged (traveling through the `masora/pending` PR) |
@@ -185,7 +205,7 @@ command handles it.
   all; partial delivery is deliberately wrong because silently dropping a
   malformed fact could hide negative knowledge.
 
-## 8. When `masora facts` ships — checklist
+## 8. cppgraph-side rollout checklist
 
 An explicit opt-out env var, `CPPGRAPH_MASORA=0` (or `=off`), fully disables
 injection; it is checked before any spawn. The injection ships feature-flagged
@@ -206,5 +226,5 @@ switch once the feature flag is turned on.
    killed/timed-out subprocess (silent skip).
 5. Confirm the zero-change guarantee: without Masora, byte-identical cppgraph
    responses and timing within noise.
-6. Report contract friction back to the Masora repo — the shape bumps via
-   `contract_version`, never in place.
+6. Report contract friction back to the Masora repo — shape changes land as a
+   new major `contract_version`, never in place.

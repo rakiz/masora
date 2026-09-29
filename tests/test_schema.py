@@ -12,6 +12,7 @@ from masora.diagnostics import (
     E_ANCHOR,
     E_FILENAME,
     E_PROOFQUERY,
+    E_PROVENANCE,
     E_SCHEMA,
     E_SUMMARY,
     E_TIMESTAMP,
@@ -95,7 +96,7 @@ def test_missing_format_version():
 
 def test_unknown_major_version():
     expect_error(
-        apply_overrides(make_claim("01J8Z3K0000000000000000000"), {"format_version": 2}),
+        apply_overrides(make_claim("01J8Z3K0000000000000000000"), {"format_version": 3}),
         "claim",
         E_VERSION,
     )
@@ -115,7 +116,9 @@ def test_unknown_field():
     )
 
 
-@pytest.mark.parametrize("field", ["targets", "actor", "verified_at", "evidence", "snapshots"])
+@pytest.mark.parametrize(
+    "field", ["targets", "actor", "model", "verified_at", "evidence", "snapshots"]
+)
 def test_forbidden_field_on_claim(field):
     data = apply_overrides(make_claim("01J8Z3K0000000000000000000"), {field: None})
     expect_error(data, "claim", E_SCHEMA)
@@ -123,7 +126,17 @@ def test_forbidden_field_on_claim(field):
 
 @pytest.mark.parametrize(
     "field",
-    ["source", "reason", "summary", "anchors", "class", "unanchored", "cost_tokens", "recorded_at"],
+    [
+        "actor",
+        "model",
+        "reason",
+        "summary",
+        "anchors",
+        "class",
+        "unanchored",
+        "cost_tokens",
+        "recorded_at",
+    ],
 )
 def test_forbidden_field_on_verify(field):
     data = apply_overrides(
@@ -164,7 +177,7 @@ def test_missing_required_field_on_verify():
         make_verify(
             "01J8Z3K0000000000000000001", "01J8Z3K0000000000000000000", "01J8Z3K0000000000000000000"
         ),
-        {"actor": OMIT},
+        {"source": OMIT},
     )
     expect_error(data, "verify", E_SCHEMA)
 
@@ -208,14 +221,102 @@ def test_bad_source_enum():
     expect_error(data, "claim", E_SCHEMA)
 
 
-def test_bad_actor_enum():
+def test_bad_verify_source_enum():
     data = apply_overrides(
         make_verify(
             "01J8Z3K0000000000000000001", "01J8Z3K0000000000000000000", "01J8Z3K0000000000000000000"
         ),
-        {"actor": "ci"},
+        {"source": "ci"},
     )
     expect_error(data, "verify", E_SCHEMA)
+
+
+def test_bad_effort_enum():
+    data = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"), {"source": "llm", "effort": "extreme"}
+    )
+    expect_error(data, "claim", E_PROVENANCE)
+
+
+def test_effort_on_human_claim_refused():
+    data = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"), {"source": "human", "effort": "high"}
+    )
+    expect_error(data, "claim", E_PROVENANCE)
+
+
+def test_effort_on_llm_claim_ok():
+    data = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"), {"source": "llm", "effort": "high"}
+    )
+    validate(data, "claim")
+
+
+def test_effort_on_verify_llm_ok():
+    data = apply_overrides(
+        make_verify(
+            "01J8Z3K0000000000000000001", "01J8Z3K0000000000000000000", "01J8Z3K0000000000000000000"
+        ),
+        {"source": "llm", "effort": "medium"},
+    )
+    validate(data, "verify")
+
+
+def test_effort_on_verify_human_refused():
+    data = apply_overrides(
+        make_verify(
+            "01J8Z3K0000000000000000001", "01J8Z3K0000000000000000000", "01J8Z3K0000000000000000000"
+        ),
+        {"source": "human", "effort": "low"},
+    )
+    expect_error(data, "verify", E_PROVENANCE)
+
+
+@pytest.mark.parametrize("effort", ["low", "medium", "high"])
+def test_effort_enum_values_ok(effort):
+    data = apply_overrides(
+        make_doubt(
+            "01J8Z3K0000000000000000001", "01J8Z3K0000000000000000000", "01J8Z3K0000000000000000002"
+        ),
+        {"source": "llm", "effort": effort},
+    )
+    validate(data, "doubt")
+
+
+def test_effort_on_targeted_human_refused():
+    data = apply_overrides(
+        make_doubt(
+            "01J8Z3K0000000000000000001", "01J8Z3K0000000000000000000", "01J8Z3K0000000000000000002"
+        ),
+        {"source": "human", "effort": "low"},
+    )
+    expect_error(data, "doubt", E_PROVENANCE)
+
+
+def test_bad_name_type():
+    data = apply_overrides(make_claim("01J8Z3K0000000000000000000"), {"source": "llm", "name": 42})
+    expect_error(data, "claim", E_PROVENANCE)
+
+
+def test_name_on_llm_claim_ok():
+    data = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"), {"source": "llm", "name": "glm-5p3-flash"}
+    )
+    validate(data, "claim")
+
+
+def test_name_on_human_claim_ok():
+    data = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"), {"source": "human", "name": "Sebastien"}
+    )
+    validate(data, "claim")
+
+
+def test_name_on_graph_source_ok():
+    data = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"), {"source": "graph", "name": OMIT}
+    )
+    validate(data, "claim")
 
 
 def test_summary_too_long():
@@ -319,11 +420,12 @@ def test_reason_may_exist_without_contradicts():
     validate(data, "claim")
 
 
-def test_model_requires_llm_writer():
+def test_cost_tokens_read_against_name():
     data = apply_overrides(
-        make_claim("01J8Z3K0000000000000000000"), {"source": "human", "model": "glm-5p3-flash"}
+        make_claim("01J8Z3K0000000000000000000"),
+        {"source": "llm", "name": "glm-5p3-flash", "cost_tokens": 48000},
     )
-    expect_error(data, "claim", E_SCHEMA)
+    validate(data, "claim")
 
 
 def test_cost_tokens_negative():

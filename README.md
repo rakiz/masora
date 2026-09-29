@@ -5,7 +5,7 @@ symbols, with a verification lifecycle and self-invalidation. Knowledge lives
 in a Masora *base* — a git repository of small `.md` event files kept beside
 the code, never inside it: code is never edited to attach knowledge. Each
 claim carries anchors (SCIP symbol identities with fingerprints), provenance
-(`human` | `llm` | `derived_from_graph`) and either recorded proof or an
+(`human` | `llm` | `graph`) and either recorded proof or an
 explicit `unverified`/`unanchored` status. Later events verify, doubt, refute
 and un-refute it without any existing file ever being modified — a refuted
 claim stays on disk as negative knowledge.

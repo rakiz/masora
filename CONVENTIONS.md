@@ -21,6 +21,26 @@ longer needed but kept for compatibility" phrased as history. A past
 decision that matters belongs in `CHANGELOG.md` or a commit message — not in
 a comment describing what the code does today.
 
+## 3. Documentation conventions
+
+The same discipline governs every pushed file — code comments, docs, README,
+CHANGELOG:
+
+1. **State, not history.** Documentation describes what the thing IS, never
+   how it got there. Framings such as "replaces X", "was Y", "previously",
+   "bump", "breaking", "no longer delivery pending" are forbidden: a reader
+   must learn the current design, not its evolution. (Sections 1–2 above are
+   the same rule for comments: a comment describes intent and the current
+   state, never the code's past.)
+2. **The CHANGELOG exception.** Within a version, a CHANGELOG section is
+   release-notes for the current state only; the history of how the project
+   got there lives between released versions (Keep a Changelog format), and
+   already-released sections keep that historical form.
+3. **English only.** All pushed content is written in English, always.
+
+A past decision that matters belongs in `CHANGELOG.md` (between released
+versions) or a commit message — never as evolution talk elsewhere.
+
 ## Project rules
 
 <!-- Add your project's own rules here, one subsection per rule, same style

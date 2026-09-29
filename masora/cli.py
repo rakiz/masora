@@ -210,10 +210,12 @@ def _print_envelope(envelope: dict) -> None:
         print(f"  version {version['id']}: {state}")
     verification = envelope["verification"]
     if verification["status"] == "verified":
-        print(f"  verification: verified by {verification['id']} (actor: {verification['actor']})")
+        print(
+            f"  verification: verified by {verification['id']} (source: {verification['source']})"
+        )
     else:
         print("  verification: unverified")
-    print(f"  actors: {', '.join(envelope['actors']) or 'none'}")
+    print(f"  sources: {', '.join(envelope['sources']) or 'none'}")
     print(f"  doubted: {'yes' if envelope['doubted'] else 'no'}")
     if envelope["proof_replay"]:
         print(f"  proof replay: {envelope['proof_replay']} (provider not wired)")

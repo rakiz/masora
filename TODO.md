@@ -31,12 +31,11 @@ Tasks:
 - [ ] Write path rejects credential-shaped content.
 - [x] Code anchor provider via cppgraph with per-symbol definition fingerprint.
 - [x] Edge-set fingerprint per symbol (hash of outgoing edges) — input to the settled `suspect` rule (§12.4).
-- [x] Neighbour snapshot (per-anchor snapshot: each anchor's own edge-set hash plus its direct neighbours, identity → edge-set hash) recorded at write time and in `.verify` events — baseline for `suspect` comparison. (Provider-side computation: `masora/providers.py` answers both for the index; the recording at write/verify time lands with the MCP tools.)
+- [x] Neighbour snapshot (per-anchor snapshot: each anchor's own edge-set hash plus its direct neighbours, identity → edge-set hash) recorded at write time and in `.verify` events — baseline for `suspect` comparison. (Provider-side computation: `masora/providers.py` answers both for the index; the write path records at write/verify time.)
 - [ ] Injection of known facts into cppgraph responses (requires changes in the separate cppgraph repo).
 - [x] `masora facts --repo [--symbol]`: versioned JSON contract for the cppgraph injection (docs/CPPGRAPH_INTEGRATION.md). → `masora/facts.py` (strictly read-only: base resolved via the config mappings/default_base for `--repo`, existing index read and never built — missing/unusable = exit 1 with `E-FACTS-NOINDEX`/`E-IDX-CORRUPT` on stderr, nothing on stdout; one compact JSON document `{contract_version, repo_head, graph_commit, stale_warning, facts[]}`; `--symbol` matches the displayed version's anchors verbatim, or the newest version for `resolution: none`/founderless lineages where `displayed` is null; `stale_warning` = the `index_stale()` three-axis drift comparison, `null` when nothing is comparable; the two warning classes stay in-band and never error).
 - [ ] Fallback without cppgraph: exercise the base via CLI/MCP `search` by symbol.
-- [ ] Injections emitted as evidence envelopes (validity, anchor, provenance).
-- [ ] `SessionStart` hook: pull + stale summary.
+- [x] Injections emitted as evidence envelopes (validity, anchor, provenance). → The `masora facts` contract (contract_version 1, docs/CPPGRAPH_INTEGRATION.md §3) carries all three SPEC-line-16 legs per fact: validity (resolution + verification `verified(<source>)`/`unverified` + flags), anchor (the effective version's FULL `anchors` identity list beside `anchors_matched`) and provenance (`source`/`name`/`effort` — FORMAT.md unified provenance); the cppgraph-side rendering of these fields stays with TODO line 35.
 - [ ] Skill / AGENTS.md instructions: search-before-investigating, when to `note`, capture triggers from §10.3.
 - [ ] First rollout: create the base on the author's `employees/` dir + Confluence install page (install, `masora setup --base <url>`, usage); migration to a dedicated repo if adopted.
 - [ ] Agent-graded evaluation of the phase objective — define the protocol first (task list, rubric for "repeated wrong deduction", metrics), then: seed the base with the claims and refutations produced while building it, run ~20 routine tasks with and without Masora; success = fewer repeated wrong deductions and fewer tool calls or tokens per task; plus injected-token accounting.
@@ -50,7 +49,7 @@ Clarifications to settle as each task starts (final audit 2026-09-25):
 - Credential-shaped content: detector (gitleaks-style patterns + entropy), scanned fields, reject-with-error at `note`.
 - YAML details: monotonic ULID generation; `unanchored` reason field name (distinct from `reason`); `ambiguous` outcome at `note` returns candidates and writes nothing.
 - MCP transport (stdio) and the envelope JSON shape (cap + omitted-count fields).
-- Envelopes always show `actor`/`source` (solo-base loophole: nothing prevents self-verifying Stop-hook extractions; review is the trust path).
+- Envelopes always show `source` (+ `name`/`effort` when present — FORMAT.md unified provenance; solo-base loophole: nothing prevents self-verifying Stop-hook extractions; review is the trust path).
 - `cost_tokens` is passed by the agent when it knows it (skill guidance); the tool never invents it.
 
 Out of scope:
@@ -59,6 +58,19 @@ Out of scope:
 - Advanced MCP tools: `unrefute`, `recheck`, `history`, `explain` (evidence-chain trace for an injected fact).
 - CI pipeline wiring (publication is PR-based; `masora check` runs locally in `sync`).
 - Duplicate-lineage handling (`same-as`).
+
+### Phase 2 — beyond cppgraph
+
+Deferred — a spec seed recorded on 2026-09-29; reopen when non-code knowledge
+is wanted, without cppgraph.
+
+- [ ] Agent hooks (an injection channel without cppgraph):
+  - `SessionStart`: background pull of the base with silent failure, plus a summary of stale lineages;
+  - `UserPromptSubmit`: FTS over the prompt, injection of 2-3 claims;
+  - strict caps (summary ≈ 100 tokens, 2-3 claims per prompt);
+  - FTS thresholds (minimum prompt length, minimum score — search is lexical, false positives are a risk);
+  - injected-token accounting in the evaluation protocol;
+  - purpose = non-code knowledge, without cppgraph.
 
 <!-- Block template to duplicate per phase:
 

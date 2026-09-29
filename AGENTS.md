@@ -8,7 +8,9 @@ a Masora base). Read in this order; on disagreement the earlier file wins:
 2. **SPEC.md** — stable requirements: goals, non-goals, constraints.
 3. **MASORA_DESIGN.md** — design rationale; §12 records settled decisions.
    Items marked *open* are raised, never decided silently.
-4. **CONVENTIONS.md** — code style: comments describe intent, not history.
+4. **CONVENTIONS.md** — code and documentation conventions: comments
+   describe intent, not history; pushed docs describe state, not evolution,
+   in English.
 5. **docs/ARCHITECTURE.md** — how the code maps onto the contract:
    canonicalization/schema layer, the fold, checker validation order, the
    sync pipeline, what is not built yet.

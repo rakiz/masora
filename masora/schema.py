@@ -9,6 +9,7 @@ from .diagnostics import (
     E_ANCHOR,
     E_FILENAME,
     E_PROOFQUERY,
+    E_PROVENANCE,
     E_SCHEMA,
     E_SUMMARY,
     E_TIMESTAMP,
@@ -21,17 +22,21 @@ from .ulid import UlidError, validate_ulid
 
 KINDS = frozenset({"claim", "verify", "doubt", "undoubt", "refute", "unrefute"})
 CLAIM_CLASS_VALUES = frozenset({"structural", "semantic"})
-SOURCE_VALUES = frozenset({"human", "llm", "derived_from_graph"})
-ACTOR_VALUES = frozenset({"human", "llm"})
+SOURCE_VALUES = frozenset({"human", "llm", "graph"})
+# `graph` provenance is reserved for deriving tools; the MCP write path never
+# emits it (MASORA_DESIGN.md §12.10).
+WRITABLE_SOURCE_VALUES = frozenset({"human", "llm"})
+EFFORT_VALUES = frozenset({"low", "medium", "high"})
 PROVIDER_VALUES = frozenset({"code"})
 EXPECT_OPS = frozenset({"set-equality", "count", "superset"})
 SUPPORTED_FORMAT_VERSION = 1
 
 FORBIDDEN = {
-    "claim": frozenset({"targets", "actor", "verified_at", "evidence", "snapshots"}),
+    "claim": frozenset({"targets", "actor", "model", "verified_at", "evidence", "snapshots"}),
     "verify": frozenset(
         {
-            "source",
+            "actor",
+            "model",
             "reason",
             "contradicts",
             "summary",
@@ -46,6 +51,7 @@ FORBIDDEN = {
     "doubt": frozenset(
         {
             "actor",
+            "model",
             "verified_at",
             "snapshots",
             "anchors",
@@ -59,6 +65,7 @@ FORBIDDEN = {
     "undoubt": frozenset(
         {
             "actor",
+            "model",
             "verified_at",
             "snapshots",
             "anchors",
@@ -72,6 +79,7 @@ FORBIDDEN = {
     "refute": frozenset(
         {
             "actor",
+            "model",
             "verified_at",
             "snapshots",
             "anchors",
@@ -85,6 +93,7 @@ FORBIDDEN = {
     "unrefute": frozenset(
         {
             "actor",
+            "model",
             "verified_at",
             "snapshots",
             "anchors",
@@ -98,7 +107,7 @@ FORBIDDEN = {
 }
 REQUIRED = {
     "claim": frozenset({"class", "source", "summary", "statement", "recorded_at", "unanchored"}),
-    "verify": frozenset({"targets", "actor", "verified_at", "evidence", "snapshots"}),
+    "verify": frozenset({"targets", "source", "verified_at", "evidence", "snapshots"}),
     "doubt": frozenset({"targets", "source", "reason", "recorded_at"}),
     "undoubt": frozenset({"targets", "source", "reason", "recorded_at"}),
     "refute": frozenset({"targets", "source", "reason", "recorded_at"}),
@@ -107,7 +116,8 @@ REQUIRED = {
 OPTIONAL = {
     "claim": frozenset(
         {
-            "model",
+            "name",
+            "effort",
             "cost_tokens",
             "contradicts",
             "anchors",
@@ -116,11 +126,11 @@ OPTIONAL = {
             "reason",
         }
     ),
-    "verify": frozenset({"model"}),
-    "doubt": frozenset({"model", "evidence"}),
-    "undoubt": frozenset({"model", "evidence"}),
-    "refute": frozenset({"model", "evidence"}),
-    "unrefute": frozenset({"model", "evidence"}),
+    "verify": frozenset({"name", "effort"}),
+    "doubt": frozenset({"name", "effort", "evidence"}),
+    "undoubt": frozenset({"name", "effort", "evidence"}),
+    "refute": frozenset({"name", "effort", "evidence"}),
+    "unrefute": frozenset({"name", "effort", "evidence"}),
 }
 HEX_RE = re.compile(r"^[0-9a-f]+$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -139,8 +149,8 @@ class EventRecord:
     targets: str | None
     contradicts: str | None
     source: str | None
-    actor: str | None
-    model: str | None
+    name: str | None
+    effort: str | None
     cost_tokens: int | None
     claim_class: str | None
     unanchored: bool
@@ -373,7 +383,8 @@ def _validate_claim(data: dict, event_id: str, lineage: str, path: str) -> Event
             Diag("error", E_SCHEMA, "reason is required for v2+ claims (id != lineage)", path)
         )
 
-    model = _check_model(data.get("model"), source, path)
+    name = _check_name(data.get("name"), path)
+    effort = _check_effort(data.get("effort"), source, path)
     cost_tokens = data.get("cost_tokens")
     if cost_tokens is not None and (
         isinstance(cost_tokens, bool) or not isinstance(cost_tokens, int) or cost_tokens < 0
@@ -399,8 +410,8 @@ def _validate_claim(data: dict, event_id: str, lineage: str, path: str) -> Event
         targets=None,
         contradicts=contradicts,
         source=source,
-        actor=None,
-        model=model,
+        name=name,
+        effort=effort,
         cost_tokens=cost_tokens,
         claim_class=claim_class,
         unanchored=unanchored,
@@ -418,8 +429,8 @@ def _validate_claim(data: dict, event_id: str, lineage: str, path: str) -> Event
 def _validate_targeted(
     data: dict, event_id: str, lineage: str, kind: str, path: str
 ) -> EventRecord:
-    source = data.get("source")
-    if source is not None and source not in SOURCE_VALUES:
+    source = data["source"]
+    if source not in SOURCE_VALUES:
         raise CheckFailure(
             Diag(
                 "error",
@@ -428,19 +439,10 @@ def _validate_targeted(
                 path,
             )
         )
-    actor = None
+    name = _check_name(data.get("name"), path)
+    effort = _check_effort(data.get("effort"), source, path)
     evidence_count = None
     if kind == "verify":
-        actor = data["actor"]
-        if actor not in ACTOR_VALUES:
-            raise CheckFailure(
-                Diag(
-                    "error",
-                    E_SCHEMA,
-                    f"actor must be one of {sorted(ACTOR_VALUES)}, got {actor!r}",
-                    path,
-                )
-            )
         evidence = data["evidence"]
         if not isinstance(evidence, list) or len(evidence) == 0:
             raise CheckFailure(
@@ -462,7 +464,6 @@ def _validate_targeted(
         commit, graph_commit = _validate_timestamp(
             data["verified_at"], "verified_at", require_graph=len(snapshots) > 0, path=path
         )
-        model = _check_model(data.get("model"), actor, path)
     else:
         reason = data["reason"]
         if not isinstance(reason, str):
@@ -496,7 +497,6 @@ def _validate_targeted(
                         )
                     )
             evidence_count = len(evidence)
-        model = _check_model(data.get("model"), source, path)
     return EventRecord(
         path=path,
         id=event_id,
@@ -505,8 +505,8 @@ def _validate_targeted(
         targets=_ulid(data["targets"], "targets", path),
         contradicts=None,
         source=source,
-        actor=actor,
-        model=model,
+        name=name,
+        effort=effort,
         cost_tokens=None,
         claim_class=None,
         unanchored=False,
@@ -544,23 +544,40 @@ def _check_summary(summary: object, path: str) -> str:
     return summary
 
 
-def _check_model(model: object, writer: str | None, path: str) -> str | None:
-    if model is None:
+def _check_name(name: object, path: str) -> str | None:
+    """Optional free string: the git user.name when human, the model name when llm."""
+    if name is None:
         return None
-    if not isinstance(model, str) or not model:
+    if not isinstance(name, str) or not name:
         raise CheckFailure(
-            Diag("error", E_SCHEMA, f"model must be a non-empty string, got {model!r}", path)
+            Diag("error", E_PROVENANCE, f"name must be a non-empty string, got {name!r}", path)
         )
-    if writer != "llm":
+    return name
+
+
+def _check_effort(effort: object, source: str | None, path: str) -> str | None:
+    """Optional effort enum, only meaningful when source is llm (FORMAT.md §4)."""
+    if effort is None:
+        return None
+    if effort not in EFFORT_VALUES:
         raise CheckFailure(
             Diag(
                 "error",
-                E_SCHEMA,
-                f"model is only recorded when the writer is an LLM (writer: {writer!r})",
+                E_PROVENANCE,
+                f"effort must be one of {sorted(EFFORT_VALUES)}, got {effort!r}",
                 path,
             )
         )
-    return model
+    if source != "llm":
+        raise CheckFailure(
+            Diag(
+                "error",
+                E_PROVENANCE,
+                f"effort is only recorded when source is 'llm' (source: {source!r})",
+                path,
+            )
+        )
+    return effort
 
 
 def _validate_anchors(anchors: list, path: str) -> tuple[str, ...]:

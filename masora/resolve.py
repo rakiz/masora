@@ -40,7 +40,7 @@ class LineageStatus:
     displayed: str | None
     resolution: str
     verification_status: str
-    verification_actor: str | None
+    verification_source: str | None
     active: tuple[str, ...]
     refuted: tuple[str, ...]
     suspect: bool
@@ -52,7 +52,7 @@ class LineageStatus:
     @property
     def verification(self) -> str:
         if self.verification_status == "verified":
-            return f"verified({self.verification_actor})"
+            return f"verified({self.verification_source})"
         return "unverified"
 
 
@@ -95,7 +95,7 @@ def resolve_lineage(
         displayed=status.displayed,
         resolution=resolution,
         verification_status=status.verification_status,
-        verification_actor=status.verification_actor,
+        verification_source=status.verification_source,
         active=status.active_versions,
         refuted=status.refuted_versions,
         suspect=_suspect(displayed, status, edge_snapshots) if displayed else False,

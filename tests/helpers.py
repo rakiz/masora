@@ -121,7 +121,7 @@ def make_verify(uid: str, lineage: str, targets: str, **overrides) -> dict:
         "lineage": lineage,
         "kind": "verify",
         "targets": targets,
-        "actor": "llm",
+        "source": "llm",
         "verified_at": {"commit": SHA, "graph_commit": SHA},
         "evidence": ["replay: 3 edges, expected 3"],
         "snapshots": {IDENT_MAIN: {"edges": FP, "neighbours": {IDENT_OTHER: FP}}},

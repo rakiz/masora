@@ -137,6 +137,8 @@ sync with `masora/diagnostics.py` by `tests/test_docs.py`.
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — diagnostic codes.
 - [docs/AGENT_INSTRUCTIONS.md](docs/AGENT_INSTRUCTIONS.md) — the rules an
   adopting project pastes into its AGENTS.md.
+- [docs/EVALUATION.md](docs/EVALUATION.md) — the pre-registered protocol for
+  judging whether Masora changes agent behaviour.
 - [SPEC.md](SPEC.md) — stable requirements (goals, non-goals, constraints).
 - [MASORA_DESIGN.md](MASORA_DESIGN.md) — design rationale and settled
   decisions.

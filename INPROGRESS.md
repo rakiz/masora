@@ -8,6 +8,26 @@
 
 ## Current phase
 
+**Done:** the evaluation protocol (TODO.md "Agent-graded evaluation" amended:
+protocol written, the RUN remains) — docs/EVALUATION.md, pre-registered:
+the question + success criteria (fewer repeated wrong deductions AND lower
+cost per task; the injected-token tax as the secondary read), the paired
+A/B design (same agent/model, fresh session per run, neutral prompts, blind
+scoring keyed by run id), the ~20-task corpus grounded in the live base's
+recorded summaries (8 example templates from the §6 real summary lines +
+≥ 4 control tasks to detect false help; binding to real ULIDs at the
+seed-check), the rubric (repeated wrong deductions against the claim list,
+tool calls, total tokens, injected tokens per the §6 budget), the procedure
+(seed-check: masora check clean + fresh index; seeded-random task ×
+condition order; the recording sheet) and the verdict rule (strictly fewer
+repeated wrong deductions AND no token-cost regression beyond the injected
+tokens — the numbers decide adoption), with the honest limits in the doc
+(single-author bias, small n, lexical recall, prevention-only measurement).
+README Documentation list + docs/ARCHITECTURE.md (Agent-instructions
+section) point at it; CHANGELOG [Unreleased] Added bullet. Docs-only: no
+code changes, suite untouched (534 green). Next task: the RUN (the protocol's
+second half) + the first rollout (TODO.md).
+
 **Done:** base gate (TODO.md, ticked) — `check_base` refuses up front with
 `E-NOT-A-BASE` ("not a base: no base.toml at <dir>") when the passed root
 has no `base.toml`: one gate for every consumer (CLI commands, write-path

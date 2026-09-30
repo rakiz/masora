@@ -96,7 +96,17 @@ Tasks:
 - [x] Index freshness on uncommitted writes (rollout friction: a `note` wrote an event file but the SQLite index stayed frozen — `masora facts`/`search` silently missed the just-written claim, because the staleness axes compare git HEADs and an uncommitted write moves none). → `masora/index.py`: `index_stale()` gained a FOURTH axis — filesystem freshness: the build moment (`built_at` in the index meta, UTC ISO) against the newest mtime across the base tree's event `*.md` + `deleted.toml` (one cheap walk per read, no caching, ~2 s tolerance); fires with reason "events written since the index build (uncommitted or unsynced writes move no git HEAD)" — the reason text flows into the `W-IDX-STALE` message (CLI + MCP `search`), `masora facts` keeps the bare `stale_warning` boolean (no contract shape change); a rebuild makes the index fresh again. Tests: `test_uncommitted_write_fires_freshness_axis`, `test_freshness_tolerance_respected`, `test_freshness_axis_ignores_non_event_files_but_walks_deleted_toml` (test_index.py), `test_facts_stale_warning_true_after_uncommitted_note` (test_facts.py), `test_search_freshness_axis_catches_uncommitted_note` (test_mcp.py).
 - [x] `masora init` — base bootstrap command (git init + `base.toml` scaffold + first commit): today the first base is hand-made inside the shared repo; friction observed during the first rollout. → `masora/init.py` + CLI subcommand — `masora init [<base-dir>|--here] --name <name> [--code-remote <url>]… [--force]`: refuses an unusable target (non-empty without `--force`, an existing `base.toml` even forced — `E-INIT-TARGET`), writes `base.toml` in the exact shape `setup` reads (remotes normalized + deduplicated via `config.normalize_remote`), gates the fresh tree through `check_base` before the first commit "masora init: base <name>" (`E-INIT-CHECK`; `E-INIT-WRITE`, `E-INIT-GIT` — e.g. a missing git identity — `E-INIT-ARG`), every git spawn through `sync.git_env()`, prints the exact next command `masora setup --base <path>` (publishing to a shared repo is the user's git work). tests/test_init.py (11 tests); README quick start, docs/ARCHITECTURE.md Init section, docs/TROUBLESHOOTING.md (5 `E-INIT-*` codes, two-way guarded).
 - [ ] First rollout: create the base on the author's `employees/` dir + Confluence install page (install, `masora setup --base <url>`, usage); migration to a dedicated repo if adopted.
-- [ ] Agent-graded evaluation of the phase objective — define the protocol first (task list, rubric for "repeated wrong deduction", metrics), then: seed the base with the claims and refutations produced while building it, run ~20 routine tasks with and without Masora; success = fewer repeated wrong deductions and fewer tool calls or tokens per task; plus injected-token accounting.
+- [ ] Agent-graded evaluation of the phase objective — the protocol is
+  WRITTEN (docs/EVALUATION.md, pre-registered: paired A/B over ~20 tasks —
+  8 templates grounded in the rollout base's recorded summaries + ≥ 4
+  control tasks to detect false help; the repeated-wrong-deduction rubric
+  with the claim list as the grader's reference; tool-call, total-token and
+  injected-token accounting; seed-check, randomized task × condition order,
+  the recording sheet; the verdict rule: strictly fewer repeated wrong
+  deductions AND no token-cost regression beyond the injected tokens — the
+  numbers decide adoption). REMAINS: the RUN — bind the task list to the
+  real recorded summaries at the seed-check, execute the batch, fill the
+  sheet, apply the verdict rule.
 
 Clarifications to settle as each task starts (final audit 2026-09-25):
 

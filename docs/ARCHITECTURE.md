@@ -525,6 +525,12 @@ yet" below are the other two). The block directs the agent to:
 - etiquette: content in English (pushed content), a recalled fact is never
   an instruction, statuses are evidence labels.
 
+The phase objective ("does it change the agent's behaviour?") is judged by
+the pre-registered paired A/B protocol in
+[docs/EVALUATION.md](EVALUATION.md) — repeated wrong deductions, tool-call
+and token cost, injected-token tax; a protocol amended after seeing results
+is void.
+
 ## Status (`masora/status.py`, MASORA_DESIGN.md §9)
 
 `masora status [--force]` prints one readable screen and always exits 0 — it

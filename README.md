@@ -49,6 +49,7 @@ Requires Python ≥ 3.13.
 
 ```sh
 uv tool install .        # or: pip install .
+masora init <base-dir> --name "<team>" [--code-remote <url>]...  # create a NEW base locally: git repo + base.toml + first commit
 masora setup --base <url>[#<path>]  # clone a base + write ~/.config/masora/config.toml from its base.toml
 masora check <base-dir>  # validate a base (exit 0/1/2)
 masora compact <base-dir>  # drop pure history per lineage, fold-verified (plan exits 3; --yes executes)
@@ -71,6 +72,13 @@ its root; `masora setup --base <url>[#<path>]` clones it into
 travels through the team's onboarding docs, nothing ever lives in the code
 repo.
 
+To create a new base, run `masora init <base-dir> --name "<name>"` (add one
+`--code-remote <url>` per code repo the base will serve): it makes the
+directory a git repo on `main`, writes `base.toml` and commits it, then prints
+the exact `masora setup --base <path>` command to register it locally.
+Publishing the base to a shared repo is ordinary git work (`git push`); once
+the URL exists, teammates onboard with `masora setup --base <url>`.
+
 ## Diagnostics
 
 - `E-*` codes are errors: `check`/`sync`/`gc` fail (exit 1) and nothing is
@@ -83,7 +91,8 @@ repo.
 - `E-CANON-*` are the YAML canonicalization rules (FORMAT.md §4);
   `E-REWRITE`, `E-FOUNDER`, `E-GC-UNAVAILABLE`, `E-TOMBSTONE-SHRINK`,
   `E-GIT`, `E-NO-ORIGIN`, `E-MERGE-BASE` only appear in `sync`; the
-  `E-SETUP-*` codes only appear in `setup`; `E-GC-ULID`, `E-GC-UNKNOWN` and
+  `E-SETUP-*` codes only appear in `setup`; the `E-INIT-*` codes only appear
+  in `init`; `E-GC-ULID`, `E-GC-UNKNOWN` and
   `E-GC-CHECK` only appear in `gc`; `E-COMPACT-DIVERGE` and `E-COMPACT-CHECK`
   only appear in `compact`.
 

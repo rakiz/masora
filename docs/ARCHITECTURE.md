@@ -368,6 +368,27 @@ and adds FTS5 search. Section references are to MASORA_DESIGN.md.
    (`$MASORA_HOME/config.toml`, `$MASORA_HOME/bases/<name>`); unset, the
    default paths above apply.
 
+## Init (`masora/init.py`, MASORA_DESIGN.md §9)
+
+`masora init [<base-dir>|--here] --name <name> [--code-remote <url>]… [--force]`
+creates a new base locally in one command: a self-contained git repo whose
+`main` is ready to hold the event tree. Target refusals (`E-INIT-TARGET`): the path exists as a
+file, is non-empty without `--force`, or already holds `base.toml` — an
+existing base is never overwritten, `--force` or not. It writes `base.toml`
+in exactly the shape `setup` reads (`name` + `code_remotes`, each
+`--code-remote` stored normalized via `config.normalize_remote` and
+deduplicated, `E-INIT-ARG` when a value does not look like a git remote),
+gates the fresh tree through `check_base()` before anything is committed
+(`E-INIT-CHECK` — a forced directory must not hold stray event files or a
+`deleted.toml`), then runs `git init -b main` + first commit
+("masora init: base <name>"); `E-INIT-GIT` surfaces git failures cleanly
+(most often a missing git identity). Every git spawn goes through
+`sync.git_env()`. It prints the exact next command,
+`masora setup --base <path>`, plus one line of framing: init works locally;
+publishing the base to a shared repo is the user's git work, and
+`masora setup --base <url>` is the onboarding step once the URL exists.
+Slug interplay: none — lineage directories come from writes (FORMAT.md §1).
+
 ## MCP server and write path (`masora/mcp.py`, `masora/write.py`, MASORA_DESIGN.md §10.4, §13)
 
 `masora mcp` runs a **hand-rolled minimal MCP server** over stdio — no SDK, no

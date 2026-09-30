@@ -8,6 +8,22 @@
 
 ## Current phase
 
+**Done:** `masora init` — base bootstrap command (TODO.md, ticked).
+`masora/init.py`: `masora init [<base-dir>|--here] --name <name>
+[--code-remote <url>]... [--force]` creates a new base locally — refuses an
+unusable target (a file, non-empty without `--force`, an existing `base.toml`
+even forced: `E-INIT-TARGET`), writes `base.toml` in the exact shape setup
+reads (remotes normalized + deduplicated via `config.normalize_remote`),
+gates the fresh tree through `check_base` before the first commit
+"masora init: base <name>" (`E-INIT-ARG`, `E-INIT-WRITE`, `E-INIT-CHECK`,
+`E-INIT-GIT` — e.g. a missing git identity), every git spawn through
+`sync.git_env()`, and prints the exact next command
+`masora setup --base <path>` plus one line: publishing to a shared repo is
+the user's git work. New `E-INIT-*` family in diagnostics.py +
+docs/TROUBLESHOOTING.md (two-way guarded). 11 tests in tests/test_init.py;
+suite 496 green; ruff clean. Next task: the first rollout (TODO.md — the
+real base on the author's `employees/` dir + the Confluence install page).
+
 **Done:** two friction fixes (TODO.md, both ticked). `E-MCP-NO-BASE` remedy:
 `masora/write.py` `resolve_base` distinguishes its two causes and remedies
 each — an omitted `repo_root` (read tools fall back to the base directory,

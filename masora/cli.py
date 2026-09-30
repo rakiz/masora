@@ -1,4 +1,4 @@
-"""`masora` CLI — Phase 1 implements the `check`, `sync`, `setup`, `gc`, `index` and `search` commands."""
+"""`masora` CLI — the Masora commands (each subparser below carries its contract in --help)."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from .index import (
     index_stale_reason,
     search_index,
 )
+from .init import run as run_init
 from .mcp import PROTOCOL_VERSION
 from .mcp import serve as run_mcp
 from .setup import run as run_setup
@@ -28,7 +29,7 @@ from .sync import run as run_sync
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="masora",
-        description="Masora: git-backed knowledge base of anchored claims. Phase 1 provides `check`, `sync`, `setup` and `gc`.",
+        description="Masora: git-backed knowledge base of anchored claims.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
     check = sub.add_parser(
@@ -58,6 +59,48 @@ def main(argv: list[str] | None = None) -> int:
         "--push",
         action="store_true",
         help="solo-base mode: push the merged result directly to origin/main instead of a pending branch and PR",
+    )
+    init = sub.add_parser(
+        "init",
+        help="create a new Masora base locally (MASORA_DESIGN.md §9)",
+        description="Exit codes: 0 created, 1 errors. Creates the directory, runs git init"
+        " (branch main), writes base.toml (name + the code remotes it serves, stored"
+        " normalized and deduplicated) and commits it ('masora init: base <name>'). A"
+        " non-empty target directory is refused unless --force; a directory that already"
+        " holds base.toml is always refused. The fresh tree must pass masora check before"
+        " the commit. init works locally — publishing the base to a shared repo is your"
+        " git work; masora setup --base <url> onboards contributors once pushed.",
+    )
+    init.add_argument(
+        "base_dir",
+        type=Path,
+        nargs="?",
+        default=None,
+        help="path of the base directory to create (omit when using --here)",
+    )
+    init.add_argument(
+        "--name",
+        required=True,
+        metavar="NAME",
+        help="display name recorded in base.toml (non-empty)",
+    )
+    init.add_argument(
+        "--code-remote",
+        action="append",
+        default=None,
+        metavar="URL",
+        help="git remote of a code repo this base will serve; repeatable, stored"
+        " normalized and deduplicated (same normalization as the config [[mappings]])",
+    )
+    init.add_argument(
+        "--here",
+        action="store_true",
+        help="create the base in the current directory instead of a named path",
+    )
+    init.add_argument(
+        "--force",
+        action="store_true",
+        help="create the base inside a non-empty directory (base.toml present is still refused)",
     )
     setup = sub.add_parser(
         "setup",
@@ -185,6 +228,14 @@ def main(argv: list[str] | None = None) -> int:
         return run_sync(args.base_dir, drop=args.drop, push=args.push)
     if args.command == "setup":
         return run_setup(args.base)
+    if args.command == "init":
+        return run_init(
+            args.base_dir,
+            args.name,
+            code_remotes=args.code_remote,
+            here=args.here,
+            force=args.force,
+        )
     if args.command == "gc":
         return run_gc(args.base_dir, args.lineage, yes=args.yes)
     if args.command == "compact":

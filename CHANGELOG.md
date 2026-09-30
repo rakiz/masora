@@ -6,6 +6,12 @@
       the current state only (release-notes style); the history of how the
       project got there lives between released versions. -->
 
+## [Unreleased]
+
+### Added
+
+- **The base gate** — `check_base()` refuses up front with `E-NOT-A-BASE` ("not a base: no base.toml at <dir>") when the passed root has no `base.toml`, instead of walking the tree into confusing stray-file errors; one gate covers every consumer (the CLI commands, the write-path pre/post checks, the compact/gc gates). The CLI dispatch for `check`/`gc`/`compact`/`index`/`search` adds the smart remedy on refusal: the origin remote of the current working directory resolved through the config mappings (`write.auto_base`, failure-tolerant) prints a second line, "the base configured for this repo: <path>", when one resolves — the commands still exit 1, the gate refuses and never auto-corrects. Rollout lesson: an agent passed the checkout root instead of the base directory; gc then wrote tombstones one level too high and the check error read as "invalid file" instead of "not a base". Test bases gain their `base.toml` (init and setup always created it). (`masora/checker.py`, `masora/cli.py`, `masora/diagnostics.py`, `tests/test_base_gate.py`, docs/TROUBLESHOOTING.md, FORMAT.md §1/§7, docs/ARCHITECTURE.md.)
+
 ## 0.2.2 — 2026-09-30
 
 ### Changed

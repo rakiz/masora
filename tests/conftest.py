@@ -19,6 +19,7 @@ def _clean_git_environ():
 def base(tmp_path) -> Path:
     path = tmp_path / "base"
     path.mkdir()
+    (path / "base.toml").write_text('name = "test-base"\ncode_remotes = []\n', encoding="utf-8")
     return path
 
 

@@ -13,7 +13,8 @@ FTS (`index`, searched by `search`).
   (the slug is an optional immutable label derived from the founder's summary
   by `write.slugify_summary` — case-boundary split, ≤ 30 chars, `lineage`
   fallback; hand-made trees may use the bare `<lineage-ULID>/` form), plus
-  optional `base.toml` (identity) and `deleted.toml` (tombstone).
+  `base.toml` (identity — the one path rule: a root without it is not a base,
+  `E-NOT-A-BASE`) and optional `deleted.toml` (tombstone).
 - The layout is a collision-avoidance convention only — validation is
   content-based. `checker.py` globs `**/*.md` (skipping `.git`); moving files
   changes nothing. One lineage, one directory: the write path
@@ -78,6 +79,13 @@ FTS (`index`, searched by `search`).
 
 `check_base()` validates the whole tree in one pass, in this order:
 
+0. **Base gate**: `base.toml` must exist at the passed root (`E-NOT-A-BASE`)
+   — a directory that is not a base refuses up front instead of walking the
+   tree into confusing stray-file errors; the gate covers every consumer
+   (the CLI commands, the write-path pre/post checks, the compact/gc gates),
+   and the CLI dispatch for `check`/`gc`/`compact`/`index`/`search` adds the
+   smart remedy — the base configured for the current repo's `origin`
+   remote, when one resolves (it never auto-corrects, exit 1 stands).
 1. Discover `**/*.md`.
 2. Parse each file: filename regex + ULID, frontmatter canonicalization,
    per-kind schema; `id`/`kind` must equal the filename's (`E-FILENAME`).

@@ -93,11 +93,11 @@ def write_graph(repo: Path, commit: str, **kwargs) -> Path:
 def make_base(name: str = "base", git_init: bool = True) -> Path:
     base_dir = bases_root() / name
     base_dir.mkdir(parents=True)
+    (base_dir / "base.toml").write_text('name = "test-base"\ncode_remotes = []\n', encoding="utf-8")
     if git_init:
         git(base_dir, "init", "-b", "main")
         git(base_dir, "config", "user.name", "Masora Test")
         git(base_dir, "config", "user.email", "masora@example.invalid")
-        (base_dir / "base.toml").write_text('name = "test-base"\n', encoding="utf-8")
         git(base_dir, "add", "-A")
         git(base_dir, "commit", "-m", "init")
     return base_dir

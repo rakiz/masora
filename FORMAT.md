@@ -23,7 +23,9 @@ doc gets amended.
 - Directory tree is a **collision-avoidance convention only** — never a lookup
   mechanism. The index parses the whole tree; moving files changes nothing
   (`check` is content-based, §7 — it validates paths never, so lineage
-  directories may be renamed or moved freely).
+  directories may be renamed or moved freely). The one path rule: `base.toml`
+  must exist at the base root — a directory without it is not a base and
+  `check` refuses it up front (`E-NOT-A-BASE`, §7).
 - **One lineage, one directory.** All events of a lineage live in that
   lineage's single directory. The writer creates it when the founder claim is
   written — `YYYY-MM/<slug>-<lineage-ULID>/`, the founder's month — and every
@@ -308,6 +310,9 @@ Replay outcomes never invalidate existing events: a verification is a historical
 fact about the claim's immutable fingerprint set (see §4).
 
 ## 7. What `check` enforces (summary)
+
+The passed root must be a base: `base.toml` exists at it, else `check`
+refuses up front with `E-NOT-A-BASE` and nothing below runs.
 
 1. Filenames parse as `<ULID>.<kind>.md`; `id` equals the filename ULID and the
    filename kind equals frontmatter `kind`.

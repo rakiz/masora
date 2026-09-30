@@ -77,6 +77,7 @@ def repo(tmp_path):
 def git_base(tmp_path):
     base = tmp_path / "gitbase"
     base.mkdir()
+    (base / "base.toml").write_text('name = "test-base"\ncode_remotes = []\n', encoding="utf-8")
     git(base, "init", "-b", "main")
     git(base, "config", "user.name", "Masora Test")
     git(base, "config", "user.email", "masora@example.invalid")

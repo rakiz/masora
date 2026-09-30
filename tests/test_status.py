@@ -45,6 +45,7 @@ def configured_base(masora_home) -> Path:
         "2026-09/x/01J8Z3K0000000000000000000.claim.md",
         make_claim(ULID_L1),
     )
+    (clone / "base.toml").write_text('name = "test-base"\ncode_remotes = []\n', encoding="utf-8")
     (clone / "deleted.toml").write_text(
         '[[deleted]]\nlineage = "01J8Z3K0000000000000000007"\n'
         'ulids = ["01J8Z3K0000000000000000007"]\n',
@@ -96,6 +97,7 @@ def test_status_lists_subdir_base_indexes(masora_home, capsys):
     clone = masora_home / "bases" / "employees"
     base_dir = clone / "masora_mdb"
     write_event(base_dir, "2026-09/x/01J8Z3K0000000000000000000.claim.md", make_claim(ULID_L1))
+    (base_dir / "base.toml").write_text('name = "test-base"\ncode_remotes = []\n', encoding="utf-8")
     repo = masora_home / "code"
     repo.mkdir()
     db = index_db_path(base_dir, repo)
@@ -119,6 +121,7 @@ def test_status_missing_clone_with_index_states_the_rebuild(masora_home, capsys)
     clone = masora_home / "bases" / "employees"
     base_dir = clone / "masora_mdb"
     write_event(base_dir, "2026-09/x/01J8Z3K0000000000000000000.claim.md", make_claim(ULID_L1))
+    (base_dir / "base.toml").write_text('name = "test-base"\ncode_remotes = []\n', encoding="utf-8")
     repo = masora_home / "code"
     repo.mkdir()
     db = index_db_path(base_dir, repo)

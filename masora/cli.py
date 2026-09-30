@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .checker import check_base
 from .compact import run as run_compact
-from .diagnostics import E_IDX_QUERY, W_IDX_STALE, Diag
+from .diagnostics import E_IDX_QUERY, E_NOT_A_BASE, W_IDX_STALE, Diag
 from .facts import run as run_facts
 from .gc import run as run_gc
 from .index import (
@@ -26,6 +26,30 @@ from .setup import run as run_setup
 from .status import installed_version
 from .status import run as run_status
 from .sync import run as run_sync
+from .write import WriteError, auto_base
+
+BASE_COMMANDS = ("check", "gc", "compact", "index", "search")
+
+
+def _configured_base_hint() -> Path | None:
+    """The base configured for the current repo's origin remote, when resolvable."""
+    try:
+        return auto_base(Path.cwd())
+    except (WriteError, OSError):
+        return None
+
+
+def _base_gate(base_dir: Path) -> bool:
+    """Refuse a non-base root up front with E-NOT-A-BASE plus the configured-base
+    remedy for this repo's remote; the commands never auto-correct."""
+    if not base_dir.is_dir() or (base_dir / "base.toml").is_file():
+        return True
+    print(f"  {Diag('error', E_NOT_A_BASE, f'not a base: no base.toml at {base_dir}').render()}")
+    hint = _configured_base_hint()
+    if hint is not None:
+        print(f"the base configured for this repo: {hint}")
+    print("FAILED: 1 error(s)")
+    return False
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -246,6 +270,9 @@ def main(argv: list[str] | None = None) -> int:
         help="refetch the release check now, bypassing the 24 h cache",
     )
     args = parser.parse_args(argv)
+
+    if args.command in BASE_COMMANDS and not _base_gate(args.base_dir):
+        return 1
 
     if args.command == "check":
         return _run_check(args.base_dir)

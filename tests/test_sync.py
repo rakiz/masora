@@ -89,6 +89,7 @@ def repo(tmp_path: tuple) -> tuple[Path, Path]:
     tmp = tmp_path
     base = tmp / "base"
     base.mkdir()
+    (base / "base.toml").write_text('name = "test-base"\ncode_remotes = []\n', encoding="utf-8")
     git(base, "init", "-b", "main")
     git(base, "config", "user.name", "Masora Test")
     git(base, "config", "user.email", "masora@example.invalid")
@@ -462,6 +463,7 @@ def test_sync_local_check_errors_block_before_any_git_action(repo, capsys):
 def test_sync_requires_origin(tmp_path, capsys):
     base = tmp_path / "lonely"
     base.mkdir()
+    (base / "base.toml").write_text('name = "test-base"\ncode_remotes = []\n', encoding="utf-8")
     git(base, "init", "-b", "main")
     git(base, "config", "user.name", "Masora Test")
     git(base, "config", "user.email", "masora@example.invalid")

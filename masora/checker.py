@@ -13,6 +13,7 @@ from .diagnostics import (
     E_DUP_ID,
     E_FILENAME,
     E_LINEAGE,
+    E_NOT_A_BASE,
     E_TARGET_KIND,
     E_TOMBSTONE_SHAPE,
     E_TOMBSTONED,
@@ -66,6 +67,9 @@ class CheckResult:
 
 def check_base(base_dir: Path) -> CheckResult:
     diags: list[Diag] = []
+    if not (base_dir / "base.toml").is_file():
+        diags.append(Diag("error", E_NOT_A_BASE, f"not a base: no base.toml at {base_dir}"))
+        return CheckResult(diags=diags, envelopes=[], file_count=0, lineage_count=0)
     records: list[EventRecord] = []
     files = discover_event_files(base_dir)
     seen_ids: dict[str, str] = {}

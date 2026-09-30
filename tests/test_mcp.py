@@ -348,6 +348,7 @@ def test_note_human_name_absent_when_git_config_unset(code_repo, env, tmp_path):
     repo, _head = code_repo
     bare = tmp_path / "bare-base"
     bare.mkdir()
+    (bare / "base.toml").write_text('name = "test-base"\ncode_remotes = []\n', encoding="utf-8")
     git(bare, "init", "-b", "main")
     git(bare, "add", "-A")
     # one-off identity for the commit only: the repo config stays without user.name
@@ -585,6 +586,7 @@ def test_base_resolution_matrix(server, code_repo, tmp_path, home, base):
     server.ready()
     mapped = home / "bases" / "team"
     mapped.mkdir(parents=True)
+    (mapped / "base.toml").write_text('name = "test-base"\ncode_remotes = []\n', encoding="utf-8")
     (home / "config.toml").write_text(
         "[[mappings]]\n"
         'code_remote = "https://GitHub.internal/org/proj.git"\n'
@@ -606,6 +608,7 @@ def test_base_resolution_matrix(server, code_repo, tmp_path, home, base):
 
     solo = home / "bases" / "solo"
     solo.mkdir(parents=True)
+    (solo / "base.toml").write_text('name = "test-base"\ncode_remotes = []\n', encoding="utf-8")
     (home / "config.toml").write_text(
         'default_base = "solo"\n\n[bases.solo]\nremote = "git@github.internal:org/solo.git"\n',
         encoding="utf-8",
@@ -1165,6 +1168,7 @@ def test_note_accepts_password_discussion_lookalikes(server, code_repo, base, st
 def test_write_and_check_refuses_secret_in_summary_directly(tmp_path):
     base_dir = tmp_path / "base"
     base_dir.mkdir()
+    (base_dir / "base.toml").write_text('name = "test-base"\ncode_remotes = []\n', encoding="utf-8")
     data = make_claim("01J8Z3K0000000000000000000", summary=SECRET_STATEMENTS["aws"])
     with pytest.raises(WriteError) as exc:
         write_and_check(base_dir, data)

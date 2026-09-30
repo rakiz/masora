@@ -8,6 +8,24 @@
 
 ## Current phase
 
+**Done:** base gate (TODO.md, ticked) — `check_base` refuses up front with
+`E-NOT-A-BASE` ("not a base: no base.toml at <dir>") when the passed root
+has no `base.toml`: one gate for every consumer (CLI commands, write-path
+pre/post checks, compact/gc gates) instead of walking the tree into
+confusing stray-file errors. The CLI dispatch for check/gc/compact/index/
+search adds the smart remedy on refusal: the CWD's origin remote →
+`write.auto_base` (failure-tolerant) → "the base configured for this repo:
+<path>" when resolvable, silent otherwise; commands still exit 1, never
+auto-correct. Test bases gained their `base.toml` (the conftest base
+fixture, the static fixtures, the sync/index/facts/status/mcp fixtures —
+init and setup always created it; FORMAT §1/§7 + ARCHITECTURE state the
+one path rule). Tests: tests/test_base_gate.py, 10 tests (per command on a
+git repo root without base.toml — nothing written; remedy present/absent;
+init's fresh base passes; write-path precheck refuses). TROUBLESHOOTING row
+(two-way guarded). CHANGELOG [Unreleased] Added bullet. 534 tests green;
+ruff clean. Next task: the first rollout (TODO.md — the real base on the
+author's `employees/` dir + the Confluence install page).
+
 **Done:** slug derivation replaced (TODO.md, ticked) — the owner-validated
 `write.slugify_summary` (byte-identical on the real 92-lineage base already
 migrated on disk) supersedes and removes the uncommitted stop-word-skip

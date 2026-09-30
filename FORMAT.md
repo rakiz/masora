@@ -91,6 +91,7 @@ References between events are always **ULIDs**, never file paths.
 | `targets` | ULID | event kinds only: the ULID this event is about |
 | `reason` | string | mandatory for `.refute`/`.unrefute`/`.undoubt` and for v2+ claims; on `.doubt` it is mandatory too |
 | `summary` | string | single line, no control characters, ≤ 120 characters |
+| `questions` | list, optional | claims only: 1–5 non-empty single-line strings — the READER QUESTIONS this claim answers (concept names, behaviours, decisions — specific, never generic like "How does this work?"); exact-duplicate strings rejected within a list; no semantics in the fold, the anchors or lineage identity — the index FTS matches a claim through its questions and surfaces the matched question |
 | `evidence` | list | pointers proving a statement (graph query, file range, test name, URL); mandatory and non-empty on `.verify` (it must include the recorded proof replay when the target is structural); optional on `.doubt`/`.undoubt`/`.refute`/`.unrefute`; forbidden on `.claim`; v1 accepts free strings, a structured locator form (`{kind, ref, digest?, range?}`) is reserved for later — the writer normalizes, never the agent's raw prose alone |
 | `anchors` | list | `{provider, identity, fingerprint, snapshot?}`; `snapshot` is provider-typed (code: `{edges, neighbours}`) |
 | `snapshots` | mapping | `.verify` only — this event's own suspect snapshot keyed by anchor identity, same per-anchor value shape as the claim's anchor snapshots |
@@ -137,7 +138,7 @@ accepted files use block style throughout.
 
 | Kind | Required | Optional | Forbidden |
 |---|---|---|---|
-| `claim` | `class`, `source`, `summary`, `statement`, `anchors` (unless unanchored), `recorded_at`, `unanchored`; conditional `unanchored_reason` (iff `unanchored`), `proof_query` (iff `class: structural`), `reason` (v2+ or `contradicts`) | `name`, `effort` (iff `source: llm`), `cost_tokens`, `contradicts` (⇒ `reason`) | `targets`, `actor`, `model`, `verified_at`, `evidence`, `snapshots` |
+| `claim` | `class`, `source`, `summary`, `statement`, `anchors` (unless unanchored), `recorded_at`, `unanchored`; conditional `unanchored_reason` (iff `unanchored`), `proof_query` (iff `class: structural`), `reason` (v2+ or `contradicts`) | `name`, `effort` (iff `source: llm`), `cost_tokens`, `contradicts` (⇒ `reason`), `questions` | `targets`, `actor`, `model`, `verified_at`, `evidence`, `snapshots` |
 | `verify` | `targets`, `source`, `verified_at`, `evidence` (non-empty), `snapshots` | `name`, `effort` (iff `source: llm`) | `actor`, `model`, `reason`, `contradicts`, `summary`, `statement`, `anchors`, `class`, `unanchored`, `cost_tokens`, `recorded_at` |
 | `doubt` | `targets` (a verify ULID), `source`, `reason`, `recorded_at` | `name`, `effort` (iff `source: llm`), `evidence` | `actor`, `model`, `verified_at`, `snapshots`, `anchors`, `summary`, `statement`, `class`, `contradicts`, `cost_tokens` |
 | `undoubt` | `targets` (the doubt's ULID), `source`, `reason`, `recorded_at` | `name`, `effort` (iff `source: llm`), `evidence` | `actor`, `model`, `verified_at`, `snapshots`, `anchors`, `summary`, `statement`, `class`, `contradicts`, `cost_tokens` |
@@ -193,6 +194,9 @@ proof_query: null              # null for class: semantic; non-null mapping for
 contradicts: null              # a version ULID; mandatory with reason below
 reason: null                   # mandatory for v2+ (why this version exists)
 cost_tokens: 48000             # optional
+questions:                     # optional, claims only (FORMAT.md §4): the 1-5
+  - "Where does resume-token invalidation happen?"   # reader questions this
+  - "What enforces the split threshold?"             # claim answers
 ```
 
 Cross-field rules (`check`): `unanchored: true` ⇒ `anchors: []` **and**
@@ -207,7 +211,10 @@ anchor and can go stale); v2+ (`id != lineage`) ⇒ non-null
 anchors and no snapshots; anchor identities are unique within a claim (a
 duplicate identity is rejected, even with different fingerprints/snapshots);
 fingerprints and neighbour hashes come from a graph at HEAD — the tool refuses a
-graph behind HEAD at write time.
+graph behind HEAD at write time; `questions`, when present, is a list of 1–5
+non-empty single-line strings with no exact duplicates (`E-QUESTIONS`) —
+additive-optional like `name`/`effort`, `format_version` stays 1, and the list
+has no fold, anchor or lineage-identity semantics.
 
 ### 5.2 `.verify`
 

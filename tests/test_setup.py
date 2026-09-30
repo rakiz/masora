@@ -361,3 +361,19 @@ def test_config_paths_default_and_env_override(tmp_path: Path, monkeypatch) -> N
     monkeypatch.setenv("MASORA_HOME", str(home))
     assert config_path() == home / "config.toml"
     assert bases_root() == home / "bases"
+
+
+def test_setup_output_points_at_the_skill_and_writes_nothing_into_the_origin(
+    masora_home: Path, origin: Path, capsys
+) -> None:
+    spec = f"file://{origin}"
+    before = git(origin, "status", "--porcelain")
+
+    code = setup_run(spec)
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "docs/skills/masora/SKILL.md" in out
+    assert "masora never writes into your code repo" in out
+    assert git(origin, "status", "--porcelain") == before
+    assert not (origin / "docs").exists()

@@ -8,6 +8,64 @@
 
 ## Current phase
 
+**Done:** graph-first anchor discipline (TODO.md, ticked) — the rollout
+lesson (sub-agents followed rg-as-entry-point briefs, never the graph) lands
+as three state-form rules in AGENT_INSTRUCTIONS' "How to note well" (locate
+via cppgraph find/explain, never text-grep guessing; verify structure/
+behaviour against the graph before writing; hand sub-agents the graph entry
+points IN THE BRIEF), mirrored into the skill's copied section (the header
+sync stays green — no new headers); the `note` inputSchema description
+carries the same sentence (asserted by substring in test_mcp.py's split
+test) and test_docs.py asserts the delegate-the-method rule in both docs.
+`ruff format .` applied (test_init.py was the flagged file). 569 tests
+green; ruff clean. Next task: the first rollout (TODO.md).
+
+**Done:** the masora skill (TODO.md, ticked) — docs/skills/masora/SKILL.md:
+frontmatter (name: masora; the project-knowledge-only trigger description
+verbatim from the review, "Not for general programming tasks"), the
+conditional body (MAY be served, never is-served; the ritual: try `search`
+when available → on E-MCP-NO-BASE it is a resolution/config matter, NOT
+evidence of no knowledge → never inspect the checkout for markers → never
+re-run setup → continue normally) + the canonical rule sections copied from
+docs/AGENT_INSTRUCTIONS.md (tools, search-before-investigating, when/how to
+note incl. questions, verify discipline, etiquette). Doc-sync test:
+test_docs.py asserts the skill carries every canonical `#`/`##` header
+(single source of truth; +2 tests: frontmatter trigger words, the
+conditional ritual lines with the "This repository is served" absence
+pinned pre-Tools). setup.py prints the two-line install hint on success and
+init.py one line ("after setup, install the agent skill"); tests assert the
+substring + that NOTHING lands in any checkout (origin status porcelain
+unchanged, no docs/ dir). README's Agent-instructions section offers both
+routes (skill + paste block, no universal-path claims); ARCHITECTURE's
+channel-3 section documents the skill + the sync test; CHANGELOG
+[Unreleased] Added bullet. 539 tests green; ruff clean. Next task: the
+first rollout (TODO.md).
+
+**Done:** the optional `questions` field on claims (TODO.md, ticked) —
+
+**Done:** the optional `questions` field on claims (TODO.md, ticked) —
+FORMAT §4: claim-only, optional, 1–5 non-empty single-line reader queries
+(specific, never generic; exact duplicates rejected); additive-optional
+(format_version stays 1); no fold/anchor/lineage semantics. `E-QUESTIONS`
+(the dedicated diagnostic, TROUBLESHOOTING row same change). write.py: the
+secret scan covers question items; the emission is the generic list
+emitter. mcp.py: `note` accepts `questions` (minItems 1, maxItems 5) and
+persists; the tool description carries the summary/statement/questions
+split. index.py: the per-question FTS5 table `questions` (version +
+question_ordinal unindexed), SCHEMA_VERSION "3" (disposable rebuild,
+E-IDX-CORRUPT refusal for foreign versions), the search flow unions content
+hits with question hits, `SearchHit.matched_questions` (distinct, ordinal
+order; a question-only hit surfaces the version's content row), the CLI +
+MCP search render "matched question:" lines; the facts contract untouched
+(version 1, shape asserted unchanged). Tests: 10 schema, 3 mcp (pass-through,
+violations, secret-in-question), 6 index (question-only match, several
+questions, content-only, v2-refuse+rebuild, old-base rebuild, CLI
+rendering), 1 facts shape. AGENT_INSTRUCTIONS: the note-quality questions
+clause + the targeted-only coverage audit. 554 tests green; ruff clean.
+Next task: the first rollout (TODO.md).
+
+**Done:** the no-base diagnostic tells the truth about WHY (design review
+
 **Done:** the no-base diagnostic tells the truth about WHY (design review
 ruling; TODO.md line-80 item amended) — `write.origin_state(repo)` returns
 (kind, remote): `not_git_worktree` (git rev-parse --git-dir fails),

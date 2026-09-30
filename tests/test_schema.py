@@ -2,6 +2,7 @@ import pytest
 from helpers import (
     OMIT,
     SHA,
+    ULID_L1,
     apply_overrides,
     make_claim,
     make_doubt,
@@ -13,6 +14,7 @@ from masora.diagnostics import (
     E_FILENAME,
     E_PROOFQUERY,
     E_PROVENANCE,
+    E_QUESTIONS,
     E_SCHEMA,
     E_SUMMARY,
     E_TIMESTAMP,
@@ -679,3 +681,79 @@ def test_proof_query_missing_provider_version():
         },
     )
     expect_error(data, "claim", E_PROOFQUERY)
+
+
+def test_questions_absent_is_valid():
+    validate(make_claim("01J8Z3K0000000000000000000"), "claim")
+
+
+def test_questions_one_and_five_items_valid():
+    one = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"),
+        {"questions": ["Where does resume-token invalidation happen?"]},
+    )
+    assert validate(one, "claim").questions == ("Where does resume-token invalidation happen?",)
+    five = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"),
+        {"questions": [f"Question number {i} about the behaviour?" for i in range(1, 6)]},
+    )
+    assert len(validate(five, "claim").questions) == 5
+
+
+def test_questions_empty_list_rejected():
+    data = apply_overrides(make_claim("01J8Z3K0000000000000000000"), {"questions": []})
+    expect_error(data, "claim", E_QUESTIONS)
+
+
+def test_questions_six_items_rejected():
+    data = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"),
+        {"questions": [f"Question {i}?" for i in range(6)]},
+    )
+    expect_error(data, "claim", E_QUESTIONS)
+
+
+def test_questions_empty_string_rejected():
+    data = apply_overrides(make_claim("01J8Z3K0000000000000000000"), {"questions": [""]})
+    expect_error(data, "claim", E_QUESTIONS)
+
+
+def test_questions_multiline_or_control_char_rejected():
+    data = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"), {"questions": ["line one\nline two"]}
+    )
+    expect_error(data, "claim", E_QUESTIONS)
+
+
+def test_questions_non_string_item_rejected():
+    data = apply_overrides(make_claim("01J8Z3K0000000000000000000"), {"questions": [42]})
+    expect_error(data, "claim", E_QUESTIONS)
+
+
+def test_questions_not_a_list_rejected():
+    data = apply_overrides(make_claim("01J8Z3K0000000000000000000"), {"questions": "why?"})
+    expect_error(data, "claim", E_QUESTIONS)
+
+
+def test_questions_exact_duplicates_rejected():
+    data = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"),
+        {"questions": ["Why does it split?", "Why does it split?"]},
+    )
+    expect_error(data, "claim", E_QUESTIONS)
+
+
+def test_questions_forbidden_on_targeted_kinds():
+    for maker, kind in (
+        (make_verify, "verify"),
+        (make_doubt, "doubt"),
+    ):
+        data = apply_overrides(
+            maker("01J8Z3K0000000000000000001", ULID_L1, ULID_L1), {"questions": ["Why?"]}
+        )
+        expect_error(data, kind, E_SCHEMA)
+    refute = apply_overrides(
+        make_doubt("01J8Z3K0000000000000000002", ULID_L1, ULID_L1, kind="refute"),
+        {"questions": ["Why?"]},
+    )
+    expect_error(refute, "refute", E_SCHEMA)

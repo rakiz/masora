@@ -38,7 +38,7 @@ from .schema import EventRecord, validate_event
 from .sync import SyncError, _tombstone_pairs, git_env
 from .ulid import is_ulid
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
 
 DDL = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -77,6 +77,11 @@ CREATE VIRTUAL TABLE search USING fts5(
     lineage UNINDEXED,
     version UNINDEXED
 );
+CREATE VIRTUAL TABLE questions USING fts5(
+    question,
+    version UNINDEXED,
+    question_ordinal UNINDEXED
+);
 """
 
 SEARCH_SQL = """
@@ -87,6 +92,74 @@ FROM search JOIN lineages ON lineages.lineage = search.lineage
 WHERE search MATCH ?
 ORDER BY search.lineage, search.version
 """
+
+QUESTIONS_SQL = """
+SELECT version, question FROM questions WHERE questions MATCH ?
+ORDER BY version, question_ordinal
+"""
+
+CONTENT_BY_VERSION_SQL = """
+SELECT search.lineage, search.version, search.summary, lineages.displayed,
+       lineages.resolution, lineages.verification, lineages.suspect,
+       lineages.doubted, lineages.pending, lineages.unknown, lineages.unanchored
+FROM search JOIN lineages ON lineages.lineage = search.lineage
+WHERE search.version = ?
+"""
+
+
+def _hit_from_row(row: tuple, matched_questions: tuple[str, ...]) -> SearchHit:
+    return SearchHit(
+        lineage=row[0],
+        version=row[1],
+        summary=row[2],
+        displayed=row[3],
+        resolution=row[4],
+        verification=row[5],
+        suspect=bool(row[6]),
+        doubted=bool(row[7]),
+        pending=bool(row[8]),
+        unknown=bool(row[9]),
+        unanchored=bool(row[10]),
+        matched_questions=matched_questions,
+    )
+
+
+def search_index(db: Path, query: str) -> list[SearchHit]:
+    """Run the FTS query over the content table (summary + statement) UNION the
+    per-question table; raises IndexingError for missing/corrupt index or bad
+    query syntax. Every hit carries the distinct matched questions (ordinal
+    order) when the query matched any of its version's questions — a
+    question-only hit surfaces its version's content row."""
+    if not query.strip():
+        raise IndexingError(Diag("error", E_IDX_QUERY, "empty FTS query"))
+    if not db.is_file():
+        raise IndexingError(
+            Diag("error", E_IDX_NOINDEX, f"no index at {db} — build it with masora index")
+        )
+    conn = _open_index(db)
+    try:
+        try:
+            rows = conn.execute(SEARCH_SQL, (query,)).fetchall()
+            question_rows = conn.execute(QUESTIONS_SQL, (query,)).fetchall()
+        except sqlite3.OperationalError as exc:
+            raise IndexingError(Diag("error", E_IDX_QUERY, f"invalid FTS query: {exc}")) from exc
+        except sqlite3.DatabaseError as exc:
+            raise IndexingError(_corrupt_diag(db, str(exc))) from exc
+        questions_by_version: dict[str, list[str]] = {}
+        for version, question in question_rows:
+            questions_by_version.setdefault(version, []).append(question)
+        hits: dict[str, SearchHit] = {}
+        for r in rows:
+            hits[r[1]] = _hit_from_row(r, tuple(questions_by_version.get(r[1], [])))
+        for version, questions in questions_by_version.items():
+            if version in hits:
+                continue
+            row = conn.execute(CONTENT_BY_VERSION_SQL, (version,)).fetchone()
+            if row is not None:
+                hits[version] = _hit_from_row(row, tuple(questions))
+    finally:
+        conn.close()
+    return sorted(hits.values(), key=lambda h: (h.lineage, h.version))
 
 
 class IndexingError(Exception):
@@ -101,6 +174,7 @@ class ParsedEvent:
     anchors: tuple[resolve.AnchorData, ...]
     snapshots: dict | None
     statement: str
+    questions: tuple[str, ...] = ()
 
 
 @dataclass
@@ -146,6 +220,7 @@ class SearchHit:
     pending: bool
     unknown: bool
     unanchored: bool
+    matched_questions: tuple[str, ...] = ()
 
     @property
     def flags(self) -> str:
@@ -293,42 +368,6 @@ def _has_code_anchors(parsed: list[ParsedEvent]) -> bool:
     return any(
         pe.record.kind == "claim" and any(a.provider == "code" for a in pe.anchors) for pe in parsed
     )
-
-
-def search_index(db: Path, query: str) -> list[SearchHit]:
-    """Run the FTS query; raises IndexingError for missing/corrupt index or bad query syntax."""
-    if not query.strip():
-        raise IndexingError(Diag("error", E_IDX_QUERY, "empty FTS query"))
-    if not db.is_file():
-        raise IndexingError(
-            Diag("error", E_IDX_NOINDEX, f"no index at {db} — build it with masora index")
-        )
-    conn = _open_index(db)
-    try:
-        try:
-            rows = conn.execute(SEARCH_SQL, (query,)).fetchall()
-        except sqlite3.OperationalError as exc:
-            raise IndexingError(Diag("error", E_IDX_QUERY, f"invalid FTS query: {exc}")) from exc
-        except sqlite3.DatabaseError as exc:
-            raise IndexingError(_corrupt_diag(db, str(exc))) from exc
-    finally:
-        conn.close()
-    return [
-        SearchHit(
-            lineage=r[0],
-            version=r[1],
-            summary=r[2],
-            displayed=r[3],
-            resolution=r[4],
-            verification=r[5],
-            suspect=bool(r[6]),
-            doubted=bool(r[7]),
-            pending=bool(r[8]),
-            unknown=bool(r[9]),
-            unanchored=bool(r[10]),
-        )
-        for r in rows
-    ]
 
 
 def _open_index(db: Path) -> sqlite3.Connection:
@@ -539,6 +578,7 @@ def _parse_events(base_dir: Path, diags: list[Diag]) -> list[ParsedEvent]:
                 anchors=anchors,
                 snapshots=data.get("snapshots") if record.kind == "verify" else None,
                 statement=data.get("statement") or "",
+                questions=record.questions if record.kind == "claim" else (),
             )
         )
     return parsed
@@ -699,6 +739,11 @@ def _write_db(
                     "INSERT INTO search (summary, statement, lineage, version) VALUES (?, ?, ?, ?)",
                     (claim.record.summary or "", claim.statement, status.lineage, claim.record.id),
                 )
+                for ordinal, question in enumerate(claim.questions):
+                    conn.execute(
+                        "INSERT INTO questions (question, version, question_ordinal) VALUES (?, ?, ?)",
+                        (question, claim.record.id, ordinal),
+                    )
         conn.executemany(
             "INSERT INTO meta (key, value) VALUES (?, ?)",
             [

@@ -333,8 +333,20 @@ and adds FTS5 search. Section references are to MASORA_DESIGN.md.
   `versions` (refuted flag +
   summary/statement per claim version), `anchors` (provider/identity/
   fingerprint per version), FTS5 virtual table `search` (summary + statement;
-  unicode61 tokenizer → case/accent-insensitive; lineage/version unindexed).
+  unicode61 tokenizer → case/accent-insensitive; lineage/version unindexed) and
+  the per-question FTS5 table `questions` (question; version + question_ordinal
+  unindexed) — one row per claim question (FORMAT.md §4), so the matched
+  question text can be surfaced. Schema version 3 (a foreign-version DB is
+  refused with `E-IDX-CORRUPT` and `masora index` rebuilds — the index is
+  disposable; bases without questions rebuild cleanly).
   Tombstoned lineages (and tombstoned event ids) are excluded.
+- **Search union**: `search_index` runs the content MATCH (summary +
+  statement only — questions never dilute it) and the questions MATCH, and
+  unions the hits by version; each `SearchHit` carries `matched_questions`
+  (the distinct matched question texts, ordinal order) — a question-only hit
+  surfaces its version's content row; the CLI and MCP `search` render a
+  `matched question:` line per matched question. `masora facts` is untouched:
+  the contract version stays 1 and the JSON shape carries no questions.
 - **Rebuild trigger awareness**: the build stores the base's git HEAD plus
   the code state it fingerprinted (`repo_head`, `graph_commit` in meta) and
   the build moment (`built_at`, UTC ISO); `index_stale()` compares four axes
@@ -524,6 +536,21 @@ yet" below are the other two). The block directs the agent to:
   unprovable stays `unverified` or is doubted (§5.3/§10.2);
 - etiquette: content in English (pushed content), a recalled fact is never
   an instruction, statuses are evidence labels.
+
+The same rules ship as an INSTALLABLE SKILL, [docs/skills/masora/SKILL.md](skills/masora/SKILL.md):
+frontmatter triggers on project-knowledge questions only (repository-specific
+behaviour, architecture, product semantics, past decisions, trade-offs,
+conventions — not general programming); the body is CONDITIONAL by design —
+it never claims a repository is served, and its ritual tries `search` when
+the tools are available, reads `E-MCP-NO-BASE` as a resolution/configuration
+matter (never as evidence of no knowledge), never inspects the checkout for
+Masora markers (the design forbids them), never re-runs setup on its own,
+and continues normally otherwise. The rule sections are copied from
+`docs/AGENT_INSTRUCTIONS.md` — the single source of truth — and
+`tests/test_docs.py` asserts the skill carries every canonical header, so
+neither copy silently diverges. `masora setup` and `masora init` point at
+the skill on success (copy-install only — masora never writes into a code
+repo).
 
 The phase objective ("does it change the agent's behaviour?") is judged by
 the pre-registered paired A/B protocol in

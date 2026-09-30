@@ -277,6 +277,7 @@ def _tool_note(args: dict) -> str:
     unanchored = _opt_bool(args, "unanchored") or False
     unanchored_reason = _opt_str(args, "unanchored_reason")
     anchor_refs = _opt_strlist(args, "anchors")
+    questions = _opt_strlist(args, "questions")
 
     graph_commit = None
     if anchor_refs and unanchored:
@@ -343,6 +344,8 @@ def _tool_note(args: dict) -> str:
         data["proof_query"] = proof_query
     if cost_tokens is not None:
         data["cost_tokens"] = cost_tokens
+    if questions:
+        data["questions"] = questions
 
     rel, warnings = write_and_check(base_dir, data)
     lines = [f"wrote {rel}", f"id {uid}", f"lineage {uid}", f"anchors {len(anchors)}"]
@@ -536,6 +539,8 @@ def _tool_search(args: dict) -> str:
         lines.append(f"{lineage} [{first.resolution} {first.verification} flags: {first.flags}]")
         for hit in group:
             lines.append(f"  {hit.version} {hit.summary}")
+            for question in hit.matched_questions:
+                lines.append(f"    matched question: {question}")
     return "\n".join(lines)
 
 
@@ -636,6 +641,14 @@ TOOLS = [
                     description="the injected one-liner: <= 120 characters, this is what cppgraph"
                     " surfaces"
                 ),
+                "questions": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 5,
+                    "items": _str(description="a reader question this claim answers"),
+                    "description": "1-5 reader queries this claim answers (specific: concepts,"
+                    " behaviours, decisions — never generic like 'How does this work?')",
+                },
                 "repo_root": _str(description="path to the code repo checkout"),
                 **_BASE_PROPS,
                 "anchors": {
@@ -678,9 +691,12 @@ TOOLS = [
             ["statement", "summary", "repo_root"],
             description=(
                 "summary is the injected one-liner (<= 120 characters, this is what cppgraph"
-                " surfaces) and statement is the full text (no length constraint, the detailed"
-                " explanation); content is written in English (base event files are pushed"
-                " content)."
+                " surfaces), statement is the full text (no length constraint, the detailed"
+                " explanation) and questions (optional, 1-5) are the reader queries this claim"
+                " answers; content is written in English (base event files are pushed"
+                " content). Resolve symbol identities with the code graph (cppgraph"
+                " find/explain) first; pass exact identities or name fragments —"
+                " ambiguous/not_found returns candidates."
             ),
         ),
     },

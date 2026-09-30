@@ -796,3 +796,94 @@ def test_freshness_axis_ignores_non_event_files_but_walks_deleted_toml(git_base,
     os.utime(tombstone, (built + 30, built + 30))
     assert index_stale(db, git_base, repo=None) is True
     assert "events written since the index build" in index_stale_reason(db, git_base, repo=None)
+
+
+def test_fts_question_only_match_surfaces_the_matched_question(base, repo, home):
+    write_event(
+        base,
+        CLAIM_REL,
+        make_claim(ULID_L1, questions=["Where does resume-token invalidation happen?"]),
+    )
+    result = build_index(base, repo)
+    hits = search_index(result.db_path, "invalidation")
+    assert len(hits) == 1
+    assert hits[0].version == ULID_L1
+    assert hits[0].matched_questions == ("Where does resume-token invalidation happen?",)
+
+
+def test_fts_several_questions_match_the_right_ones(base, repo, home):
+    write_event(
+        base,
+        CLAIM_REL,
+        make_claim(
+            ULID_L1,
+            questions=[
+                "Where does resume-token invalidation happen?",
+                "What enforces the split threshold?",
+            ],
+        ),
+    )
+    result = build_index(base, repo)
+    first = search_index(result.db_path, "invalidation")
+    assert first[0].matched_questions == ("Where does resume-token invalidation happen?",)
+    both = search_index(result.db_path, "invalidation OR threshold")
+    assert len(both) == 1
+    assert both[0].matched_questions == (
+        "Where does resume-token invalidation happen?",
+        "What enforces the split threshold?",
+    )
+
+
+def test_fts_content_only_match_shows_no_question(base, repo, home):
+    write_event(
+        base,
+        CLAIM_REL,
+        make_claim(ULID_L1, questions=["Where does resume-token invalidation happen?"]),
+    )
+    result = build_index(base, repo)
+    hits = search_index(result.db_path, "summary")
+    assert hits[0].matched_questions == ()
+
+
+def test_index_v2_database_is_refused_and_rebuilt(base, repo, home):
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    result = build_index(base, repo)
+    db = result.db_path
+    connection = sqlite3.connect(db)
+    connection.execute("UPDATE meta SET value = '2' WHERE key = 'schema_version'")
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(IndexingError) as exc:
+        search_index(db, "summary")
+    assert exc.value.diag.code == E_IDX_CORRUPT
+
+    rebuilt = build_index(base, repo)
+    assert rebuilt.errors == []
+    assert search_index(rebuilt.db_path, "summary")[0].version == ULID_L1
+
+
+def test_index_without_questions_rebuilds_cleanly(base, repo, home):
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    result = build_index(base, repo)
+    assert result.errors == []
+    hits = search_index(result.db_path, "summary")
+    assert hits[0].matched_questions == ()
+
+
+def test_cli_search_renders_the_matched_question(base, repo, home, capsys):
+    write_event(
+        base,
+        CLAIM_REL,
+        make_claim(ULID_L1, questions=["Where does resume-token invalidation happen?"]),
+    )
+    build_index(base, repo)
+    code = main(["search", str(base), "invalidation", "--repo", str(repo)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "matched question: Where does resume-token invalidation happen?" in out
+    capsys.readouterr()
+    code = main(["search", str(base), "summary", "--repo", str(repo)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "matched question:" not in out

@@ -247,7 +247,12 @@ def test_note_schema_states_the_summary_statement_split(server):
     description = note["inputSchema"]["description"]
     assert (
         "summary is the injected one-liner (<= 120 characters, this is what cppgraph surfaces)"
-        " and statement is the full text (no length constraint, the detailed explanation)"
+        ", statement is the full text (no length constraint, the detailed explanation)"
+    ) in description
+    assert "questions (optional, 1-5) are the reader queries this claim answers" in description
+    assert (
+        "Resolve symbol identities with the code graph (cppgraph find/explain) first;"
+        " pass exact identities or name fragments — ambiguous/not_found returns candidates"
     ) in description
     assert "content is written in English" in description
 
@@ -1273,6 +1278,54 @@ def test_write_and_check_refuses_secret_in_summary_directly(tmp_path):
     base_dir.mkdir()
     (base_dir / "base.toml").write_text('name = "test-base"\ncode_remotes = []\n', encoding="utf-8")
     data = make_claim("01J8Z3K0000000000000000000", summary=SECRET_STATEMENTS["aws"])
+    with pytest.raises(WriteError) as exc:
+        write_and_check(base_dir, data)
+    assert exc.value.code == "E-WRITE-SECRET"
+    assert not list(base_dir.rglob("*.md"))
+
+
+def test_note_accepts_questions_and_persists_them(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+    questions = [
+        "What is the bring-up order for the stream components?",
+        "Which side start() and stop() race on?",
+    ]
+    text, is_error = server.tool("note", note_args(repo, base, questions=questions))
+    assert is_error is False
+    rel = text.splitlines()[0].removeprefix("wrote ")
+    content = load_frontmatter((base / rel).read_text(encoding="utf-8"), rel)
+    assert content["questions"] == questions
+
+
+def test_note_questions_violations_refused(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+    text, is_error = server.tool("note", note_args(repo, base, questions=[]))
+    assert is_error is False
+    rel = text.splitlines()[0].removeprefix("wrote ")
+    content = load_frontmatter((base / rel).read_text(encoding="utf-8"), rel)
+    assert "questions" not in content
+    text, is_error = server.tool(
+        "note", note_args(repo, base, questions=[f"Question {i}?" for i in range(6)])
+    )
+    assert is_error is True
+    assert "E-QUESTIONS" in text
+    text, is_error = server.tool(
+        "note", note_args(repo, base, questions=["Same question?", "Same question?"])
+    )
+    assert is_error is True
+    assert "E-QUESTIONS" in text
+
+
+def test_write_and_check_refuses_secret_in_a_question(tmp_path):
+    base_dir = tmp_path / "base"
+    base_dir.mkdir()
+    (base_dir / "base.toml").write_text('name = "test-base"\ncode_remotes = []\n', encoding="utf-8")
+    data = make_claim(
+        "01J8Z3K0000000000000000000",
+        questions=[f"How is {SECRET_STATEMENTS['aws']} validated?"],
+    )
     with pytest.raises(WriteError) as exc:
         write_and_check(base_dir, data)
     assert exc.value.code == "E-WRITE-SECRET"

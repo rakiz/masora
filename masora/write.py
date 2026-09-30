@@ -411,11 +411,15 @@ def _high_entropy(value: str) -> bool:
 
 
 def _secret_scan_texts(data: dict) -> list[tuple[str, str]]:
-    """(field, text) pairs the guard scans: summary, statement, reason, evidence."""
+    """(field, text) pairs the guard scans: summary, statement, reason, evidence,
+    and every claim question item (free text — same protection)."""
     texts = [(name, data[name]) for name in _SECRET_FIELD_NAMES if isinstance(data.get(name), str)]
     evidence = data.get("evidence")
     if isinstance(evidence, list):
         texts.extend(("evidence", item) for item in evidence if isinstance(item, str))
+    questions = data.get("questions")
+    if isinstance(questions, list):
+        texts.extend(("questions", item) for item in questions if isinstance(item, str))
     return texts
 
 

@@ -95,6 +95,46 @@ Tasks:
 - [x] Base gate: every base-dir-taking command (`check`, `gc`, `compact`, `index`, `search`) refuses up front when `base.toml` is absent at the passed root — new diagnostic `E-NOT-A-BASE` with a smart remedy naming the base configured for the current repo's remote, if one resolves (rollout lesson: an agent passed the checkout root instead of the base directory; gc then wrote tombstones one level too high and the check error read as "invalid file" instead of "not a base"). → `masora/checker.py` gate (one gate for every consumer: CLI, write-path pre/post checks, compact/gc), `masora/cli.py` dispatch (`_base_gate` + `_configured_base_hint` via `write.auto_base`), `masora/diagnostics.py` + docs/TROUBLESHOOTING.md, FORMAT.md §1/§7, docs/ARCHITECTURE.md, `tests/test_base_gate.py` (10 tests).
 - [x] Index freshness on uncommitted writes (rollout friction: a `note` wrote an event file but the SQLite index stayed frozen — `masora facts`/`search` silently missed the just-written claim, because the staleness axes compare git HEADs and an uncommitted write moves none). → `masora/index.py`: `index_stale()` gained a FOURTH axis — filesystem freshness: the build moment (`built_at` in the index meta, UTC ISO) against the newest mtime across the base tree's event `*.md` + `deleted.toml` (one cheap walk per read, no caching, ~2 s tolerance); fires with reason "events written since the index build (uncommitted or unsynced writes move no git HEAD)" — the reason text flows into the `W-IDX-STALE` message (CLI + MCP `search`), `masora facts` keeps the bare `stale_warning` boolean (no contract shape change); a rebuild makes the index fresh again. Tests: `test_uncommitted_write_fires_freshness_axis`, `test_freshness_tolerance_respected`, `test_freshness_axis_ignores_non_event_files_but_walks_deleted_toml` (test_index.py), `test_facts_stale_warning_true_after_uncommitted_note` (test_facts.py), `test_search_freshness_axis_catches_uncommitted_note` (test_mcp.py).
 - [x] `masora init` — base bootstrap command (git init + `base.toml` scaffold + first commit): today the first base is hand-made inside the shared repo; friction observed during the first rollout. → `masora/init.py` + CLI subcommand — `masora init [<base-dir>|--here] --name <name> [--code-remote <url>]… [--force]`: refuses an unusable target (non-empty without `--force`, an existing `base.toml` even forced — `E-INIT-TARGET`), writes `base.toml` in the exact shape `setup` reads (remotes normalized + deduplicated via `config.normalize_remote`), gates the fresh tree through `check_base` before the first commit "masora init: base <name>" (`E-INIT-CHECK`; `E-INIT-WRITE`, `E-INIT-GIT` — e.g. a missing git identity — `E-INIT-ARG`), every git spawn through `sync.git_env()`, prints the exact next command `masora setup --base <path>` (publishing to a shared repo is the user's git work). tests/test_init.py (11 tests); README quick start, docs/ARCHITECTURE.md Init section, docs/TROUBLESHOOTING.md (5 `E-INIT-*` codes, two-way guarded).
+- [x] The optional `questions` field on claims (design-review ruling): 1–5
+  non-empty single-line reader queries a claim answers (specific, never
+  generic; exact duplicates rejected), claim-only, additive-optional
+  (format_version stays 1), no fold/anchor/lineage semantics; the secret
+  scan covers the items; `note` accepts + persists the field; the index
+  carries a PER-QUESTION FTS table (schema v3 — disposable rebuild) and
+  search unions content hits with question hits, surfacing the matched
+  question per hit; the facts contract is untouched. → `masora/schema.py`
+  (`E-QUESTIONS`), `masora/write.py`, `masora/mcp.py`, `masora/index.py`
+  (`SearchHit.matched_questions`), `masora/cli.py`, FORMAT.md §4,
+  docs/AGENT_INSTRUCTIONS.md, docs/ARCHITECTURE.md, README,
+  docs/TROUBLESHOOTING.md, tests (schema/mcp/index/facts).
+- [x] The masora skill (design review): docs/skills/masora/SKILL.md — the
+  installable form of the canonical agent instructions. Frontmatter triggers
+  on PROJECT-KNOWLEDGE questions only (repository-specific behaviour,
+  architecture, product semantics, past decisions, trade-offs, conventions —
+  not general programming); the body is conditional by design: never claims
+  a repo is served; the ritual tries `search` when available, reads
+  E-MCP-NO-BASE as a resolution/config matter (never as evidence of no
+  knowledge), never inspects the checkout for masora markers, never re-runs
+  setup, continues normally; then the canonical rules (search before
+  investigating, status reading, when to note, note quality incl. questions,
+  verify discipline, etiquette). A doc-sync test asserts the skill carries
+  every AGENT_INSTRUCTIONS.md header (single source of truth). setup/init
+  print the install hint (copy — masora never writes into a code repo);
+  README offers both routes. → docs/skills/masora/SKILL.md,
+  tests/test_docs.py, tests/test_setup.py, tests/test_init.py,
+  masora/setup.py, masora/init.py, README, docs/ARCHITECTURE.md.
+- [x] Graph-first anchor discipline (rollout lesson: an agent delegated
+  note-research to sub-agents with rg-as-entry-point briefs — the sub-agents
+  followed the imposed method, never the graph; cppgraph IS the
+  symbol-discovery tool and it sat unused). The "How to note well" rules:
+  locate symbols with the code graph (cppgraph `find`/`explain`), never by
+  text-grep guessing — exact identities or name fragments,
+  ambiguous/not_found returns candidates; verify structure/behaviour claims
+  against the graph before writing; when delegating research, hand the
+  graph entry points IN THE BRIEF. The `note` inputSchema description
+  carries the same sentence. → docs/AGENT_INSTRUCTIONS.md,
+  docs/skills/masora/SKILL.md (the copies track), masora/mcp.py,
+  tests/test_docs.py, tests/test_mcp.py.
 - [ ] First rollout: create the base on the author's `employees/` dir + Confluence install page (install, `masora setup --base <url>`, usage); migration to a dedicated repo if adopted.
 - [ ] Agent-graded evaluation of the phase objective — the protocol is
   WRITTEN (docs/EVALUATION.md, pre-registered: paired A/B over ~20 tasks —

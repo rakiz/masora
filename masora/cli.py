@@ -425,4 +425,6 @@ def _run_search(base_dir: Path, query: str, repo: Path) -> int:
         print(f"{lineage} [{first.resolution} {first.verification} flags: {first.flags}]")
         for hit in group:
             print(f"  {hit.version} {hit.summary}")
+            for question in hit.matched_questions:
+                print(f"    matched question: {question}")
     return 0

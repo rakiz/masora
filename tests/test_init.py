@@ -213,3 +213,15 @@ def test_init_git_spawns_immune_to_inherited_git_env(
 
     assert (dest / "base.toml").is_file()
     assert not bogus.exists()
+
+
+def test_init_output_points_at_the_skill(
+    masora_home: Path, git_identity: Path, tmp_path: Path, capsys
+) -> None:
+    dest = tmp_path / "skill-hint"
+
+    assert main(["init", str(dest), "--name", "Team Query"]) == 0
+
+    out = capsys.readouterr().out
+    assert "docs/skills/masora/SKILL.md" in out
+    assert not (dest / "docs").exists()

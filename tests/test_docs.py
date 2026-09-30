@@ -45,3 +45,44 @@ def test_troubleshooting_table_has_no_phantom_code() -> None:
 
 def test_readme_links_the_troubleshooting_table() -> None:
     assert "docs/TROUBLESHOOTING.md" in README.read_text(encoding="utf-8")
+
+
+SKILL = ROOT / "docs" / "skills" / "masora" / "SKILL.md"
+AGENT_INSTRUCTIONS = ROOT / "docs" / "AGENT_INSTRUCTIONS.md"
+
+_HEADERS_RE = re.compile(r"^#{1,2} .+$", re.MULTILINE)
+
+
+def test_skill_carries_every_agent_instructions_header() -> None:
+    skill_text = SKILL.read_text(encoding="utf-8")
+    canonical = AGENT_INSTRUCTIONS.read_text(encoding="utf-8")
+    missing = [h for h in _HEADERS_RE.findall(canonical) if h not in skill_text]
+    assert not missing, f"skill is missing the canonical headers: {missing}"
+
+
+def test_skill_frontmatter_triggers_on_project_knowledge_only() -> None:
+    text = SKILL.read_text(encoding="utf-8")
+    assert text.startswith("---\nname: masora\n")
+    assert (
+        "repository-specific behavior, architecture, product semantics, past decisions,"
+        " trade-offs, or non-obvious conventions" in text
+    )
+    assert "Not for general programming tasks" in text
+
+
+def test_skill_ritual_is_conditional() -> None:
+    text = SKILL.read_text(encoding="utf-8")
+    assert "MAY be served" in text
+    assert "It is NOT evidence that this project has no knowledge" in text
+    assert "Never inspect the checkout for Masora markers" in text
+    assert "Never re-run `masora setup` on your own" in text
+    assert "Continue normally" in text
+    assert "This repository is served" not in text.split("## Tools")[0]
+
+
+def test_agent_instructions_carry_the_graph_first_anchor_discipline() -> None:
+    text = AGENT_INSTRUCTIONS.read_text(encoding="utf-8")
+    assert "Locate symbols with the code graph (cppgraph `find`/`explain`), never by" in text
+    assert "When delegating research to sub-agents, hand them the graph entry points" in text
+    skill_text = SKILL.read_text(encoding="utf-8")
+    assert "hand them the graph entry points" in skill_text

@@ -63,6 +63,11 @@ def _setup(base_spec: str) -> None:
     print(f"branch: {branch}")
     print(f"mappings: {added} added, {updated} updated")
     print(f"config written: {config_path()}")
+    print(
+        "skill: docs/skills/masora/SKILL.md in the masora checkout"
+        " (github.com/rakiz/masora) — install it into your agent's skills/rules mechanism"
+        " (copy — masora never writes into your code repo)"
+    )
 
 
 def _parse_spec(base_spec: str) -> tuple[str, str | None]:

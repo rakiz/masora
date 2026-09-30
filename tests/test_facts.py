@@ -473,3 +473,46 @@ def test_facts_repo_not_a_directory_exit_one(tmp_path, home, capsys):
     assert code == 1
     assert capsys.readouterr().out == ""
     assert "E-IDX-REPO" in err
+
+
+def test_facts_shape_is_untouched_when_questions_present(tmp_path, home, capsys):
+    repo, head = make_repo(tmp_path)
+    git(repo, "remote", "add", "origin", "git@github.internal:org/proj.git")
+    base_dir = make_base(name="team")
+    uid = "01J8Z3K0000000000000000000"
+    write_event(
+        base_dir,
+        f"2026-09/x/{uid}.claim.md",
+        claim_event(uid, repo, head, [SYM_A], questions=["Where does invalidation happen?"]),
+    )
+    assert build_index(base_dir, repo).errors == []
+    (home / "config.toml").write_text(
+        "[[mappings]]\n"
+        'code_remote = "https://GitHub.internal/org/proj.git"\n'
+        'bases = ["team"]\n\n'
+        "[bases.team]\n"
+        'remote = "git@github.internal:org/knowledge.git"\n',
+        encoding="utf-8",
+    )
+
+    code, document, _err = facts(capsys, repo, symbol=SYM_A)
+
+    assert code == 0
+    (fact,) = document["facts"]
+    plain_base = make_base(name="plain")
+    write_event(plain_base, f"2026-09/x/{uid}.claim.md", claim_event(uid, repo, head, [SYM_A]))
+    assert build_index(plain_base, repo).errors == []
+    (home / "config.toml").write_text(
+        "[[mappings]]\n"
+        'code_remote = "https://GitHub.internal/org/proj.git"\n'
+        'bases = ["plain"]\n\n'
+        "[bases.plain]\n"
+        'remote = "git@github.internal:org/knowledge.git"\n',
+        encoding="utf-8",
+    )
+    _plain_code, plain_document, _err = facts(capsys, repo, symbol=SYM_A)
+    (plain_fact,) = plain_document["facts"]
+
+    assert set(fact) == set(plain_fact)
+    assert document["contract_version"] == 1
+    assert "questions" not in json.dumps(document)

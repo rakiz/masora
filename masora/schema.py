@@ -10,6 +10,7 @@ from .diagnostics import (
     E_FILENAME,
     E_PROOFQUERY,
     E_PROVENANCE,
+    E_QUESTIONS,
     E_SCHEMA,
     E_SUMMARY,
     E_TIMESTAMP,
@@ -46,6 +47,7 @@ FORBIDDEN = {
             "unanchored",
             "cost_tokens",
             "recorded_at",
+            "questions",
         }
     ),
     "doubt": frozenset(
@@ -60,6 +62,7 @@ FORBIDDEN = {
             "class",
             "contradicts",
             "cost_tokens",
+            "questions",
         }
     ),
     "undoubt": frozenset(
@@ -74,6 +77,7 @@ FORBIDDEN = {
             "class",
             "contradicts",
             "cost_tokens",
+            "questions",
         }
     ),
     "refute": frozenset(
@@ -88,6 +92,7 @@ FORBIDDEN = {
             "class",
             "contradicts",
             "cost_tokens",
+            "questions",
         }
     ),
     "unrefute": frozenset(
@@ -102,6 +107,7 @@ FORBIDDEN = {
             "class",
             "contradicts",
             "cost_tokens",
+            "questions",
         }
     ),
 }
@@ -124,6 +130,7 @@ OPTIONAL = {
             "unanchored_reason",
             "proof_query",
             "reason",
+            "questions",
         }
     ),
     "verify": frozenset({"name", "effort"}),
@@ -162,6 +169,7 @@ class EventRecord:
     timestamp_commit: str
     timestamp_graph_commit: str | None
     evidence_count: int | None
+    questions: tuple[str, ...] = ()
 
 
 def validate_event(data: dict, kind: str, path: str) -> EventRecord:
@@ -287,6 +295,7 @@ def _validate_claim(data: dict, event_id: str, lineage: str, path: str) -> Event
             )
         )
     summary = _check_summary(data["summary"], path)
+    questions = _check_questions(data["questions"], path) if "questions" in data else ()
     statement = data["statement"]
     if not isinstance(statement, str):
         raise CheckFailure(
@@ -419,6 +428,7 @@ def _validate_claim(data: dict, event_id: str, lineage: str, path: str) -> Event
         snapshot_keys=(),
         proof_query=proof_query if claim_class == "structural" else None,
         summary=summary,
+        questions=questions,
         timestamp_field="recorded_at",
         timestamp_commit=commit,
         timestamp_graph_commit=graph_commit,
@@ -519,6 +529,56 @@ def _validate_targeted(
         timestamp_graph_commit=graph_commit,
         evidence_count=evidence_count,
     )
+
+
+def _check_questions(questions: object, path: str) -> tuple[str, ...]:
+    """The optional claim-only `questions` list: 1-5 non-empty single-line
+    strings phrased as the reader question the claim answers, no exact
+    duplicates (FORMAT.md §4); no fold semantics."""
+    if not isinstance(questions, list):
+        raise CheckFailure(
+            Diag(
+                "error",
+                E_QUESTIONS,
+                f"questions must be a list of strings, got {type(questions).__name__}",
+                path,
+            )
+        )
+    if not 1 <= len(questions) <= 5:
+        raise CheckFailure(
+            Diag(
+                "error",
+                E_QUESTIONS,
+                f"questions must hold 1 to 5 items, got {len(questions)}",
+                path,
+            )
+        )
+    seen: set[str] = set()
+    for item in questions:
+        if not isinstance(item, str):
+            raise CheckFailure(
+                Diag(
+                    "error",
+                    E_QUESTIONS,
+                    f"questions items must be strings, got {type(item).__name__}",
+                    path,
+                )
+            )
+        if item == "" or "\n" in item or any(ord(c) < 32 or ord(c) == 127 for c in item):
+            raise CheckFailure(
+                Diag(
+                    "error",
+                    E_QUESTIONS,
+                    "questions items must be non-empty single lines without control characters",
+                    path,
+                )
+            )
+        if item in seen:
+            raise CheckFailure(
+                Diag("error", E_QUESTIONS, f"questions holds an exact duplicate: {item!r}", path)
+            )
+        seen.add(item)
+    return tuple(questions)
 
 
 def _check_summary(summary: object, path: str) -> str:

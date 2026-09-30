@@ -41,7 +41,8 @@ leaves the code untouched.
 5. **Recall** — later sessions query the base: `masora mcp` serves the write
    and recall tools (`note`, `verify`, `doubt`, `undoubt`, `refute`, `search`,
    `list_stale`) over MCP stdio, and `masora search <base-dir> <query>` reads
-   the index from the CLI.
+   the index from the CLI — matching summaries, statements and each claim's
+   `questions` (the matched question is shown on the hit).
 
 ## Quick start
 
@@ -98,14 +99,22 @@ the URL exists, teammates onboard with `masora setup --base <url>`.
 
 ## Agent instructions
 
-A base only changes agent behaviour if the agent consults it. When a base
-serves a project, paste
-[docs/AGENT_INSTRUCTIONS.md](docs/AGENT_INSTRUCTIONS.md) into that project's
-`AGENTS.md` (or your agent's rules file): what the MCP tools are, when to
-`note`, how to `verify`, and search before investigating. Instructions are
-the third injection channel (MASORA_DESIGN.md §10.1) — useful but often
-forgotten, never the only mechanism; the cppgraph injection and the agent
-hooks are the other two.
+A base only changes agent behaviour if the agent consults it. Two routes,
+same rules:
+
+- **The installable skill** — [docs/skills/masora/SKILL.md](docs/skills/masora/SKILL.md)
+  in the masora checkout: copy it into your agent's skills/rules mechanism
+  (masora never writes into your code repo). Its rules are conditional — the
+  ritual tries `search` when the tools are available and continues normally
+  when they are not.
+- **The paste block** — [docs/AGENT_INSTRUCTIONS.md](docs/AGENT_INSTRUCTIONS.md)
+  into that project's `AGENTS.md` (or rules file), for agents without a
+  skills mechanism.
+
+Both cover what the MCP tools are, when to `note`, how to `verify`, and
+search before investigating. Instructions are the third injection channel
+(MASORA_DESIGN.md §10.1) — useful but often forgotten, never the only
+mechanism; the cppgraph injection and the agent hooks are the other two.
 
 ## Diagnostics
 

@@ -8,6 +8,19 @@
 
 ## Current phase
 
+**Done:** atomic-claims authoring guidance (TODO.md, ticked) — the owner's
+rule lands as the FIRST "How to note well" imperative ("One claim = one
+fact. If you wrote 'and' twice, that is several claims: split them; each
+fact gets its own anchors and its own verification — a block claim is
+all-or-nothing to verify, to stale and to refute."), mirrored in the skill's
+copied section (header sync green) and in the `note` inputSchema description
+("prefer atomic claims — split multi-part knowledge into several notes").
+Tests: `test_agent_instructions_carry_the_atomic_claims_rule`
+(whitespace-normalized substring in BOTH docs — robust to re-wrapping) and
+the note-schema split test extended with the clause. CHANGELOG [Unreleased]
+Added bullet. 570 tests green; ruff format/check clean. Next task: the first
+rollout (TODO.md).
+
 **Done:** graph-first anchor discipline (TODO.md, ticked) — the rollout
 lesson (sub-agents followed rg-as-entry-point briefs, never the graph) lands
 as three state-form rules in AGENT_INSTRUCTIONS' "How to note well" (locate

@@ -251,6 +251,10 @@ def test_note_schema_states_the_summary_statement_split(server):
     ) in description
     assert "questions (optional, 1-5) are the reader queries this claim answers" in description
     assert (
+        "Prefer atomic claims — split multi-part knowledge into several notes"
+        " (a block claim is all-or-nothing to verify, to stale and to refute)" in description
+    )
+    assert (
         "Resolve symbol identities with the code graph (cppgraph find/explain) first;"
         " pass exact identities or name fragments — ambiguous/not_found returns candidates"
     ) in description

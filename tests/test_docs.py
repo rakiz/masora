@@ -86,3 +86,17 @@ def test_agent_instructions_carry_the_graph_first_anchor_discipline() -> None:
     assert "When delegating research to sub-agents, hand them the graph entry points" in text
     skill_text = SKILL.read_text(encoding="utf-8")
     assert "hand them the graph entry points" in skill_text
+
+
+def test_agent_instructions_carry_the_atomic_claims_rule() -> None:
+    rule = (
+        'One claim = one fact. If you wrote "and" twice, that is several claims: split them;'
+        " each fact gets its own anchors and its own verification — a block claim is"
+        " all-or-nothing to verify, to stale and to refute."
+    )
+
+    def flat(text: str) -> str:
+        return " ".join(text.split())
+
+    assert rule in flat(AGENT_INSTRUCTIONS.read_text(encoding="utf-8"))
+    assert rule in flat(SKILL.read_text(encoding="utf-8"))

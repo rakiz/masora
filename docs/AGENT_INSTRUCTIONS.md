@@ -52,6 +52,9 @@ Capture knowledge when it appears, not when the session ends:
 
 ## How to note well
 
+- One claim = one fact. If you wrote "and" twice, that is several claims:
+  split them; each fact gets its own anchors and its own verification — a
+  block claim is all-or-nothing to verify, to stale and to refute.
 - `summary` is the injected one-liner other agents see: at most 120
   characters, English, self-contained.
 - `statement` is the full explanation: context, mechanism, pointers.

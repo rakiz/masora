@@ -694,9 +694,11 @@ TOOLS = [
                 " surfaces), statement is the full text (no length constraint, the detailed"
                 " explanation) and questions (optional, 1-5) are the reader queries this claim"
                 " answers; content is written in English (base event files are pushed"
-                " content). Resolve symbol identities with the code graph (cppgraph"
-                " find/explain) first; pass exact identities or name fragments —"
-                " ambiguous/not_found returns candidates."
+                " content). Prefer atomic claims — split multi-part knowledge into several"
+                " notes (a block claim is all-or-nothing to verify, to stale and to refute)."
+                " Resolve symbol identities with the code graph (cppgraph find/explain) first;"
+                " pass exact identities or name fragments — ambiguous/not_found returns"
+                " candidates."
             ),
         ),
     },

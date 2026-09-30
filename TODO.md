@@ -135,6 +135,14 @@ Tasks:
   carries the same sentence. → docs/AGENT_INSTRUCTIONS.md,
   docs/skills/masora/SKILL.md (the copies track), masora/mcp.py,
   tests/test_docs.py, tests/test_mcp.py.
+- [x] Atomic-claims authoring guidance (the owner's rule: one claim = one
+  verifiable fact — a big block is refused as a whole when one detail fails
+  verification; split so validation, staleness and refutation work at the
+  grain of the fact). The "How to note well" imperative + the skill's copied
+  section + the `note` inputSchema clause ("prefer atomic claims — split
+  multi-part knowledge into several notes"). → docs/AGENT_INSTRUCTIONS.md,
+  docs/skills/masora/SKILL.md, masora/mcp.py, tests/test_docs.py,
+  tests/test_mcp.py.
 - [ ] First rollout: create the base on the author's `employees/` dir + Confluence install page (install, `masora setup --base <url>`, usage); migration to a dedicated repo if adopted.
 - [ ] Agent-graded evaluation of the phase objective — the protocol is
   WRITTEN (docs/EVALUATION.md, pre-registered: paired A/B over ~20 tasks —

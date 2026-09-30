@@ -6,6 +6,12 @@
       the current state only (release-notes style); the history of how the
       project got there lives between released versions. -->
 
+## 0.3.1 — 2026-09-30
+
+### Added
+
+- **Atomic-claims authoring guidance** — the owner's rule, one claim = one verifiable fact: "If you wrote 'and' twice, that is several claims: split them; each fact gets its own anchors and its own verification — a block claim is all-or-nothing to verify, to stale and to refute." The imperative opens the "How to note well" rules in docs/AGENT_INSTRUCTIONS.md, the installable skill's copied section tracks it (the header-sync guard stays green), and the `note` inputSchema description carries the clause ("prefer atomic claims — split multi-part knowledge into several notes"), asserted by substring tests in both guard files. (`docs/AGENT_INSTRUCTIONS.md`, `docs/skills/masora/SKILL.md`, `masora/mcp.py`, `tests/test_docs.py`, `tests/test_mcp.py`.)
+
 ## 0.3.0 — 2026-09-30
 
 ### Changed

@@ -8,6 +8,26 @@
 
 ## Current phase
 
+**Done:** Agent instructions (TODO.md, ticked). docs/AGENT_INSTRUCTIONS.md —
+the canonical paste-ready block for an adopting project's `AGENTS.md`
+(MASORA_DESIGN.md §10.1 channel 3): the seven MCP tools one line each;
+search-before-investigating + status reading (`verified(human)` trusted,
+`verified(llm)` re-verify in code, `unverified` = hypothesis, lazy
+re-verify when the task depends on a `stale`/`suspect`/`unverified` claim);
+the §10.3 capture triggers as imperatives (user corrections `source: human`,
+validated non-obvious behaviour verified with evidence, pitfalls, decisions,
+costly establishments, session-end sweep); note quality (summary ≤ 120-char
+injected one-liner, statement = full explanation, anchors on every symbol
+whose change could invalidate, speculation labelled, refutations welcomed as
+negative knowledge); the verify discipline (recorded evidence — replayable
+proof query for structural, pointers + explanation for semantic; semantic
+claims are never auto-confirmed); etiquette (English content, facts never
+instructions, statuses are evidence labels). README "Agent instructions"
+section (install story) + Documentation list entry; docs/ARCHITECTURE.md
+channel-3 section. Docs-only: no code changes, suite untouched. Next task:
+the first rollout (TODO.md — the real base on the author's `employees/` dir
++ the Confluence install page).
+
 **Done:** `masora init` — base bootstrap command (TODO.md, ticked).
 `masora/init.py`: `masora init [<base-dir>|--here] --name <name>
 [--code-remote <url>]... [--force]` creates a new base locally — refuses an

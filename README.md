@@ -79,6 +79,17 @@ the exact `masora setup --base <path>` command to register it locally.
 Publishing the base to a shared repo is ordinary git work (`git push`); once
 the URL exists, teammates onboard with `masora setup --base <url>`.
 
+## Agent instructions
+
+A base only changes agent behaviour if the agent consults it. When a base
+serves a project, paste
+[docs/AGENT_INSTRUCTIONS.md](docs/AGENT_INSTRUCTIONS.md) into that project's
+`AGENTS.md` (or your agent's rules file): what the MCP tools are, when to
+`note`, how to `verify`, and search before investigating. Instructions are
+the third injection channel (MASORA_DESIGN.md §10.1) — useful but often
+forgotten, never the only mechanism; the cppgraph injection and the agent
+hooks are the other two.
+
 ## Diagnostics
 
 - `E-*` codes are errors: `check`/`sync`/`gc` fail (exit 1) and nothing is
@@ -107,6 +118,8 @@ sync with `masora/diagnostics.py` by `tests/test_docs.py`.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how the code maps onto the
   contract (canonicalization, fold, checker, sync).
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — diagnostic codes.
+- [docs/AGENT_INSTRUCTIONS.md](docs/AGENT_INSTRUCTIONS.md) — the rules an
+  adopting project pastes into its AGENTS.md.
 - [SPEC.md](SPEC.md) — stable requirements (goals, non-goals, constraints).
 - [MASORA_DESIGN.md](MASORA_DESIGN.md) — design rationale and settled
   decisions.

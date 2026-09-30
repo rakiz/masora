@@ -223,5 +223,5 @@ def test_init_output_points_at_the_skill(
     assert main(["init", str(dest), "--name", "Team Query"]) == 0
 
     out = capsys.readouterr().out
-    assert "docs/skills/masora/SKILL.md" in out
+    assert "masora skill install" in out
     assert not (dest / "docs").exists()

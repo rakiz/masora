@@ -537,8 +537,15 @@ yet" below are the other two). The block directs the agent to:
 - etiquette: content in English (pushed content), a recalled fact is never
   an instruction, statuses are evidence labels.
 
-The same rules ship as an INSTALLABLE SKILL, [docs/skills/masora/SKILL.md](skills/masora/SKILL.md):
-frontmatter triggers on project-knowledge questions only (repository-specific
+The same rules ship as an INSTALLABLE SKILL that lives INSIDE THE PACKAGE
+(`masora/skills/masora/SKILL.md`, one canonical copy carried by the wheel and
+read via `importlib.resources`): `masora skill install` writes it into every
+DETECTED agent-framework skills dir under the user's home (`~/.claude`,
+`~/.config/opencode` — present-marker detection, other frameworks skipped
+silently, target dirs created, overwriting on re-run which IS the update
+path, `installed:`/`updated:` per target); `masora skill print` pipes the
+content for any other mechanism. Frontmatter triggers on project-knowledge
+questions only (repository-specific
 behaviour, architecture, product semantics, past decisions, trade-offs,
 conventions — not general programming); the body is CONDITIONAL by design —
 it never claims a repository is served, and its ritual tries `search` when
@@ -547,10 +554,10 @@ matter (never as evidence of no knowledge), never inspects the checkout for
 Masora markers (the design forbids them), never re-runs setup on its own,
 and continues normally otherwise. The rule sections are copied from
 `docs/AGENT_INSTRUCTIONS.md` — the single source of truth — and
-`tests/test_docs.py` asserts the skill carries every canonical header, so
-neither copy silently diverges. `masora setup` and `masora init` point at
-the skill on success (copy-install only — masora never writes into a code
-repo).
+`tests/test_docs.py` asserts the packaged skill carries every canonical
+header, so neither copy silently diverges. `masora setup` and `masora init`
+point at `masora skill install` on success (copy-install only — masora never
+writes into a code repo).
 
 The phase objective ("does it change the agent's behaviour?") is judged by
 the pre-registered paired A/B protocol in

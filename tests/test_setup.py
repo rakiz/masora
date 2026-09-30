@@ -373,7 +373,7 @@ def test_setup_output_points_at_the_skill_and_writes_nothing_into_the_origin(
 
     assert code == 0
     out = capsys.readouterr().out
-    assert "docs/skills/masora/SKILL.md" in out
-    assert "masora never writes into your code repo" in out
+    assert "masora skill install" in out
+    assert "masora skill print" in out
     assert git(origin, "status", "--porcelain") == before
     assert not (origin / "docs").exists()

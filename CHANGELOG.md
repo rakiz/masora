@@ -6,6 +6,12 @@
       the current state only (release-notes style); the history of how the
       project got there lives between released versions. -->
 
+## [Unreleased]
+
+### Added
+
+- **`masora skill install` / `masora skill print`** — user-friendly skill installation (the curl runbook dies): the agent skill now lives INSIDE the package (`masora/skills/masora/SKILL.md` — one canonical copy carried by the wheel; the `docs/skills` copy is deleted and the sync guards in `tests/test_docs.py` read the packaged file via `importlib.resources`, with docs/AGENT_INSTRUCTIONS.md staying the source of truth). `masora skill install` writes the packaged SKILL.md into every DETECTED agent-framework skills dir under the user's home — `~/.claude/skills/masora/` when `~/.claude` exists, `~/.config/opencode/skills/masora/` when `~/.config/opencode` exists, other frameworks skipped silently — creating the target dirs and OVERWRITING on re-run (that is the update path), printing `installed: <path>` / `updated: <path>` per target; when no framework dir is found it says so and points at `masora skill print`, which pipes the packaged content to stdout for any other mechanism; exit 0 either way. `masora setup` and `masora init` now print `masora skill install` on success (replacing the copy-path hint). README's install story becomes: `uv tool install` → `masora setup` → `masora skill install` — no curl. (`masora/skill.py`, `masora/cli.py`, `masora/setup.py`, `masora/init.py`, `tests/test_skill.py`, `tests/test_docs.py`, `tests/test_setup.py`, `tests/test_init.py`, README, docs/ARCHITECTURE.md.)
+
 ## 0.3.3 — 2026-09-30
 
 ### Added

@@ -184,6 +184,22 @@ Tasks:
   non-increasing semver) — failures name the offending header(s) and their
   line numbers; HTML comments are stripped first so the entry template's
   `## [X.Y.Z]` line cannot trip them. → tests/test_docs.py.
+- [x] User-friendly skill installation (the curl runbook dies): the skill
+  MOVES into the package (`masora/skills/masora/SKILL.md` — hatchling ships
+  the package tree; one canonical copy, the docs/skills copy deleted; the
+  test_docs sync guards read it via importlib.resources — the source of
+  truth stays docs/AGENT_INSTRUCTIONS.md). NEW `masora skill install`
+  (writes the packaged SKILL.md into every DETECTED agent-framework skills
+  dir — ~/.claude, ~/.config/opencode, others skipped silently; creates the
+  target dirs; overwrites on re-run = the update path;
+  `installed:`/`updated:` per target; nothing found → the message points at
+  `masora skill print`; exit 0) + `masora skill print` (the content to
+  stdout for any other mechanism); the framework roots derive from
+  Path.home() (tests inject the home). setup/init print `masora skill
+  install`. README's story: uv tool install → setup → skill install (no
+  curl). → masora/skill.py, masora/cli.py, masora/setup.py, masora/init.py,
+  pyproject (no change needed — the package tree carries it),
+  tests/test_skill.py, tests/test_docs.py, README, docs/ARCHITECTURE.md.
 - [ ] First rollout: create the base on the author's `employees/` dir + Confluence install page (install, `masora setup --base <url>`, usage); migration to a dedicated repo if adopted.
 - [ ] Agent-graded evaluation of the phase objective — the protocol is
   WRITTEN (docs/EVALUATION.md, pre-registered: paired A/B over ~20 tasks —

@@ -64,9 +64,8 @@ def _setup(base_spec: str) -> None:
     print(f"mappings: {added} added, {updated} updated")
     print(f"config written: {config_path()}")
     print(
-        "skill: docs/skills/masora/SKILL.md in the masora checkout"
-        " (github.com/rakiz/masora) — install it into your agent's skills/rules mechanism"
-        " (copy — masora never writes into your code repo)"
+        "skill: masora skill install — installs the agent rules into your skills mechanism"
+        " (masora skill print to pipe them)"
     )
 
 

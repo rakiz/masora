@@ -56,6 +56,7 @@ masora check <base-dir>  # validate a base (exit 0/1/2)
 masora compact <base-dir>  # drop pure history per lineage, fold-verified; --rehome migrates old directory layouts (plan exits 3; --yes executes)
 masora sync              # publish pending events: one branch + one PR
 masora mcp               # run the MCP stdio server — register it in your MCP client's config
+masora skill install     # install the agent rules into your skills mechanism (Claude Code, opencode)
 masora status            # one screen: tool versions, your bases, index drift, update check
 ```
 
@@ -102,9 +103,11 @@ the URL exists, teammates onboard with `masora setup --base <url>`.
 A base only changes agent behaviour if the agent consults it. Two routes,
 same rules:
 
-- **The installable skill** — [docs/skills/masora/SKILL.md](docs/skills/masora/SKILL.md)
-  in the masora checkout: copy it into your agent's skills/rules mechanism
-  (masora never writes into your code repo). Its rules are conditional — the
+- **The installable skill** — the rules ship inside the package:
+  `masora skill install` writes `SKILL.md` into every detected agent
+  framework's skills dir (`~/.claude`, `~/.config/opencode`; other
+  frameworks are skipped silently, re-running updates); `masora skill print`
+  pipes the content for any other mechanism. Its rules are conditional — the
   ritual tries `search` when the tools are available and continues normally
   when they are not.
 - **The paste block** — [docs/AGENT_INSTRUCTIONS.md](docs/AGENT_INSTRUCTIONS.md)

@@ -8,6 +8,25 @@
 
 ## Current phase
 
+**Done:** user-friendly skill installation (TODO.md, ticked) — the skill
+lives INSIDE the package now (masora/skills/masora/SKILL.md, hatchling
+ships the package tree; the docs/skills copy deleted; the test_docs sync
+guards read it via importlib.resources — the source of truth stays
+docs/AGENT_INSTRUCTIONS.md). `masora skill install` writes the packaged
+SKILL.md into every DETECTED agent-framework skills dir (~/.claude,
+~/.config/opencode — present-marker detection under the injected home;
+others skipped silently; target dirs created; overwrite on re-run = the
+update path; installed:/updated: per target; nothing found → the message
+points at `masora skill print`; exit 0) and `masora skill print` pipes the
+content to stdout. setup/init print `masora skill install`. README: uv tool
+install → setup → skill install (no curl); ARCHITECTURE documents the
+packaged skill + install command + the guards' resources read. Tests:
+tests/test_skill.py (7: both homes, absent-framework skip, overwrite
+updated:, print == packaged, the nothing-found message, the CLI wiring via
+monkeypatched HOME, the wheel-carries-it resources read) + the setup/init
+hint tests updated to the new substring. 583 tests green; ruff clean. Next
+task: the first rollout (TODO.md).
+
 **Done:** the CHANGELOG-invariant guard (TODO.md, ticked) — three tests in
 tests/test_docs.py over the file's GLOBAL structure (the miss: stacked
 `## [Unreleased]` headers survived every per-pass diff and a release sed

@@ -23,6 +23,7 @@ from .init import run as run_init
 from .mcp import PROTOCOL_VERSION
 from .mcp import serve as run_mcp
 from .setup import run as run_setup
+from .skill import run as run_skill
 from .status import installed_version
 from .status import run as run_status
 from .sync import run as run_sync
@@ -269,6 +270,21 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="refetch the release check now, bypassing the 24 h cache",
     )
+    skill = sub.add_parser(
+        "skill",
+        help="install or print the packaged masora agent skill",
+        description="install: write the packaged SKILL.md into every detected agent-framework"
+        " skills dir (~/.claude, ~/.config/opencode — other frameworks are skipped silently),"
+        " creating the target dirs and overwriting on re-run (that is the update path);"
+        " print: the packaged content to stdout for any other mechanism. Copy-install only —"
+        " masora never writes into a code repo.",
+    )
+    skill.add_argument(
+        "action",
+        choices=["install", "print"],
+        help="install: write into every detected agent-framework skills dir; print: the"
+        " packaged content to stdout",
+    )
     args = parser.parse_args(argv)
 
     if args.command in BASE_COMMANDS and not _base_gate(args.base_dir):
@@ -304,6 +320,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_facts(args.repo, symbol=args.symbol)
     if args.command == "status":
         return run_status(force=args.force)
+    if args.command == "skill":
+        return run_skill(args.action)
     return 2
 
 

@@ -165,6 +165,4 @@ def _finish(target: Path, name: str) -> None:
         "init works locally — publishing to a shared repo is your git work: push it, "
         "then hand out the URL for masora setup"
     )
-    print(
-        "after setup, install the agent skill: docs/skills/masora/SKILL.md in the masora checkout"
-    )
+    print("after setup: masora skill install — the agent rules ride the package")

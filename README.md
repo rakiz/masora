@@ -51,6 +51,7 @@ Requires Python ≥ 3.13.
 uv tool install .        # or: pip install .
 masora setup --base <url>[#<path>]  # clone a base + write ~/.config/masora/config.toml from its base.toml
 masora check <base-dir>  # validate a base (exit 0/1/2)
+masora compact <base-dir>  # drop pure history per lineage, fold-verified (plan exits 3; --yes executes)
 masora sync              # publish pending events: one branch + one PR
 masora mcp               # run the MCP stdio server — register it in your MCP client's config
 ```
@@ -83,7 +84,8 @@ repo.
   `E-REWRITE`, `E-FOUNDER`, `E-GC-UNAVAILABLE`, `E-TOMBSTONE-SHRINK`,
   `E-GIT`, `E-NO-ORIGIN`, `E-MERGE-BASE` only appear in `sync`; the
   `E-SETUP-*` codes only appear in `setup`; `E-GC-ULID`, `E-GC-UNKNOWN` and
-  `E-GC-CHECK` only appear in `gc`.
+  `E-GC-CHECK` only appear in `gc`; `E-COMPACT-DIVERGE` and `E-COMPACT-CHECK`
+  only appear in `compact`.
 
 Every code, with likely cause and remedy, is in
 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md). The table is kept in

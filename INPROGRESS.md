@@ -8,6 +8,30 @@
 
 ## Current phase
 
+**Done:** `masora compact <base-dir>` (TODO.md, ticked) — per-lineage
+compression to the minimal live witness set. `masora/compact.py`:
+`select_witness` (pure, property-tested against the brute-force oracle's
+generator over every acyclic DAG at n ≤ 4 exhaustively + sampled n = 5 DAGs),
+per-lineage `observable_state` fold-equality proof refusing diverging
+lineages fail-closed (E-COMPACT-DIVERGE, nothing written), plan-then-confirm
+like gc (plan exits 3, `--yes` executes, pre/post `masora check` —
+E-COMPACT-CHECK — plus tree-wide status re-verification). Dropped events
+known to the shared repo (on `origin/main` or the sync merge-base, resolved
+without fetch; none → no tombstones) are tombstoned per-event in
+`deleted.toml`'s new `[[deleted_events]]` table ({lineage, ulids} like
+`[[deleted]]`, append-only by content, union-merged by sync, accepted by
+sync's deletion diff; `[[deleted]]` keeps its whole-lineage semantics and
+gc is untouched); unpublished events drop silently. Survivors keep ULIDs and
+bytes. checker.py loads both tables (E-TOMBSTONED by event id for
+deleted_events, lineage semantics unchanged); fold.Event carries an inert
+`contradicts` field for the closure. Docs updated in the same change:
+FORMAT.md §1/§7.10, README quick start + diagnostics, ARCHITECTURE Compact
+section, TROUBLESHOOTING (2 new codes, two-way guarded), CONVENTIONS §3
+(base event content is English), CHANGELOG [Unreleased]. 19 tests in
+tests/test_compact.py; suite 465 green; ruff clean. Next task: the first
+rollout (TODO.md — the real base on the author's `employees/` dir + the
+Confluence install page).
+
 Phase 1: v0 core (TODO.md). In place: pre-flight; the FORMAT.md contract
 (frozen); `masora check` (standalone whole-tree validation + fold, proven by
 brute force); `masora sync` (publication: one branch + one PR, append-only

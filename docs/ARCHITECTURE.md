@@ -15,8 +15,9 @@ FTS (`index`, searched by `search`).
   content-based. `checker.py` globs `**/*.md` (skipping `.git`); moving files
   changes nothing.
 - Event identity is the ULID (`id` == filename ULID); files are append-only,
-  never modified after creation. Whole-lineage deletion is `masora gc`'s job
-  (see the GC section below).
+  never modified after creation. Whole-lineage deletion is `masora gc`'s job,
+  per-event dropping is `masora compact`'s (see the GC and Compact sections
+  below).
 
 ## Canonicalization and schema (`masora/frontmatter.py`, `masora/schema.py`)
 
@@ -108,7 +109,9 @@ Pipeline (each step's failures abort with exit 1):
 4. **Tampering**: a rewrite or partial deletion of a known id is
    `E-REWRITE`; a whole-lineage deletion is tampering unless the lineage is
    tombstoned in the local `deleted.toml` (`E-GC-UNAVAILABLE`) — tombstoned
-   deletions are `masora gc`'s output and are accepted.
+   deletions are `masora gc`'s output and are accepted. A per-event deletion
+   whose `(lineage, id)` pair appears in the local `[[deleted_events]]` table
+   is `masora compact`'s output and is accepted the same way.
 5. **Tombstone**: the local `deleted.toml` must be a content-superset of the
    merge-base's (`E-TOMBSTONE-SHRINK`).
 6. **Founder rule**: every added v2+ claim needs its founder in
@@ -153,6 +156,64 @@ lineage is negative knowledge). Sequencing:
    like any pending change.
 5. **Post-check**: `check_base()` again; a failure is `E-GC-CHECK` (exit 1).
    Exit 0 deleted, 2 deleted with warnings.
+
+## Compact (`masora/compact.py`, §6, §7.10, MASORA_DESIGN.md §6.2)
+
+`masora compact <base-dir> [--yes]` compresses every lineage to its minimal
+live witness set — the event files still contributing to the lineage's
+current §6 fold state — dropping pure history (superseded versions, undone
+events, inactive verifies) while losing nothing observable. Surviving files
+keep their ULIDs and are untouched byte-for-byte, so merges and dedup by id
+keep working. Sequencing:
+
+1. **Pre-check**: `check_base()`; errors block and nothing is mutated.
+2. **Witness selection** (`select_witness`, pure over fold events): per
+   lineage it keeps the founding claim (every eligible version's resolution
+   hangs on it), the effective version (the newest active eligible version;
+   the newest eligible version when every version is refuted —
+   `resolution: none`; the newest existing version when the lineage is
+   founderless), every active verify of the effective version (their
+   `source`s feed the envelope), every active doubt on a kept verify, every
+   active refute of a version when `resolution: none`, and the newest
+   version — whose active refutations sustain `restored` — when restored.
+   The set is closed over `targets`/`contradicts` (a kept event's references
+   must resolve) and over the active refute/unrefute/undoubt events
+   targeting kept events (a kept event's activity must not flip); everything
+   else is dropped. Correctness over compression: any ambiguity keeps.
+3. **The proof**: per lineage, `observable_state(fold_full) ==
+   observable_state(fold_witness)` — displayed, restored, resolution,
+   verification fields, sources, doubted and the activity state of every
+   surviving version. Any divergence refuses the whole run fail-closed with
+   `E-COMPACT-DIVERGE` (exit 1, nothing written). The rule is exercised by
+   the brute-force suite: every acyclic event DAG at n ≤ 4 exhaustively plus
+   sampled n = 5 DAGs must fold identically before and after witness
+   selection, and every fixture tree must compact with an unchanged per-lineage
+   status (`tests/test_compact.py`).
+4. **Tombstones**: an event is tombstoned only if the shared repo knows it —
+   its ULID exists on `origin/main` or on the sync merge-base (the same git
+   plumbing as sync's diff, no fetch; no remote/merge-base → no tombstones
+   at all). Known dropped events land in `deleted.toml`'s `[[deleted_events]]`
+   table (`{lineage, ulids}` blocks like gc's, append-only by content,
+   union-merged by sync); the lineage itself stays alive, so `check` rejects
+   re-added event ids only. Unpublished events (uncommitted or
+   committed-but-unpushed, as of the last fetch) are deleted silently —
+   nobody ever saw them.
+5. **Plan/confirm**: without `--yes` the plan (per-lineage kept/dropped with
+   the unpublished count, tombstone total, files before → after) is printed
+   and compact exits 3 without writing.
+6. **Mutation**: dropped event files are unlinked and emptied parent
+   directories pruned (gc's helper); compact commits nothing — an ordinary
+   git commit, or `masora sync` like any pending change.
+7. **Post-check**: `check_base()` again — a failure is `E-COMPACT-CHECK` —
+   plus a tree-wide re-verification that every surviving lineage's status
+   envelope is unchanged (a change is `E-COMPACT-DIVERGE`); both advise
+   `git restore` (exit 1). Exit 0 compacted, 2 compacted with warnings.
+
+Compact folds standalone (no anchor provider, like `check`): the effective
+version is the newest active one. An index built with a fingerprint-matching
+OLDER version may display that older version; its verifies of
+non-displayed versions are dropped, so re-index after compacting a base
+whose lineages resolve to older versions.
 
 ## Index and resolution (`masora/index.py`, `masora/resolve.py`, MASORA_DESIGN.md §6.2, §5.4, §8)
 

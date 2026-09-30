@@ -10,7 +10,7 @@ doc gets amended.
 ```
 <base>/
   base.toml                      # base identity (see masora setup)
-  deleted.toml                   # tombstone, optional, maintained by gc
+  deleted.toml                   # tombstone, optional, maintained by gc and compact
   2026-09/                       # month bucket, at file creation
     01J8Z3K…/                    # one directory per lineage (lineage ULID)
       01J8Z3K….claim.md          # v1 of the claim
@@ -343,13 +343,18 @@ fact about the claim's immutable fingerprint set (see §4).
     `sync`/`check` re-validate the **merged** result, so gc-vs-extension races
     (a PR extending a lineage another PR deleted) are rejected, not just the PR
     diff. A base-root tombstone file `deleted.toml` (append-only, maintained by
-    `gc`) lists deleted lineage and event ULIDs; `check` rejects any event whose
-    `id` or `lineage` appears in it — re-adding deleted ULIDs is rejected. The
-    tombstone is a TOML file of `[[deleted]]` blocks
+    `gc` and `compact`) lists deleted lineage and event ULIDs; `check` rejects
+    any event whose `id` or `lineage` appears in it — re-adding deleted ULIDs
+    is rejected. The tombstone is a TOML file of `[[deleted]]` blocks
     `{lineage: "<ulid>", ulids: ["<ulid>", …]}`; it is append-only BY CONTENT
     (entries are added, never removed or edited — a tombstone that shrank vs the
     merge-base is tampering); concurrent gc PRs merge by union; `check` validates
-    that every tombstoned ULID is absent from the tree.
+    that every tombstoned ULID is absent from the tree. A `[[deleted_events]]`
+    block of the same `{lineage, ulids}` shape tombstones individual events of
+    a lineage that stays alive (`masora compact`'s output): `check` rejects any
+    event whose `id` appears in it, the `lineage` ULID itself is not
+    tombstoned by it, and the same append-only-by-content and union-merge
+    rules apply.
 11. All ULIDs (`id` across every event file) are unique base-wide.
 
 The append-only content diff assumes base history is not rewritten; branch

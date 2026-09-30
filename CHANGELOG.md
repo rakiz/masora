@@ -6,6 +6,12 @@
       the current state only (release-notes style); the history of how the
       project got there lives between released versions. -->
 
+## [Unreleased]
+
+### Added
+
+- **`masora compact <base-dir>`** — per-lineage compression to the minimal live witness set: the event files still contributing to the lineage's current §6 fold state survive (same ULIDs, byte-identical, merge-safe by id); pure history — superseded versions, undone events, inactive verifies — is dropped. The witness (founder claim, effective version, its active verifies with their sources, active doubts on kept verifies, all version refutes under `resolution: none`, the newest version's refutation under `restored`) is closed over `targets`/`contradicts` and over the active refute/unrefute/undoubt events targeting kept events, and carries a per-lineage proof: the witness fold must equal the full fold — any divergence refuses the whole run fail-closed (`E-COMPACT-DIVERGE`, nothing written); the rule is brute-forced over every acyclic event DAG at n ≤ 4 plus sampled n = 5 DAGs and every fixture tree. Plan-then-confirm like gc (plan exits 3, `--yes` executes, pre/post `masora check` with `E-COMPACT-CHECK` on post-check failure plus a tree-wide status re-verification). Dropped events known to the shared repo (present on `origin/main` or the sync merge-base — the same git plumbing as sync's diff, no fetch; no remote/merge-base → no tombstones) are tombstoned per-event in `deleted.toml`'s new `[[deleted_events]]` table (same `{lineage, ulids}` block shape, append-only by content, union-merged by sync, which accepts tombstoned per-event deletions alongside gc's whole-lineage ones); unpublished events are deleted silently.
+
 ## 0.1.0 — 2026-09-29
 
 Grouped by capability — what this version ships. The full suite is 441 tests green.

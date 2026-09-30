@@ -149,6 +149,12 @@ def _run_publish(base_dir: Path, push: bool) -> int:
                 else None,
                 "local",
             )
+            de_local = _deleted_event_pairs(
+                (base_dir / "deleted.toml").read_bytes()
+                if (base_dir / "deleted.toml").exists()
+                else None,
+                "local",
+            )
             tombstoned = {value for pair in pairs_local for value in pair}
 
             for event_id in rewritten_ids:
@@ -161,12 +167,23 @@ def _run_publish(base_dir: Path, push: bool) -> int:
                         local_events[event_id].path,
                     )
                 )
-            errors.extend(_deletion_diags(deleted_ids, base_events, origin_events, tombstoned))
+            errors.extend(
+                _deletion_diags(deleted_ids, base_events, origin_events, tombstoned, de_local)
+            )
 
             pairs_base = _tombstone_pairs(
                 _git_show_optional(base_dir, f"{merge_base}:deleted.toml"), "merge-base"
             )
+            de_base = _deleted_event_pairs(
+                _git_show_optional(base_dir, f"{merge_base}:deleted.toml"), "merge-base"
+            )
             pairs_origin = _tombstone_pairs(
+                (origin_dir / "deleted.toml").read_bytes()
+                if (origin_dir / "deleted.toml").exists()
+                else None,
+                "origin/main",
+            )
+            de_origin = _deleted_event_pairs(
                 (origin_dir / "deleted.toml").read_bytes()
                 if (origin_dir / "deleted.toml").exists()
                 else None,
@@ -180,6 +197,17 @@ def _run_publish(base_dir: Path, push: bool) -> int:
                         "error",
                         E_TOMBSTONE_SHRINK,
                         f"deleted.toml lost tombstone entries present at the merge-base: {listing} — tombstones are append-only by content (FORMAT.md §7.10)",
+                        "deleted.toml",
+                    )
+                )
+            de_missing = sorted(de_base - de_local)
+            if de_missing:
+                listing = ", ".join(f"({lineage}, {ulid})" for lineage, ulid in de_missing)
+                errors.append(
+                    Diag(
+                        "error",
+                        E_TOMBSTONE_SHRINK,
+                        f"deleted.toml lost deleted_events entries present at the merge-base: {listing} — tombstones are append-only by content (FORMAT.md §7.10)",
                         "deleted.toml",
                     )
                 )
@@ -216,6 +244,8 @@ def _run_publish(base_dir: Path, push: bool) -> int:
                     merged_dir,
                     pairs_local,
                     pairs_origin,
+                    de_local,
+                    de_origin,
                     deleted_ids,
                     origin_events,
                 )
@@ -232,7 +262,9 @@ def _run_publish(base_dir: Path, push: bool) -> int:
                 print(f"FAILED: {len(errors)} error(s)")
                 return 1
 
-            has_pending = bool(added_ids) or bool(pairs_local - pairs_base)
+            has_pending = (
+                bool(added_ids) or bool(pairs_local - pairs_base) or bool(de_local - de_base)
+            )
             if not has_pending:
                 print("no pending events: nothing to sync")
                 if warnings:
@@ -284,7 +316,9 @@ def _run_publish(base_dir: Path, push: bool) -> int:
     if warnings:
         print(f"synced with warnings: {len(warnings)} warning(s)")
         return 2
-    tombstone_note = " + tombstone additions" if pairs_local - pairs_base else ""
+    tombstone_note = (
+        " + tombstone additions" if (pairs_local - pairs_base) or (de_local - de_base) else ""
+    )
     print(f"synced: {len(added_ids)} pending event(s){tombstone_note}")
     return 0
 
@@ -337,6 +371,7 @@ def _deletion_diags(
     base_events: dict[str, EventFile],
     origin_events: dict[str, EventFile],
     tombstoned: set[str],
+    event_tombstones: set[tuple[str, str]],
 ) -> list[Diag]:
     if not deleted_ids:
         return []
@@ -349,7 +384,10 @@ def _deletion_diags(
     for event_id in deleted_ids:
         if event_id not in origin_events:
             continue
-        if base_events[event_id].lineage in gc_lineages:
+        lineage = base_events[event_id].lineage
+        if lineage in gc_lineages:
+            continue
+        if (lineage, event_id) in event_tombstones:
             continue
         diags.append(
             Diag(
@@ -363,6 +401,9 @@ def _deletion_diags(
         if any(event_id in origin_events for event_id in lineage_ids[lineage]):
             if lineage in tombstoned:
                 continue
+            tombstoned_events = {ulid for lin, ulid in event_tombstones if lin == lineage}
+            if lineage_ids[lineage] <= tombstoned_events:
+                continue
             diags.append(
                 Diag(
                     "error",
@@ -374,6 +415,14 @@ def _deletion_diags(
 
 
 def _tombstone_pairs(data: bytes | None, where: str) -> set[tuple[str, str]]:
+    return _table_pairs(data, where, "deleted")
+
+
+def _deleted_event_pairs(data: bytes | None, where: str) -> set[tuple[str, str]]:
+    return _table_pairs(data, where, "deleted_events")
+
+
+def _table_pairs(data: bytes | None, where: str, table: str) -> set[tuple[str, str]]:
     if data is None:
         return set()
     try:
@@ -387,13 +436,13 @@ def _tombstone_pairs(data: bytes | None, where: str) -> set[tuple[str, str]]:
                 "deleted.toml",
             )
         ) from exc
-    blocks = parsed.get("deleted", []) if isinstance(parsed, dict) else None
+    blocks = parsed.get(table, []) if isinstance(parsed, dict) else None
     if not isinstance(blocks, list) or any(not isinstance(block, dict) for block in blocks):
         raise SyncError(
             Diag(
                 "error",
                 E_TOMBSTONE_SHAPE,
-                f"deleted.toml ({where}) must be a list of [[deleted]] tables",
+                f"deleted.toml ({where}) {table} must be a list of [[{table}]] tables",
                 "deleted.toml",
             )
         )
@@ -410,7 +459,7 @@ def _tombstone_pairs(data: bytes | None, where: str) -> set[tuple[str, str]]:
                 Diag(
                     "error",
                     E_TOMBSTONE_SHAPE,
-                    f"deleted.toml ({where}) blocks must have {{lineage, ulids}} string values",
+                    f"deleted.toml ({where}) {table} blocks must have {{lineage, ulids}} string values",
                     "deleted.toml",
                 )
             )
@@ -419,15 +468,23 @@ def _tombstone_pairs(data: bytes | None, where: str) -> set[tuple[str, str]]:
     return pairs
 
 
-def _render_tombstone(pairs: set[tuple[str, str]]) -> str:
+def _render_blocks(pairs: set[tuple[str, str]], table: str) -> str:
     by_lineage: dict[str, list[str]] = {}
     for lineage, ulid in pairs:
         by_lineage.setdefault(lineage, []).append(ulid)
     blocks = []
     for lineage in sorted(by_lineage):
         ulids = ", ".join(f'"{ulid}"' for ulid in sorted(by_lineage[lineage]))
-        blocks.append(f'[[deleted]]\nlineage = "{lineage}"\nulids = [{ulids}]\n')
+        blocks.append(f'[[{table}]]\nlineage = "{lineage}"\nulids = [{ulids}]\n')
     return "\n".join(blocks)
+
+
+def _render_tombstone(pairs: set[tuple[str, str]]) -> str:
+    return _render_blocks(pairs, "deleted")
+
+
+def _render_deleted_events(pairs: set[tuple[str, str]]) -> str:
+    return _render_blocks(pairs, "deleted_events")
 
 
 def _build_merged(
@@ -436,6 +493,8 @@ def _build_merged(
     merged_dir: Path,
     pairs_local: set[tuple[str, str]],
     pairs_origin: set[tuple[str, str]],
+    de_local: set[tuple[str, str]],
+    de_origin: set[tuple[str, str]],
     deleted_ids: list[str],
     origin_events: dict[str, EventFile],
 ) -> None:
@@ -453,15 +512,17 @@ def _build_merged(
         event = origin_events.get(event_id)
         if event is not None:
             (merged_dir / event.path).unlink(missing_ok=True)
+    merged_tombstone = _render_tombstone(pairs_local | pairs_origin)
+    merged_events = _render_deleted_events(de_local | de_origin)
     if (
         pairs_local
         or pairs_origin
+        or de_local
+        or de_origin
         or (origin_dir / "deleted.toml").exists()
         or (base_dir / "deleted.toml").exists()
     ):
-        (merged_dir / "deleted.toml").write_text(
-            _render_tombstone(pairs_local | pairs_origin), encoding="utf-8"
-        )
+        (merged_dir / "deleted.toml").write_text(merged_tombstone + merged_events, encoding="utf-8")
 
 
 def _scan_events(root: Path) -> dict[str, EventFile]:

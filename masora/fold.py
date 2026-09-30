@@ -1,4 +1,7 @@
-"""Active-event evaluation and status folding (FORMAT.md §6, MASORA_DESIGN.md §6.2)."""
+"""Active-event evaluation and status folding (FORMAT.md §6, MASORA_DESIGN.md §6.2).
+
+`Event.contradicts` rides the record for witness closure in `masora/compact.py`;
+the fold itself never reads it."""
 
 from __future__ import annotations
 
@@ -21,6 +24,7 @@ class Event:
     verified_at: dict | None = None
     recorded_at: dict | None = None
     snapshots: dict | None = None
+    contradicts: str | None = None
 
 
 @dataclass

@@ -8,6 +8,7 @@ from collections import Counter
 from pathlib import Path
 
 from .checker import check_base
+from .compact import run as run_compact
 from .diagnostics import E_IDX_QUERY, W_IDX_STALE, Diag
 from .facts import run as run_facts
 from .gc import run as run_gc
@@ -86,6 +87,25 @@ def main(argv: list[str] | None = None) -> int:
         "--yes",
         action="store_true",
         help="execute the deletion; without it gc prints the plan only and exits 3",
+    )
+    compact = sub.add_parser(
+        "compact",
+        help="compress every lineage to its minimal live witness set (FORMAT.md §6, §7.10)",
+        description="Exit codes: 3 plan printed (nothing written), 0 compacted, 2 compacted"
+        " with warnings, 1 errors. Per lineage, keeps only the event files still"
+        " contributing to the current fold state (MASORA_DESIGN.md §6.2) and drops pure"
+        " history; the per-lineage proof fold(witness) == fold(full lineage) refuses any"
+        " diverging lineage fail-closed (E-COMPACT-DIVERGE). Surviving files keep their"
+        " ULIDs and bytes. Dropped events known to the shared repo (present on"
+        " origin/main or the sync merge-base) are tombstoned per-event in the"
+        " [[deleted_events]] table of deleted.toml; unpublished events are dropped"
+        " silently. Runs masora check before and after the mutation.",
+    )
+    compact.add_argument("base_dir", type=Path, help="path to the Masora base directory")
+    compact.add_argument(
+        "--yes",
+        action="store_true",
+        help="execute the compaction; without it compact prints the plan only and exits 3",
     )
     index = sub.add_parser(
         "index",
@@ -167,6 +187,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_setup(args.base)
     if args.command == "gc":
         return run_gc(args.base_dir, args.lineage, yes=args.yes)
+    if args.command == "compact":
+        return run_compact(args.base_dir, yes=args.yes)
     if args.command == "index":
         return _run_index(args.base_dir, args.repo, args.cppgraph, args.no_cppgraph)
     if args.command == "search":

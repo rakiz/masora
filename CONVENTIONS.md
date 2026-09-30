@@ -36,7 +36,9 @@ CHANGELOG:
    release-notes for the current state only; the history of how the project
    got there lives between released versions (Keep a Changelog format), and
    already-released sections keep that historical form.
-3. **English only.** All pushed content is written in English, always.
+3. **English only.** All pushed content is written in English, always. Base
+   event files are pushed content: their content (summaries, statements,
+   reasons, evidence) is English too.
 
 A past decision that matters belongs in `CHANGELOG.md` (between released
 versions) or a commit message — never as evolution talk elsewhere.

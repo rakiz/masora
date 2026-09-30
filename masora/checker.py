@@ -87,9 +87,9 @@ def check_base(base_dir: Path) -> CheckResult:
         seen_ids[record.id] = rel
         records.append(record)
 
-    tombstoned = _load_tombstones(base_dir / "deleted.toml", diags)
+    tombstoned, event_tombstoned = _load_tombstone_tables(base_dir / "deleted.toml", diags)
     for record in records:
-        if record.id in tombstoned or record.lineage in tombstoned:
+        if record.id in tombstoned or record.lineage in tombstoned or record.id in event_tombstoned:
             diags.append(
                 Diag(
                     "error",
@@ -99,7 +99,11 @@ def check_base(base_dir: Path) -> CheckResult:
                 )
             )
 
-    valid = [r for r in records if r.id not in tombstoned and r.lineage not in tombstoned]
+    valid = [
+        r
+        for r in records
+        if r.id not in tombstoned and r.lineage not in tombstoned and r.id not in event_tombstoned
+    ]
     by_id = {r.id: r for r in valid}
 
     for record in valid:
@@ -198,68 +202,84 @@ def _parse_event_file(path: Path, rel: str, diags: list[Diag]) -> EventRecord | 
     return record
 
 
-def _load_tombstones(path: Path, diags: list[Diag]) -> set[str]:
+def _load_tombstone_tables(path: Path, diags: list[Diag]) -> tuple[set[str], set[str]]:
+    """Parse deleted.toml (FORMAT.md §7.10): `[[deleted]]` blocks tombstone a
+    whole lineage (its lineage ULID and every event ULID), `[[deleted_events]]`
+    blocks tombstone individual event ids while the lineage lives on."""
+    dead: set[str] = set()
+    dead_events: set[str] = set()
     if not path.exists():
-        return set()
+        return dead, dead_events
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
         diags.append(
             Diag("error", E_TOMBSTONE_SHAPE, f"deleted.toml is not valid TOML: {exc}", path.name)
         )
-        return set()
-    if set(data) - {"deleted"}:
+        return dead, dead_events
+    if set(data) - {"deleted", "deleted_events"}:
         diags.append(
             Diag(
                 "error",
                 E_TOMBSTONE_SHAPE,
-                f"deleted.toml has unknown top-level fields {sorted(set(data) - {'deleted'})}",
+                f"deleted.toml has unknown top-level fields {sorted(set(data) - {'deleted', 'deleted_events'})}",
                 path.name,
             )
         )
-        return set()
-    tombstoned: set[str] = set()
-    blocks = data.get("deleted", [])
-    if not isinstance(blocks, list) or any(not isinstance(block, dict) for block in blocks):
-        diags.append(
-            Diag(
-                "error",
-                E_TOMBSTONE_SHAPE,
-                "deleted.toml must be a list of [[deleted]] tables",
-                path.name,
-            )
-        )
-        return set()
-    for i, block in enumerate(blocks):
-        if set(block) != {"lineage", "ulids"}:
+        return dead, dead_events
+    tables: list[tuple[str, set[str], bool]] = []
+    for name, whole in (("deleted", True), ("deleted_events", False)):
+        blocks = data.get(name, [])
+        if not isinstance(blocks, list) or any(not isinstance(block, dict) for block in blocks):
             diags.append(
                 Diag(
                     "error",
                     E_TOMBSTONE_SHAPE,
-                    f"deleted.toml block {i} must have exactly {{lineage, ulids}}",
+                    f"deleted.toml {name} must be a list of [[{name}]] tables",
                     path.name,
                 )
             )
-            return set()
-        ulids = block["ulids"]
-        if not isinstance(ulids, list):
-            diags.append(
-                Diag(
-                    "error",
-                    E_TOMBSTONE_SHAPE,
-                    f"deleted.toml block {i} ulids must be a list of strings",
-                    path.name,
+            return dead, dead_events
+        tables.append((name, dead if whole else dead_events, whole))
+    for name, target, whole in tables:
+        blocks = data.get(name, [])
+        for i, block in enumerate(blocks):
+            if set(block) != {"lineage", "ulids"}:
+                diags.append(
+                    Diag(
+                        "error",
+                        E_TOMBSTONE_SHAPE,
+                        f"deleted.toml {name} block {i} must have exactly {{lineage, ulids}}",
+                        path.name,
+                    )
                 )
-            )
-            return set()
-        try:
-            tombstoned.add(validate_ulid(block["lineage"], what=f"deleted.toml block {i} lineage"))
-            for ulid in ulids:
-                tombstoned.add(validate_ulid(ulid, what=f"deleted.toml block {i} ulid"))
-        except (ValueError, TypeError) as exc:
-            diags.append(Diag("error", E_TOMBSTONE_SHAPE, str(exc), path.name))
-            return set()
-    return tombstoned
+                return dead, dead_events
+            ulids = block["ulids"]
+            if not isinstance(ulids, list):
+                diags.append(
+                    Diag(
+                        "error",
+                        E_TOMBSTONE_SHAPE,
+                        f"deleted.toml {name} block {i} ulids must be a list of strings",
+                        path.name,
+                    )
+                )
+                return dead, dead_events
+            try:
+                lineage = validate_ulid(
+                    block["lineage"], what=f"deleted.toml {name} block {i} lineage"
+                )
+                validated = [
+                    validate_ulid(ulid, what=f"deleted.toml {name} block {i} ulid")
+                    for ulid in ulids
+                ]
+            except (ValueError, TypeError) as exc:
+                diags.append(Diag("error", E_TOMBSTONE_SHAPE, str(exc), path.name))
+                return dead, dead_events
+            if whole:
+                dead.add(lineage)
+            target.update(validated)
+    return dead, dead_events
 
 
 def _check_references(

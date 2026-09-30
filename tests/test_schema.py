@@ -12,6 +12,7 @@ from helpers import (
 from masora.diagnostics import (
     E_ANCHOR,
     E_FILENAME,
+    E_KEYWORDS,
     E_PROOFQUERY,
     E_PROVENANCE,
     E_QUESTIONS,
@@ -757,3 +758,59 @@ def test_questions_forbidden_on_targeted_kinds():
         {"questions": ["Why?"]},
     )
     expect_error(refute, "refute", E_SCHEMA)
+
+
+def test_keywords_absent_is_valid():
+    validate(make_claim("01J8Z3K0000000000000000000"), "claim")
+
+
+def test_keywords_one_and_ten_items_valid():
+    one = apply_overrides(make_claim("01J8Z3K0000000000000000000"), {"keywords": ["CSFLE"]})
+    assert validate(one, "claim").keywords == ("CSFLE",)
+    ten = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"),
+        {"keywords": [f"term {i}" for i in range(1, 11)]},
+    )
+    assert len(validate(ten, "claim").keywords) == 10
+
+
+def test_keywords_empty_list_rejected():
+    data = apply_overrides(make_claim("01J8Z3K0000000000000000000"), {"keywords": []})
+    expect_error(data, "claim", E_KEYWORDS)
+
+
+def test_keywords_eleven_items_rejected():
+    data = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"),
+        {"keywords": [f"term {i}" for i in range(1, 12)]},
+    )
+    expect_error(data, "claim", E_KEYWORDS)
+
+
+def test_keywords_empty_string_rejected():
+    data = apply_overrides(make_claim("01J8Z3K0000000000000000000"), {"keywords": [""]})
+    expect_error(data, "claim", E_KEYWORDS)
+
+
+def test_keywords_non_string_item_rejected():
+    data = apply_overrides(make_claim("01J8Z3K0000000000000000000"), {"keywords": [7]})
+    expect_error(data, "claim", E_KEYWORDS)
+
+
+def test_keywords_exact_duplicates_rejected():
+    data = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"), {"keywords": ["CSFLE", "CSFLE"]}
+    )
+    expect_error(data, "claim", E_KEYWORDS)
+
+
+def test_keywords_forbidden_on_targeted_kinds():
+    data = apply_overrides(
+        make_verify("01J8Z3K0000000000000000001", ULID_L1, ULID_L1), {"keywords": ["k"]}
+    )
+    expect_error(data, "verify", E_SCHEMA)
+    doubt = apply_overrides(
+        make_doubt("01J8Z3K0000000000000000002", ULID_L1, "01J8Z3K0000000000000000001"),
+        {"keywords": ["k"]},
+    )
+    expect_error(doubt, "doubt", E_SCHEMA)

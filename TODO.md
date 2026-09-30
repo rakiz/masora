@@ -200,6 +200,55 @@ Tasks:
   curl). → masora/skill.py, masora/cli.py, masora/setup.py, masora/init.py,
   pyproject (no change needed — the package tree carries it),
   tests/test_skill.py, tests/test_docs.py, README, docs/ARCHITECTURE.md.
+- [x] `masora explain <base-dir> <lineage-id> [--repo]` + the `explain` MCP
+  tool (PROMOTED out of out-of-scope — the rollout lesson: an agent wanting
+  one lineage's full story improvised a massive rg over masora's directories
+  and read RAW event files, which carry NO status, so a refuted/doubted
+  claim looked valid): the fresh fold status (never the index), the
+  effective version's summary/statement/questions, the anchors with their
+  current match state (matched/changed/not_found via the providers with a
+  repo; unknown otherwise), the full event chain in ULID order and the
+  active verify's evidence in full; unknown id → `E-EXPLAIN-UNKNOWN`; the
+  base gate applies; nothing written, ever. → `masora/explain.py`,
+  `masora/mcp.py`, `masora/cli.py` (BASE_COMMANDS gains explain),
+  `masora/diagnostics.py` + docs/TROUBLESHOOTING.md, README,
+  docs/ARCHITECTURE.md, tests/test_explain.py + tests/test_mcp.py,
+  docs/AGENT_INSTRUCTIONS.md + the skill (the tools list now eight).
+- [x] The `keywords` field (the questions' sibling): claim-only, optional,
+  1–10 non-empty single-line alternate-vocabulary strings (synonyms, domain
+  terms, event/test/component names), exact duplicates rejected, no
+  fold/anchor/lineage semantics, format_version stays 1; `E-KEYWORDS` (the
+  diagnostics two-way row); the secret scan covers the items; `note` accepts
+  + persists (minItems 1, maxItems 10; the four-part description); the
+  `keywords` FTS table — SCHEMA_VERSION "4" (disposable rebuild,
+  E-IDX-CORRUPT for foreign versions) — and the THREE-source search union
+  (content + questions + keywords) with matched keywords rendered; the
+  facts contract untouched (asserted). → masora/schema.py, masora/write.py,
+  masora/mcp.py, masora/index.py, FORMAT.md §4,
+  docs/TROUBLESHOOTING.md, tests.
+- [x] Search discoverability: every hit group (CLI + MCP) ends with
+  `details: masora explain <lineage>` — the door to the full story. →
+  masora/cli.py, masora/mcp.py, tests.
+- [x] The retrieval-budget skill pass (rollout lesson: rg-as-entry-point
+  sub-agent briefs bypassed the graph): a `## Retrieval budget` section —
+  the ORDER (masora search, retry ONCE with alternate words → `explain`
+  before relying → cppgraph for C++ structure → ONE narrow text search ONLY
+  outside the graph's index (comments, doc-comments, non-C++ tests,
+  configs, prose), never repo-wide, never silently broadened); the
+  anti-grep rule in "How to note well" is now two-sided (graph for symbols/
+  structure; targeted text search legitimate for what the graph does not
+  index); the tests-as-evidence rule in "Verify discipline". →
+  docs/AGENT_INSTRUCTIONS.md, docs/skills/masora/SKILL.md,
+  tests/test_docs.py.
+- [x] The cppgraph-side input hygiene + the configurable fact budget:
+  docs/CPPGRAPH_INTEGRATION.md gains `## Input hygiene (cppgraph side)`
+  (unknown parameters REJECTED — a typo'd param silently returns unfiltered
+  results; an absent path/filter target = an explicit error, never a silent
+  whole-repo broadening; strict-argument tests required) and §6's fact
+  count is configurable (default 2 — e.g. CPPGRAPH_MASORA_MAX_FACTS; the
+  ≤ 60-token guidance stands). MASORA_DESIGN §12 gains the OPEN
+  cross-analysis tests×code idea (item 11). →
+  docs/CPPGRAPH_INTEGRATION.md, MASORA_DESIGN.md §12.
 - [ ] First rollout: create the base on the author's `employees/` dir + Confluence install page (install, `masora setup --base <url>`, usage); migration to a dedicated repo if adopted.
 - [ ] Agent-graded evaluation of the phase objective — the protocol is
   WRITTEN (docs/EVALUATION.md, pre-registered: paired A/B over ~20 tasks —
@@ -228,7 +277,7 @@ Clarifications to settle as each task starts (final audit 2026-09-25):
 Out of scope:
 
 - Non-code anchor providers (`file`, `url`).
-- Advanced MCP tools: `unrefute`, `recheck`, `history`, `explain` (evidence-chain trace for an injected fact).
+- Advanced MCP tools: `unrefute`, `recheck`, `history` (`explain` is PROMOTED to the checklist above — the evidence-chain surface now exists).
 - CI pipeline wiring (publication is PR-based; `masora check` runs locally in `sync`).
 - Duplicate-lineage handling (`same-as`).
 

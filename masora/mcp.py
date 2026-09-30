@@ -28,6 +28,7 @@ from .diagnostics import (
     CheckFailure,
     Diag,
 )
+from .explain import ExplainError, explain_lineage
 from .index import (
     IndexingError,
     _open_index,
@@ -278,6 +279,7 @@ def _tool_note(args: dict) -> str:
     unanchored_reason = _opt_str(args, "unanchored_reason")
     anchor_refs = _opt_strlist(args, "anchors")
     questions = _opt_strlist(args, "questions")
+    keywords = _opt_strlist(args, "keywords")
 
     graph_commit = None
     if anchor_refs and unanchored:
@@ -346,6 +348,8 @@ def _tool_note(args: dict) -> str:
         data["cost_tokens"] = cost_tokens
     if questions:
         data["questions"] = questions
+    if keywords:
+        data["keywords"] = keywords
 
     rel, warnings = write_and_check(base_dir, data)
     lines = [f"wrote {rel}", f"id {uid}", f"lineage {uid}", f"anchors {len(anchors)}"]
@@ -541,7 +545,19 @@ def _tool_search(args: dict) -> str:
             lines.append(f"  {hit.version} {hit.summary}")
             for question in hit.matched_questions:
                 lines.append(f"    matched question: {question}")
+            for keyword in hit.matched_keywords:
+                lines.append(f"    matched keyword: {keyword}")
+        lines.append(f"details: masora explain {lineage}")
     return "\n".join(lines)
+
+
+def _tool_explain(args: dict) -> str:
+    lineage = _req_str(args, "lineage")
+    base_dir, repo = _resolve_read_context(args)
+    try:
+        return explain_lineage(base_dir, lineage, repo)
+    except ExplainError as exc:
+        raise WriteError(*exc.diags) from exc
 
 
 def _tool_list_stale(args: dict) -> str:
@@ -649,6 +665,14 @@ TOOLS = [
                     "description": "1-5 reader queries this claim answers (specific: concepts,"
                     " behaviours, decisions — never generic like 'How does this work?')",
                 },
+                "keywords": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 10,
+                    "items": _str(description="an alternate vocabulary term for this claim"),
+                    "description": "1-10 alternate-vocabulary strings a reader might query with"
+                    " (synonyms, domain terms, event/test/component names)",
+                },
                 "repo_root": _str(description="path to the code repo checkout"),
                 **_BASE_PROPS,
                 "anchors": {
@@ -692,8 +716,9 @@ TOOLS = [
             description=(
                 "summary is the injected one-liner (<= 120 characters, this is what cppgraph"
                 " surfaces), statement is the full text (no length constraint, the detailed"
-                " explanation) and questions (optional, 1-5) are the reader queries this claim"
-                " answers; content is written in English (base event files are pushed"
+                " explanation), questions (optional, 1-5) are the reader queries this claim"
+                " answers and keywords (optional, 1-10) are the alternate vocabulary a query"
+                " might use; content is written in English (base event files are pushed"
                 " content). Prefer atomic claims — split multi-part knowledge into several"
                 " notes (a block claim is all-or-nothing to verify, to stale and to refute)."
                 " Resolve symbol identities with the code graph (cppgraph find/explain) first;"
@@ -860,6 +885,24 @@ TOOLS = [
             [],
         ),
     },
+    {
+        "name": "explain",
+        "description": (
+            "The complete story of ONE lineage, statuses included: the fresh fold status"
+            " (never the index), the effective version's summary/statement/questions, the"
+            " anchors with their current match state, the full event chain in ULID order and"
+            " the active verify's evidence in full. Nothing is written."
+        ),
+        "inputSchema": _schema(
+            {
+                "lineage": _str(
+                    description="the lineage ULID (a claim whose id equals its lineage)"
+                ),
+                **_BASE_PROPS,
+            },
+            ["lineage"],
+        ),
+    },
 ]
 
 _TOOL_BY_NAME = {
@@ -870,6 +913,7 @@ _TOOL_BY_NAME = {
     "refute": _tool_refute,
     "search": _tool_search,
     "list_stale": _tool_list_stale,
+    "explain": _tool_explain,
 }
 
 

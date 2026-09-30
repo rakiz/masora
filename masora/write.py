@@ -420,6 +420,9 @@ def _secret_scan_texts(data: dict) -> list[tuple[str, str]]:
     questions = data.get("questions")
     if isinstance(questions, list):
         texts.extend(("questions", item) for item in questions if isinstance(item, str))
+    keywords = data.get("keywords")
+    if isinstance(keywords, list):
+        texts.extend(("keywords", item) for item in keywords if isinstance(item, str))
     return texts
 
 

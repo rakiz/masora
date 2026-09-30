@@ -247,6 +247,27 @@ OLDER version may display that older version; its verifies of
 non-displayed versions are dropped, so re-index after compacting a base
 whose lineages resolve to older versions.
 
+## Explain (`masora/explain.py`, §6, FORMAT.md §5)
+
+`masora explain <base-dir> <lineage-id> [--repo <path>]` and the `explain`
+MCP tool render the complete story of ONE lineage, statuses included — the
+canonical door that replaced the improvised rg-over-raw-files (raw event
+files carry no status, so a refuted/doubted claim read as valid). The state
+is computed FRESH from the lineage's event files (checker's discovery/parse
+helpers — content-based; the index is never consulted, a stale index cannot
+lie here): `check_base()` gates first (E-NOT-A-BASE, other base errors
+refuse), then `resolve_lineage`/`fold_lineage` compute the tuple and the
+fold with the providers from `--repo`/`repo_root` (no repo → anchor states
+report `unknown`, never a guess). The render: the status tuple, the
+effective version's summary/statement/questions, the anchors with their
+current match state (matched/changed/not_found/unknown), the full event
+chain in ULID order (each event one line: id, kind, writer, what it does
+via the targets chain, `[refuted]`/`[inactive]` markers) and the ACTIVE
+verify's evidence in full. An unknown id is `E-EXPLAIN-UNKNOWN` (a clean
+diagnostic naming the lineage-ULID rule). Nothing is written, ever. This
+promotes `explain (evidence-chain trace)` out of the TODO's out-of-scope
+list — the remaining advanced tools are `unrefute`, `recheck` and `history`.
+
 ## Index and resolution (`masora/index.py`, `masora/resolve.py`, MASORA_DESIGN.md §6.2, §5.4, §8)
 
 The index turns the fold into the **computed status tuple** (`resolution`,
@@ -335,18 +356,24 @@ and adds FTS5 search. Section references are to MASORA_DESIGN.md.
   fingerprint per version), FTS5 virtual table `search` (summary + statement;
   unicode61 tokenizer → case/accent-insensitive; lineage/version unindexed) and
   the per-question FTS5 table `questions` (question; version + question_ordinal
-  unindexed) — one row per claim question (FORMAT.md §4), so the matched
-  question text can be surfaced. Schema version 3 (a foreign-version DB is
+  unindexed) — one row per claim question (FORMAT.md §4), and the
+  per-keyword FTS5 table `keywords` (keyword; version + keyword_ordinal
+  unindexed) — one row per claim keyword (the alternate vocabulary, FORMAT.md
+  §4), so the matched question/keyword text can be surfaced. Schema version 4
+  (a foreign-version DB is
   refused with `E-IDX-CORRUPT` and `masora index` rebuilds — the index is
-  disposable; bases without questions rebuild cleanly).
+  disposable; bases without questions/keywords rebuild cleanly).
   Tombstoned lineages (and tombstoned event ids) are excluded.
 - **Search union**: `search_index` runs the content MATCH (summary +
-  statement only — questions never dilute it) and the questions MATCH, and
-  unions the hits by version; each `SearchHit` carries `matched_questions`
-  (the distinct matched question texts, ordinal order) — a question-only hit
-  surfaces its version's content row; the CLI and MCP `search` render a
-  `matched question:` line per matched question. `masora facts` is untouched:
-  the contract version stays 1 and the JSON shape carries no questions.
+  statement only — questions/keywords never dilute it) plus the questions
+  and keywords MATCHes, and unions the hits by version; each `SearchHit`
+  carries `matched_questions` and `matched_keywords` (the distinct matched
+  texts, ordinal order) — a question/keyword-only hit surfaces its version's
+  content row; the CLI and MCP `search` render a `matched question:` /
+  `matched keyword:` line per match and every hit group ends with
+  `details: masora explain <lineage>` (the door to the full story). `masora
+  facts` is untouched: the contract version stays 1 and the JSON shape
+  carries no questions/keywords.
 - **Rebuild trigger awareness**: the build stores the base's git HEAD plus
   the code state it fingerprinted (`repo_head`, `graph_commit` in meta) and
   the build moment (`built_at`, UTC ISO); `index_stale()` compares four axes

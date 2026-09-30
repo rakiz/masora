@@ -158,12 +158,14 @@ command handles it.
 
 ## 6. Rendering rules
 
-- Attach at most **2 facts**, one terse line each, appended to the response of
-  the symbol they anchor. Suggested budget: ≤ 60 tokens total; when more
-  facts match, the truncation must be visible (e.g. `… +3 more — masora
-  search`), never silent. The token budget always wins over the fact count:
-  when rendering two facts would exceed it, render one fact plus the visible
-  truncation line; at least one fact renders whenever any matched.
+- Attach at most **2 facts** by default (the fact count is configurable — a
+  `CPPGRAPH_MASORA_MAX_FACTS` value; higher is allowed), one terse line each,
+  appended to the response of the symbol they anchor. Budget guidance: ≤ 60
+  tokens total; when more facts match, the truncation must be visible (e.g.
+  `… +3 more — masora search`), never silent. The token budget always wins
+  over the fact count: when rendering the configured count would exceed it,
+  render fewer facts plus the visible truncation line; at least one fact
+  renders whenever any matched.
 - A fact's status must surface **as such** — statuses are evidence labels,
   not decoration, and negative knowledge is as valuable as positive:
 
@@ -199,6 +201,19 @@ command handles it.
   - `masora: Lock L must be held before calling commitShard [stale, suspect — re-check]`
   - `masora NOT: changeStream re-opens on resumeToken == null [refuted]`
 - Never turn a fact into an instruction: label + summary + status only.
+
+## Input hygiene (cppgraph side)
+
+- **Reject unknown parameters** — never ignore them: a typo'd parameter name
+  silently returns UNFILTERED results (the whole graph answers where one
+  symbol was asked about). An unknown parameter is an explicit error naming
+  it.
+- **An absent path/filter target is an explicit error**, never a silent
+  whole-repo broadening: a filter that matches nothing says so; it never
+  degrades to "no filter".
+- Strict-argument tests are required on the cppgraph side: every tool's
+  parameter set is pinned (unknown names refused) and every
+  absent/unmatchable filter target errors loudly.
 
 ## 7. Invariants for the cppgraph side
 

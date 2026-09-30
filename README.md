@@ -40,9 +40,10 @@ leaves the code untouched.
    and merges into `main`.
 5. **Recall** — later sessions query the base: `masora mcp` serves the write
    and recall tools (`note`, `verify`, `doubt`, `undoubt`, `refute`, `search`,
-   `list_stale`) over MCP stdio, and `masora search <base-dir> <query>` reads
-   the index from the CLI — matching summaries, statements and each claim's
-   `questions` (the matched question is shown on the hit).
+   `explain`, `list_stale`) over MCP stdio, and `masora search <base-dir>
+   <query>` reads the index from the CLI — matching summaries, statements
+   and each claim's `questions`/`keywords` (the matched lines are shown on
+   the hit, and every hit group ends with the `masora explain` pointer).
 
 ## Quick start
 
@@ -55,6 +56,7 @@ masora setup --base <url>[#<path>]  # clone a base + write ~/.config/masora/conf
 masora check <base-dir>  # validate a base (exit 0/1/2)
 masora compact <base-dir>  # drop pure history per lineage, fold-verified; --rehome migrates old directory layouts (plan exits 3; --yes executes)
 masora sync              # publish pending events: one branch + one PR
+masora explain <base-dir> <lineage-ulid>  # the complete story of ONE lineage, statuses included
 masora mcp               # run the MCP stdio server — register it in your MCP client's config
 masora skill install     # install the agent rules into your skills mechanism (Claude Code, opencode)
 masora status            # one screen: tool versions, your bases, index drift, update check

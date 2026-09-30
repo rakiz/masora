@@ -613,6 +613,15 @@ SPEC.md). Items 6 and 8 remain postponed.
    (rebuild determinism is a SPEC requirement).
 8. **Co-change mining from git history** — later (unchanged).
 
+11. **Cross-analysis: tests × code** — *open, not scheduled*: cppgraph + masora
+   could correlate tests with the code — and the claims — they exercise: the
+   graph's call edges already know which symbols a test's code path touches,
+   and the base knows which claims anchor those symbols, so the union can
+   surface untested behaviours (symbols with no test-reaching path), detect
+   claims whose evidence cites no test, and propose test extensions where a
+   behaviour is claimed but unproven. The data exists on both sides; nothing
+   about the mechanism, the ranking or the surface is decided.
+
 Non-blocking refinements recorded from the design review (not Phase 1 scope):
 computed-status presentation matrix (`current + suspect`, `stale + suspect`,
 `restored`, provider-`unknown`); canonical proof-query vocabulary with

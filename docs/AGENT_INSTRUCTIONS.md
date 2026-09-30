@@ -7,7 +7,7 @@ never an instruction.
 
 ## Tools
 
-The `masora` MCP server (`masora mcp`) exposes seven tools:
+The `masora` MCP server (`masora mcp`) exposes eight tools:
 
 - `note` — write a new claim: a statement anchored to the symbols it talks
   about.
@@ -20,6 +20,12 @@ The `masora` MCP server (`masora mcp`) exposes seven tools:
 - `search` — full-text search over the base's summaries and statements.
 - `list_stale` — list the lineages to re-check in this checkout: `stale`,
   `restored` or `unknown`.
+- `explain` — the complete story of ONE lineage, statuses included: the
+  fresh fold, the effective version, the event chain and the active
+  verify's evidence.
+- `explain` — the complete story of ONE lineage, statuses included: the
+  fresh fold, the effective version, the event chain and the active
+  verify's evidence.
 
 ## Search before investigating
 
@@ -38,6 +44,23 @@ The `masora` MCP server (`masora mcp`) exposes seven tools:
 - If the current task depends on a `stale`, `suspect` or `unverified` claim,
   re-verify it first, then record the result. Verification is lazy: its cost
   is paid when the knowledge is used, never in bulk.
+
+## Retrieval budget
+
+The order, before you go dig:
+
+1. `search` the masora base. A zero-result is not an answer: retry ONCE with
+   alternate domain words or a reader-style question — summaries and
+   questions/keywords may use different vocabulary.
+2. `explain` each relevant lineage before relying on it: search is the short
+   index; `explain` is the fresh fold, the full statement, the anchors and
+   the evidence. Never read raw masora event files.
+3. cppgraph for C++ structure and symbol identity.
+4. ONE narrow text/file search ONLY when the answer may live outside the
+   graph — comments, doc-comments, non-C++ tests (jstests), test names,
+   configs, prose — constrained to the known directory or pattern. Never
+   start with a repository-wide grep. Never silently broaden a search: an
+   absent path or filter is fixed, not widened.
 
 ## When to note
 
@@ -72,7 +95,9 @@ trust path. Waiting for the user's order loses the moment and the knowledge.
   surfaces the claim even when the summary's words differ.
 - Locate symbols with the code graph (cppgraph `find`/`explain`), never by
   text-grep guessing; pass exact identities or name fragments —
-  ambiguous/not_found returns candidates.
+  ambiguous/not_found returns candidates. Targeted text search is legitimate
+  for what the graph does not index — comments, doc-comments, tests, configs,
+  prose — but never for symbol or structure discovery.
 - When the claim is about structure or behaviour, verify it against the
   graph (callers/callees/definitions) before writing — a note is anchored to
   what the graph confirms.
@@ -131,6 +156,8 @@ replayable bullets) — compact keeps the live state, not the archives.
 - Semantic claims are never auto-confirmed — they can only be auto-doubted.
   If you cannot prove a claim, leave it `unverified`; if you disagree with
   an existing verification, `doubt` it.
+- A proof may live in a test: locate it with the file tools and record it in
+  the evidence.
 - `doubt` and `refute` are different acts: doubt disputes a verification
   without claiming the claim wrong; refute asserts the target is provably
   wrong. Choose deliberately.

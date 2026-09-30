@@ -13,9 +13,10 @@ from itertools import pairwise
 from pathlib import Path
 
 import pytest
-from helpers import SHA, ULID_L1, make_claim, write_event, write_graph_db
+from helpers import SHA, ULID_L1, make_claim, make_verify, write_event, write_graph_db
 
 from masora.checker import check_base
+from masora.cli import main
 from masora.frontmatter import load_frontmatter
 from masora.index import build_index, index_db_path, normalize_source
 from masora.sync import git_env
@@ -228,6 +229,7 @@ def test_handshake_tools_list_shape(server):
         "refute",
         "search",
         "list_stale",
+        "explain",
     ]
     schemas = {tool["name"]: tool["inputSchema"] for tool in listing["result"]["tools"]}
     assert schemas["note"]["required"] == ["statement", "summary", "repo_root"]
@@ -1334,3 +1336,117 @@ def test_write_and_check_refuses_secret_in_a_question(tmp_path):
         write_and_check(base_dir, data)
     assert exc.value.code == "E-WRITE-SECRET"
     assert not list(base_dir.rglob("*.md"))
+
+
+def test_explain_tool_tells_the_whole_story(server, code_repo, tmp_path):
+    repo, _head = code_repo
+    base = tmp_path / "story"
+    base.mkdir()
+    (base / "base.toml").write_text('name = "b"\ncode_remotes = []\n', encoding="utf-8")
+    write_event(base, "2026-09/x/01J8Z3K0000000000000000000.claim.md", make_claim(ULID_L1))
+    write_event(
+        base,
+        "2026-09/x/01J8Z3K0000000000000000001.verify.md",
+        make_verify("01J8Z3K0000000000000000001", ULID_L1, ULID_L1, evidence=["replay: 3 edges"]),
+    )
+    server.ready()
+
+    text, is_error = server.tool(
+        "explain", {"lineage": ULID_L1, "repo_root": str(repo), "base": str(base)}
+    )
+
+    assert is_error is False
+    assert f"lineage {ULID_L1}" in text
+    assert "verified(llm)" in text
+    assert "displayed version: 01J8Z3K0000000000000000000" in text
+    assert "01J8Z3K0000000000000000001 verify (llm) — verified: One line summary" in text
+    assert "active verify evidence (01J8Z3K0000000000000000001):" in text
+    assert "- replay: 3 edges" in text
+
+
+def test_explain_tool_unknown_lineage_is_a_clean_error(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+
+    text, is_error = server.tool(
+        "explain",
+        {"lineage": "01J8Z3K0000000000000000009", "repo_root": str(repo), "base": str(base)},
+    )
+
+    assert is_error is True
+    assert "E-EXPLAIN-UNKNOWN" in text
+
+
+def test_explain_tool_and_cli_output_agree(server, code_repo, tmp_path, capsys):
+    repo, _head = code_repo
+    base = tmp_path / "story"
+    base.mkdir()
+    (base / "base.toml").write_text('name = "b"\ncode_remotes = []\n', encoding="utf-8")
+    write_event(base, "2026-09/x/01J8Z3K0000000000000000000.claim.md", make_claim(ULID_L1))
+    write_event(
+        base,
+        "2026-09/x/01J8Z3K0000000000000000001.verify.md",
+        make_verify("01J8Z3K0000000000000000001", ULID_L1, ULID_L1, evidence=["replay: 3 edges"]),
+    )
+    server.ready()
+    mcp_text, is_error = server.tool(
+        "explain", {"lineage": ULID_L1, "repo_root": str(repo), "base": str(base)}
+    )
+    assert is_error is False
+
+    assert main(["explain", str(base), ULID_L1, "--repo", str(repo)]) == 0
+    cli_block = capsys.readouterr().out.split("\n", 1)[1]
+
+    assert mcp_text.strip() == cli_block.strip()
+
+
+def test_note_accepts_keywords_and_persists_them(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+    keywords = ["CSFLE", "change stream", "KeyRotation"]
+    text, is_error = server.tool("note", note_args(repo, base, keywords=keywords))
+    assert is_error is False
+    rel = text.splitlines()[0].removeprefix("wrote ")
+    content = load_frontmatter((base / rel).read_text(encoding="utf-8"), rel)
+    assert content["keywords"] == keywords
+
+
+def test_note_keywords_violations_refused(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+    text, is_error = server.tool(
+        "note", note_args(repo, base, keywords=[f"term {i}" for i in range(11)])
+    )
+    assert is_error is True
+    assert "E-KEYWORDS" in text
+    text, is_error = server.tool("note", note_args(repo, base, keywords=["same-term", "same-term"]))
+    assert is_error is True
+    assert "E-KEYWORDS" in text
+
+
+def test_write_and_check_refuses_secret_in_a_keyword(tmp_path):
+    base_dir = tmp_path / "base"
+    base_dir.mkdir()
+    (base_dir / "base.toml").write_text('name = "test-base"\ncode_remotes = []\n', encoding="utf-8")
+    data = make_claim(
+        "01J8Z3K0000000000000000000",
+        keywords=[f"{SECRET_STATEMENTS['aws']} rotation"],
+    )
+    with pytest.raises(WriteError) as exc:
+        write_and_check(base_dir, data)
+    assert exc.value.code == "E-WRITE-SECRET"
+    assert not list(base_dir.rglob("*.md"))
+
+
+def test_search_render_ends_with_the_details_line(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+    text, is_error = server.tool("note", note_args(repo, base, keywords=["KeyRotation"]))
+    assert is_error is False
+    text, is_error = server.tool(
+        "search", {"query": "KeyRotation", "repo_root": str(repo), "base": str(base)}
+    )
+    assert is_error is False
+    assert "matched keyword: KeyRotation" in text
+    lineage_id = text.splitlines()[1].split()[0]
+    assert f"details: masora explain {lineage_id}" in text

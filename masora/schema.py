@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from .diagnostics import (
     E_ANCHOR,
     E_FILENAME,
+    E_KEYWORDS,
     E_PROOFQUERY,
     E_PROVENANCE,
     E_QUESTIONS,
@@ -63,6 +64,7 @@ FORBIDDEN = {
             "contradicts",
             "cost_tokens",
             "questions",
+            "keywords",
         }
     ),
     "undoubt": frozenset(
@@ -78,6 +80,7 @@ FORBIDDEN = {
             "contradicts",
             "cost_tokens",
             "questions",
+            "keywords",
         }
     ),
     "refute": frozenset(
@@ -93,6 +96,7 @@ FORBIDDEN = {
             "contradicts",
             "cost_tokens",
             "questions",
+            "keywords",
         }
     ),
     "unrefute": frozenset(
@@ -108,6 +112,7 @@ FORBIDDEN = {
             "contradicts",
             "cost_tokens",
             "questions",
+            "keywords",
         }
     ),
 }
@@ -131,6 +136,7 @@ OPTIONAL = {
             "proof_query",
             "reason",
             "questions",
+            "keywords",
         }
     ),
     "verify": frozenset({"name", "effort"}),
@@ -170,6 +176,7 @@ class EventRecord:
     timestamp_graph_commit: str | None
     evidence_count: int | None
     questions: tuple[str, ...] = ()
+    keywords: tuple[str, ...] = ()
 
 
 def validate_event(data: dict, kind: str, path: str) -> EventRecord:
@@ -296,6 +303,7 @@ def _validate_claim(data: dict, event_id: str, lineage: str, path: str) -> Event
         )
     summary = _check_summary(data["summary"], path)
     questions = _check_questions(data["questions"], path) if "questions" in data else ()
+    keywords = _check_keywords(data["keywords"], path) if "keywords" in data else ()
     statement = data["statement"]
     if not isinstance(statement, str):
         raise CheckFailure(
@@ -429,6 +437,7 @@ def _validate_claim(data: dict, event_id: str, lineage: str, path: str) -> Event
         proof_query=proof_query if claim_class == "structural" else None,
         summary=summary,
         questions=questions,
+        keywords=keywords,
         timestamp_field="recorded_at",
         timestamp_commit=commit,
         timestamp_graph_commit=graph_commit,
@@ -579,6 +588,54 @@ def _check_questions(questions: object, path: str) -> tuple[str, ...]:
             )
         seen.add(item)
     return tuple(questions)
+
+
+def _check_keywords(keywords: object, path: str) -> tuple[str, ...]:
+    """The optional claim-only `keywords` list: 1-10 non-empty single-line
+    strings — the alternate vocabulary a reader might query with (synonyms,
+    domain terms, event/test/component names), no exact duplicates (FORMAT.md
+    §4); no fold semantics."""
+    if not isinstance(keywords, list):
+        raise CheckFailure(
+            Diag(
+                "error",
+                E_KEYWORDS,
+                f"keywords must be a list of strings, got {type(keywords).__name__}",
+                path,
+            )
+        )
+    if not 1 <= len(keywords) <= 10:
+        raise CheckFailure(
+            Diag(
+                "error", E_KEYWORDS, f"keywords must hold 1 to 10 items, got {len(keywords)}", path
+            )
+        )
+    seen: set[str] = set()
+    for item in keywords:
+        if not isinstance(item, str):
+            raise CheckFailure(
+                Diag(
+                    "error",
+                    E_KEYWORDS,
+                    f"keywords items must be strings, got {type(item).__name__}",
+                    path,
+                )
+            )
+        if item == "" or "\n" in item or any(ord(c) < 32 or ord(c) == 127 for c in item):
+            raise CheckFailure(
+                Diag(
+                    "error",
+                    E_KEYWORDS,
+                    "keywords items must be non-empty single lines without control characters",
+                    path,
+                )
+            )
+        if item in seen:
+            raise CheckFailure(
+                Diag("error", E_KEYWORDS, f"keywords holds an exact duplicate: {item!r}", path)
+            )
+        seen.add(item)
+    return tuple(keywords)
 
 
 def _check_summary(summary: object, path: str) -> str:

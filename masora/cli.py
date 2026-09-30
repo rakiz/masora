@@ -10,6 +10,7 @@ from pathlib import Path
 from .checker import check_base
 from .compact import run as run_compact
 from .diagnostics import E_IDX_QUERY, E_NOT_A_BASE, W_IDX_STALE, Diag
+from .explain import ExplainError, explain_lineage
 from .facts import run as run_facts
 from .gc import run as run_gc
 from .index import (
@@ -29,7 +30,7 @@ from .status import run as run_status
 from .sync import run as run_sync
 from .write import WriteError, auto_base
 
-BASE_COMMANDS = ("check", "gc", "compact", "index", "search")
+BASE_COMMANDS = ("check", "gc", "compact", "index", "search", "explain")
 
 
 def _configured_base_hint() -> Path | None:
@@ -218,12 +219,32 @@ def main(argv: list[str] | None = None) -> int:
         description="Exit codes: 0 results or no match, 1 errors (no/unusable index), 2 invalid query syntax. Prints W-IDX-STALE when the base or code state moved since the build, or events were written after it.",
     )
     search.add_argument("base_dir", type=Path, help="path to the Masora base directory")
-    search.add_argument("query", help="FTS5 MATCH query over summaries and statements")
+    search.add_argument("query", help="FTS MATCH query over summaries and statements")
     search.add_argument(
         "--repo",
         type=Path,
         default=Path("."),
         help="path to the code repo the index was built for (default: current directory)",
+    )
+    explain = sub.add_parser(
+        "explain",
+        help="the complete story of ONE lineage, statuses included (fresh fold, never the index)",
+        description="Exit codes: 0 explained, 1 errors (unknown lineage E-EXPLAIN-UNKNOWN, a"
+        " non-base root E-NOT-A-BASE, a broken base's own errors). Renders the fresh status"
+        " tuple, the effective version's summary/statement/questions, the anchors with their"
+        " current match state (unknown without --repo), the full event chain in ULID order and"
+        " the active verify's evidence in full. Nothing is written, ever.",
+    )
+    explain.add_argument("base_dir", type=Path, help="path to the Masora base directory")
+    explain.add_argument(
+        "lineage_id", help="the lineage ULID (a claim whose id equals its lineage)"
+    )
+    explain.add_argument(
+        "--repo",
+        type=Path,
+        default=None,
+        help="path to the code repo checkout the anchors are matched against (default: no"
+        " provider — anchor states report unknown)",
     )
     sub.add_parser(
         "mcp",
@@ -314,6 +335,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_index(args.base_dir, args.repo, args.cppgraph, args.no_cppgraph)
     if args.command == "search":
         return _run_search(args.base_dir, args.query, args.repo)
+    if args.command == "explain":
+        return _run_explain(args.base_dir, args.lineage_id, args.repo)
     if args.command == "mcp":
         return run_mcp()
     if args.command == "facts":
@@ -445,4 +468,23 @@ def _run_search(base_dir: Path, query: str, repo: Path) -> int:
             print(f"  {hit.version} {hit.summary}")
             for question in hit.matched_questions:
                 print(f"    matched question: {question}")
+            for keyword in hit.matched_keywords:
+                print(f"    matched keyword: {keyword}")
+        print(f"details: masora explain {lineage}")
+    return 0
+
+
+def _run_explain(base_dir: Path, lineage_id: str, repo: Path | None) -> int:
+    print(f"masora explain {base_dir} {lineage_id}")
+    if not base_dir.is_dir():
+        print(f"masora explain: base directory does not exist: {base_dir}", file=sys.stderr)
+        return 1
+    try:
+        block = explain_lineage(base_dir, lineage_id, repo)
+    except ExplainError as exc:
+        for diag in exc.diags:
+            print(f"  {diag.render()}")
+        print(f"FAILED: {len(exc.diags)} error(s)")
+        return 1
+    print(block)
     return 0

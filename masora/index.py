@@ -38,7 +38,7 @@ from .schema import EventRecord, validate_event
 from .sync import SyncError, _tombstone_pairs, git_env
 from .ulid import is_ulid
 
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "4"
 
 DDL = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -82,6 +82,11 @@ CREATE VIRTUAL TABLE questions USING fts5(
     version UNINDEXED,
     question_ordinal UNINDEXED
 );
+CREATE VIRTUAL TABLE keywords USING fts5(
+    keyword,
+    version UNINDEXED,
+    keyword_ordinal UNINDEXED
+);
 """
 
 SEARCH_SQL = """
@@ -98,6 +103,11 @@ SELECT version, question FROM questions WHERE questions MATCH ?
 ORDER BY version, question_ordinal
 """
 
+KEYWORDS_SQL = """
+SELECT version, keyword FROM keywords WHERE keywords MATCH ?
+ORDER BY version, keyword_ordinal
+"""
+
 CONTENT_BY_VERSION_SQL = """
 SELECT search.lineage, search.version, search.summary, lineages.displayed,
        lineages.resolution, lineages.verification, lineages.suspect,
@@ -107,7 +117,9 @@ WHERE search.version = ?
 """
 
 
-def _hit_from_row(row: tuple, matched_questions: tuple[str, ...]) -> SearchHit:
+def _hit_from_row(
+    row: tuple, matched_questions: tuple[str, ...], matched_keywords: tuple[str, ...] = ()
+) -> SearchHit:
     return SearchHit(
         lineage=row[0],
         version=row[1],
@@ -121,15 +133,17 @@ def _hit_from_row(row: tuple, matched_questions: tuple[str, ...]) -> SearchHit:
         unknown=bool(row[9]),
         unanchored=bool(row[10]),
         matched_questions=matched_questions,
+        matched_keywords=matched_keywords,
     )
 
 
 def search_index(db: Path, query: str) -> list[SearchHit]:
-    """Run the FTS query over the content table (summary + statement) UNION the
-    per-question table; raises IndexingError for missing/corrupt index or bad
-    query syntax. Every hit carries the distinct matched questions (ordinal
-    order) when the query matched any of its version's questions — a
-    question-only hit surfaces its version's content row."""
+    """Run the FTS query over THREE tables — the content (summary + statement),
+    the per-question and the per-keyword tables — and union the hits by
+    version; raises IndexingError for missing/corrupt index or bad query
+    syntax. Every hit carries the distinct matched questions and keywords
+    (ordinal order); a question/keyword-only hit surfaces its version's
+    content row."""
     if not query.strip():
         raise IndexingError(Diag("error", E_IDX_QUERY, "empty FTS query"))
     if not db.is_file():
@@ -141,6 +155,7 @@ def search_index(db: Path, query: str) -> list[SearchHit]:
         try:
             rows = conn.execute(SEARCH_SQL, (query,)).fetchall()
             question_rows = conn.execute(QUESTIONS_SQL, (query,)).fetchall()
+            keyword_rows = conn.execute(KEYWORDS_SQL, (query,)).fetchall()
         except sqlite3.OperationalError as exc:
             raise IndexingError(Diag("error", E_IDX_QUERY, f"invalid FTS query: {exc}")) from exc
         except sqlite3.DatabaseError as exc:
@@ -148,15 +163,25 @@ def search_index(db: Path, query: str) -> list[SearchHit]:
         questions_by_version: dict[str, list[str]] = {}
         for version, question in question_rows:
             questions_by_version.setdefault(version, []).append(question)
+        keywords_by_version: dict[str, list[str]] = {}
+        for version, keyword in keyword_rows:
+            keywords_by_version.setdefault(version, []).append(keyword)
+        versions = set(questions_by_version) | set(keywords_by_version)
         hits: dict[str, SearchHit] = {}
         for r in rows:
-            hits[r[1]] = _hit_from_row(r, tuple(questions_by_version.get(r[1], [])))
-        for version, questions in questions_by_version.items():
-            if version in hits:
-                continue
+            hits[r[1]] = _hit_from_row(
+                r,
+                tuple(questions_by_version.get(r[1], [])),
+                tuple(keywords_by_version.get(r[1], [])),
+            )
+        for version in versions - set(hits):
             row = conn.execute(CONTENT_BY_VERSION_SQL, (version,)).fetchone()
             if row is not None:
-                hits[version] = _hit_from_row(row, tuple(questions))
+                hits[version] = _hit_from_row(
+                    row,
+                    tuple(questions_by_version.get(version, [])),
+                    tuple(keywords_by_version.get(version, [])),
+                )
     finally:
         conn.close()
     return sorted(hits.values(), key=lambda h: (h.lineage, h.version))
@@ -175,6 +200,7 @@ class ParsedEvent:
     snapshots: dict | None
     statement: str
     questions: tuple[str, ...] = ()
+    keywords: tuple[str, ...] = ()
 
 
 @dataclass
@@ -221,6 +247,7 @@ class SearchHit:
     unknown: bool
     unanchored: bool
     matched_questions: tuple[str, ...] = ()
+    matched_keywords: tuple[str, ...] = ()
 
     @property
     def flags(self) -> str:
@@ -579,6 +606,7 @@ def _parse_events(base_dir: Path, diags: list[Diag]) -> list[ParsedEvent]:
                 snapshots=data.get("snapshots") if record.kind == "verify" else None,
                 statement=data.get("statement") or "",
                 questions=record.questions if record.kind == "claim" else (),
+                keywords=record.keywords if record.kind == "claim" else (),
             )
         )
     return parsed
@@ -743,6 +771,11 @@ def _write_db(
                     conn.execute(
                         "INSERT INTO questions (question, version, question_ordinal) VALUES (?, ?, ?)",
                         (question, claim.record.id, ordinal),
+                    )
+                for ordinal, keyword in enumerate(claim.keywords):
+                    conn.execute(
+                        "INSERT INTO keywords (keyword, version, keyword_ordinal) VALUES (?, ?, ?)",
+                        (keyword, claim.record.id, ordinal),
                     )
         conn.executemany(
             "INSERT INTO meta (key, value) VALUES (?, ?)",

@@ -887,3 +887,60 @@ def test_cli_search_renders_the_matched_question(base, repo, home, capsys):
     out = capsys.readouterr().out
     assert code == 0
     assert "matched question:" not in out
+
+
+def test_fts_keyword_only_match_surfaces_the_matched_keyword(base, repo, home):
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, keywords=["CSFLE", "KeyRotation"]))
+    result = build_index(base, repo)
+    hits = search_index(result.db_path, "CSFLE")
+    assert len(hits) == 1
+    assert hits[0].version == ULID_L1
+    assert hits[0].matched_keywords == ("CSFLE",)
+    assert hits[0].matched_questions == ()
+
+
+def test_fts_question_keyword_and_content_hits_union(base, repo, home):
+    write_event(
+        base,
+        CLAIM_REL,
+        make_claim(
+            ULID_L1,
+            keywords=["CSFLE"],
+            questions=["Where does invalidation happen?"],
+        ),
+    )
+    result = build_index(base, repo)
+    by_keyword = search_index(result.db_path, "CSFLE")
+    assert by_keyword[0].matched_keywords == ("CSFLE",)
+    by_question = search_index(result.db_path, "invalidation")
+    assert by_question[0].matched_questions == ("Where does invalidation happen?",)
+    both = search_index(result.db_path, "CSFLE OR invalidation")
+    assert len(both) == 1
+    assert both[0].matched_keywords == ("CSFLE",)
+    assert both[0].matched_questions == ("Where does invalidation happen?",)
+
+
+def test_index_schema_v3_database_is_refused_and_rebuilt(base, repo, home):
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    result = build_index(base, repo)
+    connection = sqlite3.connect(result.db_path)
+    connection.execute("UPDATE meta SET value = '3' WHERE key = 'schema_version'")
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(IndexingError) as exc:
+        search_index(result.db_path, "summary")
+    assert exc.value.diag.code == E_IDX_CORRUPT
+
+    rebuilt = build_index(base, repo)
+    assert rebuilt.errors == []
+    assert search_index(rebuilt.db_path, "summary")[0].version == ULID_L1
+
+
+def test_cli_and_mcp_render_the_details_line(base, repo, home, capsys):
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, keywords=["CSFLE"]))
+    build_index(base, repo)
+    assert main(["search", str(base), "CSFLE", "--repo", str(repo)]) == 0
+    out = capsys.readouterr().out
+    assert "matched keyword: CSFLE" in out
+    assert f"details: masora explain {ULID_L1}" in out

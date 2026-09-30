@@ -8,6 +8,53 @@
 
 ## Current phase
 
+**Done:** the owner-validated batch (TODO.md, five items ticked) — (1) the
+`keywords` field: claim-only/optional/1–10 alternate-vocabulary strings,
+`E-KEYWORDS`, the secret scan over the items, `note` pass-through (maxItems
+10, the four-part description), the `keywords` FTS table + SCHEMA_VERSION
+"4" (disposable rebuild), the THREE-source search union (content + questions
++ keywords) with `matched_keywords` rendered as `matched keyword:` lines,
+the facts contract untouched (asserted); (2) every search hit group ends
+with `details: masora explain <lineage>` (CLI + MCP); (3) the retrieval-
+budget pass: the `## Retrieval budget` section (search → explain → cppgraph
+→ ONE narrow text search; the two-sided anti-grep rule; the tests-as-
+evidence rule) in AGENT_INSTRUCTIONS + the skill (byte-identical tails);
+(4) CPPGRAPH_INTEGRATION's `## Input hygiene` + the configurable fact
+budget (CPPGRAPH_MASORA_MAX_FACTS, default 2); (5) MASORA_DESIGN §12 item
+11: the OPEN cross-analysis tests×code idea. Tests: 8 schema, 3 mcp, 5
+index (incl. the v3-refused+rebuilt and the details-line rendering), 1
+facts shape; 598 tests green; ruff clean. Next task: the first rollout
+(TODO.md).
+
+**Working now:** the owner-validated batch — (1) the `keywords` field (the
+questions' sibling: claim-only, optional, 1–10 alternate-vocabulary strings,
+E-KEYWORDS, the keywords FTS table, SCHEMA_VERSION 3→4, the THREE-source
+search union, matched keywords rendered, facts untouched); (2) the
+`details: masora explain <lineage>` line ending every hit group (CLI + MCP);
+(3) the retrieval-budget pass (a `## Retrieval budget` section: masora
+search → explain → cppgraph → ONE narrow text search; the two-sided
+anti-grep rule; the tests-as-evidence rule); (4) CPPGRAPH_INTEGRATION's
+`## Input hygiene` + the configurable fact budget (default 2); (5) §12's
+open cross-analysis tests×code idea.
+
+**Done:** the explain surface (TODO.md — the item PROMOTED out of
+out-of-scope, ticked) — `masora/explain.py` (the fresh one-lineage story:
+check_base gate → the lineage's event files via checker's discovery/parse →
+resolve_lineage + fold_lineage with the providers from repo/none → the
+render: status tuple, effective version's summary/statement/questions,
+anchor match states, the event chain in ULID order with [refuted]/[inactive]
+markers, the active verify's evidence in full; E-EXPLAIN-UNKNOWN for an
+unknown id; nothing written). MCP tool `explain` (base resolution exactly
+like the other tools — the v0.2.3 cause texts; the same text back) + CLI
+`masora explain <base-dir> <lineage-id> [--repo]` (BASE_COMMANDS gains it —
+the gate + parity). Tests: tests/test_explain.py (4) + tests/test_mcp.py
+(3: the tool story, the unknown tool error, MCP/CLI parity) — the tools
+list is EIGHT now (AGENT_INSTRUCTIONS + the skill updated, the tools-list
+test pinned). TROUBLESHOOTING's E-EXPLAIN-UNKNOWN row; README command list;
+ARCHITECTURE's Explain section + the out-of-scope promotion. CHANGELOG
+[Unreleased] Added bullet. 590 tests green; ruff clean. Next task: the
+first rollout (TODO.md).
+
 **Done:** user-friendly skill installation (TODO.md, ticked) — the skill
 lives INSIDE the package now (masora/skills/masora/SKILL.md, hatchling
 ships the package tree; the docs/skills copy deleted; the test_docs sync

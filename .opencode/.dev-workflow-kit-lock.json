@@ -8,7 +8,7 @@
     },
     "agent/design-review.md": {
       "body_sha256": "73ce4135d3176b3c7e0689d9653fac49f4d2383a0949436da3a92c3b5dce990b",
-      "model": "github-copilot/gpt-5.6-terra",
+      "model": "fireworks-ai/accounts/fireworks/models/deepseek-v4p1-flash",
       "variant": ""
     },
     "agent/explore.md": {
@@ -17,20 +17,21 @@
       "variant": ""
     },
     "agent/impl.md": {
-      "body_sha256": "417b11a1dc415e42d4831a181996225aadc98d23c12dc9c9cc29d0e8568a1747",
+      "body_sha256": "72baafb0e452973263548229b9516ee550c40c3aa509a9ab541c7c984a23a567",
       "model": "fireworks-ai/accounts/fireworks/models/glm-5p3-flash",
       "variant": "none"
     },
     "agent/review.md": {
-      "body_sha256": "ea12bed2919886cc17a5a56f4c64593bf400e2f6b3ab91a2ad113534ae46235f",
+      "body_sha256": "d0bc386da8ad3e8513580b8ac940000f1a43302415e9bea5eb8ee2a16d23d471",
       "model": "github-copilot/gemini-3.8-flash",
-      "variant": ""
+      "variant": "low"
     },
     "skill/dev-workflow/SKILL.md": {
-      "body_sha256": "27add669cda9269df019ef6d20c644ab36abe1b5d3b980482d1b8e9c2aeb3cdc"
+      "body_sha256": "10bc10b05bd9e0f84926ed560f080ae4a667462cdaa1e95bf509ff9f573f159d"
     },
     "CONVENTIONS.md": {
       "body_sha256": "154fcc153dd2185d0169a738815c5a8980fa2e503d7b1af1d6c21499d48bcdbc"
     }
-  }
+  },
+  "kit_version": "0.4.0"
 }

@@ -1,5 +1,5 @@
 ---
-model: github-copilot/gpt-5.6-terra
+model: fireworks-ai/accounts/fireworks/models/deepseek-v4p1-flash
 # Model is injected at install time by init.sh from the kit's models.json.
 mode: subagent
 description: "Critique of an approach/design BEFORE code is written, for tasks with real architectural stakes."

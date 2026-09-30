@@ -16,4 +16,6 @@ Method:
 4. If a `workflow.rules` file (e.g. `RULES.md`) exists and a rule from it could not be respected, mark the deviation inline (`RULE-DEVIATION: Rn - reason`) and list it in the final report for the review agent to evaluate.
 5. Never commit, never push.
 
-Final report (short): files changed, one line per file on what changed, points of attention for the review. Your work will be re-read by the review agent: list facts, no justification.
+Update the task's INPROGRESS.md as you work — tick steps as you complete them, record blockers as they appear (per the dev-workflow skill §1). The orchestrator owns task closure (CHANGELOG entry, TODO tick, INPROGRESS reset) — never close the task yourself unless the brief explicitly delegates it.
+
+Final report (short): files changed, one line per file on what changed, points of attention for the review. Your work will be re-read by the review agent: list facts, no justification. Every deliverable is stated verifiably: done yes/no, where it lives (file:line or call site), and what proves it (a test, a check, or "not verified"). No unverifiable claim ("wired", "integrated") without that triple.

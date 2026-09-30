@@ -55,6 +55,14 @@ Tasks:
   `--yes`; pre/post `check_base` green; already-canonical and founderless
   lineages untouched — a second run is a no-op), `masora/cli.py` `--rehome`
   flag, tests/test_compact.py (8 rehome tests).
+- [x] `masora status` sub-directory-base fix (v0.2.1): status resolved the
+  indexes directory from the CONFIG KEY while index/facts/MCP route through
+  `index_db_path` (base-dir basename) — any sub-directory base showed "no
+  index" forever; the base dir itself was joined by hand instead of via
+  `write.base_dir_for_name`. → `masora/index.py:index_dir_for()` (one source
+  of truth, `index_db_path` uses it), `masora/status.py` (base dir via
+  `base_dir_for_name`, indexes listed under `index_dir_for(base_dir)`),
+  tests/test_status.py regression, pyproject 0.2.1.
 - [x] `masora status [--force]`: one readable screen, exit 0 always — tool
   versions (installed version, supported format_version, facts
   contract_version, index schema_version), the configured bases (clone path

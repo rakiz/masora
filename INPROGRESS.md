@@ -8,6 +8,26 @@
 
 ## Current phase
 
+**Done:** v0.2.1 bug fix (live-rollout report, sub-directory base) —
+`masora status` computed the indexes directory from the CONFIG KEY
+(`config.indexes_root() / config.slug(name)`) while `index.index_db_path`
+derives it from the BASE DIRECTORY's basename — they disagree for ANY
+sub-directory base (config key "employees" vs base dir "masora_mdb"): status
+printed "no index" forever while index/facts/MCP agreed. One source of
+truth: `masora/index.py:index_dir_for(base_dir)` owns the
+`indexes/<base-dir-slug>/` derivation (index_db_path uses it);
+`masora/status.py` resolves each configured base's directory through
+`write.base_dir_for_name` (the hand-joined `entry["path"]` copy is gone) and
+lists the `*.db` files under `index_dir_for(base_dir)`; clone display line,
+counts, stored-meta repo mapping and four-axis staleness wording unchanged.
+Tests: `test_status_lists_subdir_base_indexes` (regression: config key ≠
+base-dir basename + sub-path, real index via `index_db_path` shows, no "no
+index"), `test_status_missing_clone_with_index_states_the_rebuild`,
+missing-clone test now rides a sub-path entry (16 in tests/test_status.py).
+Release: pyproject 0.2.1, CHANGELOG 0.2.1 Fixed bullet. 520 tests green;
+ruff clean. Next task: the first rollout (TODO.md — the real base on the
+author's `employees/` dir + the Confluence install page).
+
 **Done:** `masora status [--force]` (TODO.md, ticked) — one readable screen,
 exit 0 always (masora/status.py: never fails hard — offline release check is
 a quiet one-liner, missing clone/unreadable config reported as-is). Tool

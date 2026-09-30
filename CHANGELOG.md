@@ -6,6 +6,12 @@
       the current state only (release-notes style); the history of how the
       project got there lives between released versions. -->
 
+## 0.2.1 — 2026-09-30
+
+### Fixed
+
+- **`masora status` showed "no index" for every sub-directory base** — status resolved the indexes directory from the base's CONFIG KEY (`config.indexes_root() / config.slug(name)`), while `masora index`/`search`/`facts`/the MCP tools all route through `index.index_db_path`, which derives the directory from the BASE DIRECTORY's basename — and the two disagree whenever a base's clone holds the events in a sub-directory (the `#<path>` setup form: config key `employees`, base dir `masora_mdb`), so status printed "no index" forever while every other surface agreed the index was there. One source of truth: `index.index_dir_for(base_dir)` now owns the `indexes/<base-dir-slug>/` derivation and `index_db_path` uses it; status resolves each configured base's directory through `write.base_dir_for_name` (the same helper the write path uses — the hand-joined `entry["path"]` copy is gone) and lists the `*.db` files under `index_dir_for(base_dir)`. The clone display line, the event/tombstone counts, the stored-meta repo mapping and the four-axis staleness wording are unchanged; a missing clone keeps its reporting. Regression pinned by a config entry whose key differs from the base-dir basename and carries a sub-path, with a real index built through `index_db_path`.
+
 ## 0.2.0 — 2026-09-30
 
 ### Added

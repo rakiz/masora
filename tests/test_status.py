@@ -19,6 +19,9 @@ from masora.status import installed_version
 CONFIG = (
     '[bases.team-query]\nremote = "git@github.internal:org/query-knowledge.git"\nbranch = "main"\n'
 )
+SUBDIR_CONFIG = (
+    '[bases.employees]\nremote = "git@github.internal:org/employees.git"\npath = "masora_mdb"\n'
+)
 RELEASE = {
     "tag_name": "v99.0.0",
     "html_url": "https://github.com/rakiz/masora/releases/tag/v99.0.0",
@@ -76,15 +79,63 @@ def test_status_lists_configured_bases_with_counts(masora_home, configured_base,
 
 
 def test_status_reports_missing_clone(masora_home, capsys):
-    (masora_home / "config.toml").write_text(CONFIG, encoding="utf-8")
+    (masora_home / "config.toml").write_text(SUBDIR_CONFIG, encoding="utf-8")
 
     code = status.run(fetcher=lambda: None)
 
     assert code == 0
     out = capsys.readouterr().out
-    clone = masora_home / "bases" / "team-query"
+    clone = masora_home / "bases" / "employees"
     assert f"clone: {clone} (missing)" in out
     assert "no index" in out
+
+
+def test_status_lists_subdir_base_indexes(masora_home, capsys):
+    from masora.index import build_index, index_db_path
+
+    clone = masora_home / "bases" / "employees"
+    base_dir = clone / "masora_mdb"
+    write_event(base_dir, "2026-09/x/01J8Z3K0000000000000000000.claim.md", make_claim(ULID_L1))
+    repo = masora_home / "code"
+    repo.mkdir()
+    db = index_db_path(base_dir, repo)
+    build_index(base_dir, repo, no_cppgraph=True)
+    (masora_home / "config.toml").write_text(SUBDIR_CONFIG, encoding="utf-8")
+
+    code = status.run(fetcher=lambda: None)
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "no index" not in out
+    assert f"{db.name}: repo {repo} — " in out
+    assert "events: 1 file(s), tombstones: 0 block(s)" in out
+
+
+def test_status_missing_clone_with_index_states_the_rebuild(masora_home, capsys):
+    import shutil
+
+    from masora.index import build_index, index_db_path
+
+    clone = masora_home / "bases" / "employees"
+    base_dir = clone / "masora_mdb"
+    write_event(base_dir, "2026-09/x/01J8Z3K0000000000000000000.claim.md", make_claim(ULID_L1))
+    repo = masora_home / "code"
+    repo.mkdir()
+    db = index_db_path(base_dir, repo)
+    build_index(base_dir, repo, no_cppgraph=True)
+    (masora_home / "config.toml").write_text(SUBDIR_CONFIG, encoding="utf-8")
+    shutil.rmtree(masora_home / "bases")
+
+    code = status.run(fetcher=lambda: None)
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "(missing)" in out
+    missing_state = (
+        f"{db.name}: repo {repo} — the clone is missing — "
+        "rebuild the index after re-running masora setup"
+    )
+    assert missing_state in out
 
 
 def test_status_reports_index_staleness_reason(masora_home, configured_base, capsys):
@@ -134,7 +185,7 @@ def test_update_check_available_line_and_cache_write(masora_home, capsys):
 
     assert code == 0
     out = capsys.readouterr().out
-    assert "update available: v99.0.0 — https://github.com/rakiz/masora/releases/tag/v99.0.0" in out
+    assert f"update available: {RELEASE['tag_name']} — {RELEASE['html_url']}" in out
     assert "install: uv tool install --force git+https://github.com/rakiz/masora" in out
     cache = json.loads(update_check_path().read_text(encoding="utf-8"))
     assert cache["tag"] == "v99.0.0"

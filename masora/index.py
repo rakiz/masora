@@ -163,12 +163,17 @@ class SearchHit:
         return ",".join(names) or "-"
 
 
+def index_dir_for(base_dir: Path) -> Path:
+    """The indexes directory of a base: `indexes/<base-dir-slug>/` — one source
+    of truth shared by `index_db_path` and every reader of the layout."""
+    return config.indexes_root() / (config.slug(base_dir.resolve().name) or "index")
+
+
 def index_db_path(base_dir: Path, repo: Path) -> Path:
-    base_slug = config.slug(base_dir.resolve().name) or "index"
     repo_root = repo.resolve()
     digest = hashlib.sha256(str(repo_root).encode("utf-8")).hexdigest()[:12]
     repo_key = f"{config.slug(repo_root.name) or 'index'}-{digest}"
-    return config.indexes_root() / base_slug / f"{repo_key}.db"
+    return index_dir_for(base_dir) / f"{repo_key}.db"
 
 
 def file_fingerprint_provider(repo: Path) -> resolve.FingerprintFn:

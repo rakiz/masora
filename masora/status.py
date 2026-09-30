@@ -23,9 +23,10 @@ from pathlib import Path
 
 from . import config
 from .facts import CONTRACT_VERSION
-from .index import SCHEMA_VERSION, _stored_meta, index_stale_reason
+from .index import SCHEMA_VERSION, _stored_meta, index_dir_for, index_stale_reason
 from .schema import SUPPORTED_FORMAT_VERSION
 from .sync import git_env
+from .write import base_dir_for_name
 
 RELEASES_URL = "https://api.github.com/repos/rakiz/masora/releases/latest"
 INSTALL_HINT = "uv tool install --force git+https://github.com/rakiz/masora"
@@ -89,17 +90,14 @@ def _print_bases() -> None:
     for name in sorted(bases):
         entry = bases[name]
         if isinstance(entry, dict):
-            _print_base(name, entry)
+            _print_base(name, entry, data)
         else:
             print(f"  {name}: unreadable entry")
 
 
-def _print_base(name: str, entry: dict) -> None:
+def _print_base(name: str, entry: dict, data: dict) -> None:
     clone = config.bases_root() / config.slug(name)
-    base_dir = clone
-    sub = entry.get("path")
-    if isinstance(sub, str) and sub:
-        base_dir = clone.joinpath(*Path(sub).parts)
+    base_dir = base_dir_for_name(data, name) or clone
     print(f"  {name}")
     print(f"    clone: {clone} ({'exists' if clone.is_dir() else 'missing'})")
     print(f"    remote: {_origin(clone) or _entry_remote(entry)}")
@@ -110,7 +108,7 @@ def _print_base(name: str, entry: dict) -> None:
             print(f"    events: {events} file(s), tombstones: unreadable")
         else:
             print(f"    events: {events} file(s), tombstones: {tombstones} block(s)")
-    _print_indexes(name, base_dir)
+    _print_indexes(base_dir)
 
 
 def _origin(clone: Path) -> str:
@@ -145,8 +143,8 @@ def _tombstone_blocks(base_dir: Path) -> int | None:
     return blocks
 
 
-def _print_indexes(name: str, base_dir: Path) -> None:
-    index_dir = config.indexes_root() / config.slug(name)
+def _print_indexes(base_dir: Path) -> None:
+    index_dir = index_dir_for(base_dir)
     databases = sorted(index_dir.glob("*.db")) if index_dir.is_dir() else []
     if not databases:
         print("    indexes: no index")

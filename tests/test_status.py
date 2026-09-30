@@ -20,8 +20,8 @@ CONFIG = (
     '[bases.team-query]\nremote = "git@github.internal:org/query-knowledge.git"\nbranch = "main"\n'
 )
 RELEASE = {
-    "tag_name": "v0.2.0",
-    "html_url": "https://github.com/rakiz/masora/releases/tag/v0.2.0",
+    "tag_name": "v99.0.0",
+    "html_url": "https://github.com/rakiz/masora/releases/tag/v99.0.0",
 }
 
 
@@ -134,10 +134,10 @@ def test_update_check_available_line_and_cache_write(masora_home, capsys):
 
     assert code == 0
     out = capsys.readouterr().out
-    assert "update available: v0.2.0 — https://github.com/rakiz/masora/releases/tag/v0.2.0" in out
+    assert "update available: v99.0.0 — https://github.com/rakiz/masora/releases/tag/v99.0.0" in out
     assert "install: uv tool install --force git+https://github.com/rakiz/masora" in out
     cache = json.loads(update_check_path().read_text(encoding="utf-8"))
-    assert cache["tag"] == "v0.2.0"
+    assert cache["tag"] == "v99.0.0"
     assert cache["url"] == RELEASE["html_url"]
     assert cache["checked_at"]
     assert calls == [1]
@@ -154,7 +154,7 @@ def test_update_check_uses_fresh_cache_without_refetch(masora_home, capsys):
 
     assert code == 0
     out = capsys.readouterr().out
-    assert "update available: v0.2.0" in out
+    assert "update available: v99.0.0" in out
     assert "offline" not in out
 
 
@@ -176,7 +176,7 @@ def test_update_check_expired_cache_refetches(masora_home, capsys):
 
     assert code == 0
     assert calls == [1]
-    assert "update available: v0.2.0" in capsys.readouterr().out
+    assert "update available: v99.0.0" in capsys.readouterr().out
 
 
 def test_update_check_offline_is_a_quiet_one_liner(masora_home, capsys):
@@ -204,7 +204,7 @@ def test_update_check_unknown_installed_version_line(masora_home, monkeypatch, c
 
     assert code == 0
     out = capsys.readouterr().out
-    assert "latest release: v0.2.0 — https://github.com/rakiz/masora/releases/tag/v0.2.0" in out
+    assert "latest release: v99.0.0 — https://github.com/rakiz/masora/releases/tag/v99.0.0" in out
     assert "installed version: unknown" in out
 
 

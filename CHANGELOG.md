@@ -6,6 +6,14 @@
       the current state only (release-notes style); the history of how the
       project got there lives between released versions. -->
 
+## 0.3.2 — 2026-09-30
+
+### Added
+
+- **The "Completeness check" section** in the agent instructions (docs/AGENT_INSTRUCTIONS.md) and the installable skill's copy (docs/skills/masora/SKILL.md), placed after "How to note well": the checklist an agent runs to consider a note done, in two parts — the tool-enforced half (a violation refuses the write: `format_version` set, provenance complete, `summary` ≤ 120, anchors resolved through the graph or an explicit `unanchored` + reason, credential-shaped content refused, exact-duplicate questions rejected) and the authoring half the tools cannot judge (a self-contained summary; the statement carries context, mechanism and pointers; EVERY symbol whose change would invalidate the claim is anchored; the questions name the reader queries; one claim = one fact) — closing line: a note missing an authoring-side item is not done — finish it or split it. The header-sync guard covers the new section automatically and the closing line is pinned in both files by test. Docs-only change.
+
+- **Standing orders, search before memory, and the before-compacting evidence ritual** in the agent instructions (docs/AGENT_INSTRUCTIONS.md) and the skill's copy (docs/skills/masora/SKILL.md — sections stay byte-identical; live-rollout evidence: an agent there described itself as "I only write when told; I don't consult actively; the facts come to me via the graph"). "When to note" is reframed as STANDING ORDERS: when a trigger fires, the agent notes — without being asked and without asking permission — and the anti-fear justification is explicit: proactive capture is safe because everything is born `source: llm`, `unverified` (review is the trust path); waiting for the user's order loses the moment and the knowledge. "Search before investigating" gains the before-memory rule: before answering a product-semantics, architecture or decision question from memory or external docs, `search` the base first — it may already hold (or contradict) the answer; web/doc confirmation remains the fallback, not the default. A new "Before compacting" section (after "Completeness check"): compaction keeps the live state and may drop superseded verifies — when a base's verifies carry replayable evidence you may need later, FIRST write a terminal verify per lineage whose evidence is self-contained (report the replayable bullets); compact keeps the live state, not the archives (a `compact --preserve-evidence` option stays the candidate if the need recurs). The substance guards assert all three in both files. Docs-only change.
+
 ## 0.3.1 — 2026-09-30
 
 ### Added

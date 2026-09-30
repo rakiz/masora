@@ -143,6 +143,38 @@ Tasks:
   multi-part knowledge into several notes"). → docs/AGENT_INSTRUCTIONS.md,
   docs/skills/masora/SKILL.md, masora/mcp.py, tests/test_docs.py,
   tests/test_mcp.py.
+- [x] The "Completeness check" section (docs/AGENT_INSTRUCTIONS.md + the
+  skill's copy, after "How to note well"): the two-part checklist — the
+  tool-enforced half (format_version, provenance, summary ≤ 120, anchors
+  via graph or explicit unanchored + reason, credential refusal,
+  duplicate-questions rejection) and the authoring half the tools cannot
+  judge (self-contained summary, statement with context/mechanism/pointers,
+  EVERY invalidating symbol anchored, the 1–5 questions, one claim = one
+  fact) — closing line: a note missing an authoring-side item is not done —
+  finish it or split it. The header-sync guard covers the new section
+  automatically; the closing line pinned in both files by test. →
+  docs/AGENT_INSTRUCTIONS.md, docs/skills/masora/SKILL.md,
+  tests/test_docs.py.
+- [x] The evidence ritual before compacting (rollout evidence): compaction
+  keeps the live state and may drop superseded verifies — when a base's
+  verifies carry replayable evidence you may need later, FIRST write a
+  terminal verify per lineage whose evidence is self-contained (report the
+  replayable bullets); compact keeps the live state, not the archives.
+  Documented as "Before compacting" in the agent instructions + the skill;
+  a `compact --preserve-evidence` option stays the candidate if the need
+  recurs. → docs/AGENT_INSTRUCTIONS.md, docs/skills/masora/SKILL.md,
+  tests/test_docs.py.
+- [x] Standing orders + search before memory (rollout evidence: an agent
+  described itself as "I only write when told; I don't consult actively; the
+  facts come to me via the graph"): the "When to note" opening reframed as
+  STANDING ORDERS — note when a trigger fires, without being asked, without
+  asking permission; proactive capture is safe because everything is born
+  `source: llm`, `unverified` (review is the trust path); waiting loses the
+  moment and the knowledge. "Search before investigating" gains the
+  before-memory rule: product-semantics/architecture/decision questions
+  `search` the base BEFORE answering from memory or external docs — web/doc
+  confirmation is the fallback, not the default. → docs/AGENT_INSTRUCTIONS.md,
+  docs/skills/masora/SKILL.md, tests/test_docs.py.
 - [ ] First rollout: create the base on the author's `employees/` dir + Confluence install page (install, `masora setup --base <url>`, usage); migration to a dedicated repo if adopted.
 - [ ] Agent-graded evaluation of the phase objective — the protocol is
   WRITTEN (docs/EVALUATION.md, pre-registered: paired A/B over ~20 tasks —

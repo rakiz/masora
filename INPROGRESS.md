@@ -8,6 +8,38 @@
 
 ## Current phase
 
+**Done:** standing orders + before-memory + the before-compacting ritual
+(TODO.md, two items ticked) — all three live-rollout readings land in
+docs/AGENT_INSTRUCTIONS.md and are mirrored into the skill (the sections
+stay BYTE-IDENTICAL from ## Tools to EOF, verified): "When to note" opens
+with the STANDING ORDERS framing + the anti-fear justification (everything
+is born `source: llm`, `unverified` — review is the trust path; waiting
+loses the moment and the knowledge); "Search before investigating" gains the
+before-memory rule (product-semantics/architecture/decision questions
+`search` the base FIRST — web/doc confirmation is the fallback, not the
+default); the new "Before compacting" section (after Completeness check):
+write a terminal verify per lineage whose evidence is self-contained before
+compacting — compact keeps the live state, not the archives (a
+`compact --preserve-evidence` option stays the candidate if the need
+recurs). Substance guards assert all three in BOTH files (whitespace-
+normalized). CHANGELOG [Unreleased] Added bullet. 573 tests green; ruff
+clean. Next task: the first rollout (TODO.md).
+
+**Done:** the "Completeness check" section (TODO.md, ticked) — the two-part
+note-done checklist in docs/AGENT_INSTRUCTIONS.md + the skill's copy (after
+"How to note well", before "Verify discipline"): the tool-enforced half
+(format_version, provenance, summary ≤ 120, graph-resolved anchors or
+explicit unanchored + reason, credential refusal, duplicate-questions
+rejection) and the authoring half (self-contained summary; statement with
+context/mechanism/pointers; EVERY invalidating symbol anchored; the 1–5
+questions; one claim = one fact) — closing line: a note missing an
+authoring-side item is not done — finish it or split it. The header-sync
+guard covers the new section automatically (no test change); the closing
+line + the section header pinned in both files by
+`test_completeness_check_closing_line_in_both_docs`. CHANGELOG [Unreleased]
+Added bullet. 572 tests green; ruff clean. Next task: the first rollout
+(TODO.md).
+
 **Done:** atomic-claims authoring guidance (TODO.md, ticked) — the owner's
 rule lands as the FIRST "How to note well" imperative ("One claim = one
 fact. If you wrote 'and' twice, that is several claims: split them; each

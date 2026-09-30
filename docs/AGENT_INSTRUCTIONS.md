@@ -26,6 +26,10 @@ The `masora` MCP server (`masora mcp`) exposes seven tools:
 - Before re-deriving how an area behaves, `search` the base for that area:
   what you are about to spend tool calls establishing may already be
   recorded.
+- Before answering a product-semantics, architecture or decision question
+  from memory or from external docs, `search` the base first: it may already
+  hold the answer — or contradict it. Web and doc confirmation remain the
+  fallback, not the default.
 - Before relying on a claim, read its status:
   - `verified(human)` — trusted: a human backed it.
   - `verified(llm)` — a machine verified it; re-check it in code before
@@ -37,7 +41,11 @@ The `masora` MCP server (`masora mcp`) exposes seven tools:
 
 ## When to note
 
-Capture knowledge when it appears, not when the session ends:
+These are STANDING ORDERS, not suggestions: when a trigger fires, you note —
+without being asked and without asking permission. Capture knowledge when it
+appears, not when the session ends. Proactive capture is safe because
+everything you write is born `source: llm`, `unverified` — review is the
+trust path. Waiting for the user's order loses the moment and the knowledge.
 
 - The user corrects you — that correction is knowledge. `note` it
   immediately, `source: human`.
@@ -81,6 +89,38 @@ Capture knowledge when it appears, not when the session ends:
 - Coverage audit, targeted only: during a domain exploration or a handoff
   prep, `search` the area and check the notes cover the questions a newcomer
   would ask — never as a per-note precondition.
+
+## Completeness check
+
+Run this checklist to consider a note done. The first half is enforced by
+the tools — a violation refuses the write; the second half is yours.
+
+Enforced by the tools (a violation refuses the write):
+
+- `format_version` set.
+- Provenance complete: `source`, `name`, `effort` when `source: llm`.
+- `summary` at most 120 characters.
+- Anchors resolved through the graph, or an explicit `unanchored: true` with
+  a reason.
+- Credential-shaped content refused.
+- Exact-duplicate questions rejected.
+
+Checked by you (the tools cannot judge):
+
+- The summary is self-contained.
+- The statement carries the context, the mechanism and the pointers.
+- EVERY symbol whose change would invalidate the claim is anchored.
+- The questions (1–5) name the reader queries this claim answers.
+- One claim = one fact.
+
+A note missing an authoring-side item is not done — finish it or split it.
+
+## Before compacting
+
+Compaction keeps the live state and may drop superseded verifies. When a
+base's verifies carry replayable evidence you may need later, FIRST write a
+terminal verify per lineage whose evidence is self-contained (report the
+replayable bullets) — compact keeps the live state, not the archives.
 
 ## Verify discipline
 

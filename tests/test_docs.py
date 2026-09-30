@@ -100,3 +100,40 @@ def test_agent_instructions_carry_the_atomic_claims_rule() -> None:
 
     assert rule in flat(AGENT_INSTRUCTIONS.read_text(encoding="utf-8"))
     assert rule in flat(SKILL.read_text(encoding="utf-8"))
+
+
+def test_completeness_check_closing_line_in_both_docs() -> None:
+    closing = "A note missing an authoring-side item is not done — finish it or split it."
+
+    def flat(text: str) -> str:
+        return " ".join(text.split())
+
+    assert closing in flat(AGENT_INSTRUCTIONS.read_text(encoding="utf-8"))
+    assert closing in flat(SKILL.read_text(encoding="utf-8"))
+    assert "## Completeness check" in AGENT_INSTRUCTIONS.read_text(encoding="utf-8")
+    assert "## Completeness check" in SKILL.read_text(encoding="utf-8")
+
+
+def test_standing_orders_before_memory_and_before_compacting_in_both_docs() -> None:
+    def flat(text: str) -> str:
+        return " ".join(text.split())
+
+    standing_orders = (
+        "These are STANDING ORDERS, not suggestions: when a trigger fires, you note —"
+        " without being asked and without asking permission."
+    )
+    before_memory = (
+        "Before answering a product-semantics, architecture or decision question from memory"
+        " or from external docs, `search` the base first: it may already hold the answer —"
+        " or contradict it. Web and doc confirmation remain the fallback, not the default."
+    )
+    before_compacting = (
+        "FIRST write a terminal verify per lineage whose evidence is self-contained (report"
+        " the replayable bullets) — compact keeps the live state, not the archives."
+    )
+
+    canonical = flat(AGENT_INSTRUCTIONS.read_text(encoding="utf-8"))
+    skill = flat(SKILL.read_text(encoding="utf-8"))
+    for fragment in (standing_orders, before_memory, before_compacting):
+        assert fragment in canonical
+        assert fragment in skill

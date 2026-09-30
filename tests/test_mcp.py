@@ -13,7 +13,7 @@ from itertools import pairwise
 from pathlib import Path
 
 import pytest
-from helpers import SHA, make_claim, write_event, write_graph_db
+from helpers import SHA, ULID_L1, make_claim, write_event, write_graph_db
 
 from masora.checker import check_base
 from masora.frontmatter import load_frontmatter
@@ -146,6 +146,7 @@ def code_repo(tmp_path: Path):
     git(repo, "init", "-b", "main")
     git(repo, "config", "user.name", "Masora Test")
     git(repo, "config", "user.email", "masora@example.invalid")
+    git(repo, "remote", "add", "origin", "git@github.internal:org/proj.git")
     git(repo, "add", "-A")
     git(repo, "commit", "-m", "src")
     head = git(repo, "rev-parse", "HEAD")
@@ -582,7 +583,6 @@ def test_note_without_git_head_refused(server, tmp_path, base):
 
 def test_base_resolution_matrix(server, code_repo, tmp_path, home, base):
     repo, _head = code_repo
-    git(repo, "remote", "add", "origin", "git@github.internal:org/proj.git")
     server.ready()
     mapped = home / "bases" / "team"
     mapped.mkdir(parents=True)
@@ -638,6 +638,109 @@ def test_no_base_refusal_for_missing_repo_root_asks_for_the_repo(server):
     assert "E-MCP-NO-BASE" in text
     assert "pass repo_root (the checkout you are asking about)" in text
     assert "run masora setup --base <url> in this checkout" not in text
+
+
+def test_resolve_base_on_a_non_git_root_says_not_a_checkout(tmp_path, monkeypatch):
+    from masora.write import resolve_base
+
+    monkeypatch.setenv("MASORA_HOME", str(tmp_path / "home"))
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    with pytest.raises(WriteError) as exc:
+        resolve_base(workspace, None)
+    assert exc.value.code == "E-MCP-NO-BASE"
+    assert "repo_root is not a Git checkout" in exc.value.diags[0].message
+    assert "run masora setup" not in exc.value.diags[0].message
+
+
+def test_resolve_base_without_origin_names_the_origin_remedy(tmp_path, monkeypatch):
+    from masora.write import resolve_base
+
+    monkeypatch.setenv("MASORA_HOME", str(tmp_path / "home"))
+    repo = tmp_path / "checkout"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-b", "main", str(repo)], capture_output=True, check=True)
+    with pytest.raises(WriteError) as exc:
+        resolve_base(repo, None)
+    assert "the checkout has no readable origin, so mapping-based resolution is unavailable" in (
+        exc.value.diags[0].message
+    )
+    assert "configure origin, configure default_base, or pass base explicitly" in (
+        exc.value.diags[0].message
+    )
+
+
+def test_resolve_base_without_origin_with_default_base_succeeds(tmp_path, monkeypatch):
+    from masora.write import resolve_base
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("MASORA_HOME", str(home))
+    repo = tmp_path / "checkout"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-b", "main", str(repo)], capture_output=True, check=True)
+    mapped = home / "bases" / "solo"
+    mapped.mkdir(parents=True)
+    (mapped / "base.toml").write_text('name = "test-base"\ncode_remotes = []\n', encoding="utf-8")
+    (home / "config.toml").write_text(
+        'default_base = "solo"\n\n[bases.solo]\nremote = "git@github.internal:org/solo.git"\n',
+        encoding="utf-8",
+    )
+
+    assert resolve_base(repo, None) == mapped
+
+
+def test_resolve_base_unmapped_origin_keeps_the_setup_remedy(tmp_path, monkeypatch):
+    from masora.write import resolve_base
+
+    monkeypatch.setenv("MASORA_HOME", str(tmp_path / "home"))
+    repo = tmp_path / "checkout"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-b", "main", str(repo)], capture_output=True, check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin", "git@github.internal:org/proj.git"],
+        capture_output=True,
+        check=True,
+    )
+    with pytest.raises(WriteError) as exc:
+        resolve_base(repo, None)
+    assert "run masora setup --base <url> in this checkout" in exc.value.diags[0].message
+    assert "not a Git checkout" not in exc.value.diags[0].message
+
+
+def test_resolve_base_explicit_base_wins_over_an_invalid_repo_root(tmp_path, base, monkeypatch):
+    from masora.write import resolve_base
+
+    monkeypatch.setenv("MASORA_HOME", str(tmp_path / "home"))
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    assert resolve_base(workspace, str(base)) == base
+
+
+def test_write_refuses_an_explicit_non_base_with_not_a_base(tmp_path, code_repo, monkeypatch):
+    from masora.diagnostics import E_NOT_A_BASE
+    from masora.write import write_and_check
+
+    monkeypatch.setenv("MASORA_HOME", str(tmp_path / "home"))
+    stranger = tmp_path / "stranger"
+    stranger.mkdir()
+    data = make_claim(ULID_L1)
+    with pytest.raises(WriteError) as exc:
+        write_and_check(stranger, data)
+    assert exc.value.code == E_NOT_A_BASE
+    assert "run masora setup" not in exc.value.diags[0].message
+
+
+def test_note_on_a_non_git_repo_root_says_not_a_checkout(server, tmp_path, home, base):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    server.ready()
+    text, is_error = server.tool("note", note_args(workspace, None))
+    assert is_error is True
+    assert "E-MCP-NO-BASE" in text
+    assert "repo_root is not a Git checkout" in text
+    assert "run masora setup" not in text
 
 
 def test_base_refusal_for_unknown_explicit_base(server, code_repo, home, base):

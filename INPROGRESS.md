@@ -8,6 +8,25 @@
 
 ## Current phase
 
+**Done:** the no-base diagnostic tells the truth about WHY (design review
+ruling; TODO.md line-80 item amended) — `write.origin_state(repo)` returns
+(kind, remote): `not_git_worktree` (git rev-parse --git-dir fails),
+`git_without_origin` (a worktree whose origin is missing/unreadable) or
+`origin` (readable) — used ONLY for the final failure diagnostic; the
+success path is untouched (explicit base > mapping on origin > default_base;
+an origin-less checkout with default_base/explicit base succeeds —
+regression-guarded). `resolve_base` raises the three cause texts (omitted
+repo_root unchanged); facts.py shares the detection for E-FACTS-NO-BASE
+(adapted remedies, no "pass base explicitly"; exit 1 + empty stdout
+unchanged). E-MCP-NO-BASE stays the single code. Tests: the design-review
+matrix — 7 new resolve/write/note tests in tests/test_mcp.py + 3 facts
+tests (code_repo gained a realistic origin; matrix test's redundant remote
+add dropped). TROUBLESHOOTING's E-MCP-NO-BASE/E-FACTS-NO-BASE rows cover
+the four causes with their remedies. CHANGELOG [Unreleased] Changed bullet.
+537 tests green; ruff clean. Next task: the first rollout (TODO.md).
+
+**Done:** the evaluation protocol (TODO.md "Agent-graded evaluation" amended:
+
 **Done:** the evaluation protocol (TODO.md "Agent-graded evaluation" amended:
 protocol written, the RUN remains) — docs/EVALUATION.md, pre-registered:
 the question + success criteria (fewer repeated wrong deductions AND lower

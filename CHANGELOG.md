@@ -6,7 +6,11 @@
       the current state only (release-notes style); the history of how the
       project got there lives between released versions. -->
 
-## [Unreleased]
+## 0.2.3 — 2026-09-30
+
+### Changed
+
+- **The no-base diagnostic tells the truth about WHY** — `E-MCP-NO-BASE` stays the single code and the TEXT now carries the cause, from a structured detection (`write.origin_state`) used only for the failure diagnostic, never for resolution: `not_git_worktree` (the path is not inside a git worktree — the live rollout shape: a workspace parent passed as `repo_root`) reads "repo_root is not a Git checkout — pass the code checkout itself (not its workspace parent), or pass base explicitly"; `git_without_origin` (a worktree whose origin is missing/unreadable) reads "the checkout has no readable origin, so mapping-based resolution is unavailable — configure origin, configure default_base, or pass base explicitly"; a readable-but-unmapped origin keeps the "run masora setup" remedy, and an omitted `repo_root` keeps its ask-for-the-repo text. The resolution success path is unchanged — explicit base > mapping on origin > `default_base`; an origin-less checkout with a valid `default_base` or explicit base succeeds exactly as before, and an explicit base pointing at a non-base directory refuses with `E-NOT-A-BASE`, not the new texts. `masora facts` shares the detection for its `E-FACTS-NO-BASE` wording (same causes, adapted remedies — no "pass base explicitly", its contract forbids one; exit 1 and empty stdout unchanged). (`masora/write.py`, `masora/facts.py`, `tests/test_mcp.py`, `tests/test_facts.py`, docs/TROUBLESHOOTING.md.)
 
 ### Added
 

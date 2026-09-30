@@ -66,6 +66,26 @@ def origin_remote(repo: Path) -> str | None:
     return value if proc.returncode == 0 and value else None
 
 
+def origin_state(repo: Path) -> tuple[str, str | None]:
+    """(kind, remote) for the no-base diagnostic, never for resolution: kind is
+    `not_git_worktree` (the path is not inside a git worktree),
+    `git_without_origin` (a worktree whose origin is missing or unreadable) or
+    `origin` (readable)."""
+    proc = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "--git-dir"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=git_env(),
+    )
+    if proc.returncode != 0:
+        return "not_git_worktree", None
+    remote = origin_remote(repo)
+    if remote is None:
+        return "git_without_origin", None
+    return "origin", remote
+
+
 def human_name(base_dir: Path) -> str | None:
     """The base repo's `git config user.name` — the human writer's self-signed name.
 
@@ -158,8 +178,11 @@ def resolve_base(repo_root: Path | None, base: str | None) -> Path:
 
     A caller-provided base always wins; an unmatched base is never guessed:
     the `E-MCP-NO-BASE` refusal states the remedy for its cause — an omitted
-    `repo_root` asks for the repo (the base resolves from that repo's origin
-    remote), an unmapped repo asks for `masora setup` or an explicit base.
+    `repo_root` asks for the repo, a non-worktree root says so, an
+    origin-less checkout says mapping resolution is unavailable, an unmapped
+    repo asks for `masora setup` or an explicit base. The cause detection
+    never affects a resolving call: an origin-less checkout with a valid
+    `default_base` or explicit base succeeds.
     """
     if base is not None:
         explicit = Path(base)
@@ -185,6 +208,26 @@ def resolve_base(repo_root: Path | None, base: str | None) -> Path:
                 E_MCP_NO_BASE,
                 "no base resolved: no repo_root was passed — pass repo_root (the checkout you are"
                 " asking about) — the base is resolved from that repo's origin remote"
+                " (MASORA_DESIGN.md §9)",
+            )
+        )
+    kind, _remote = origin_state(repo_root)
+    if kind == "not_git_worktree":
+        raise WriteError(
+            Diag(
+                "error",
+                E_MCP_NO_BASE,
+                "no base resolved: repo_root is not a Git checkout — pass the code checkout itself"
+                " (not its workspace parent), or pass base explicitly (MASORA_DESIGN.md §9)",
+            )
+        )
+    if kind == "git_without_origin":
+        raise WriteError(
+            Diag(
+                "error",
+                E_MCP_NO_BASE,
+                "no base resolved: the checkout has no readable origin, so mapping-based resolution"
+                " is unavailable — configure origin, configure default_base, or pass base explicitly"
                 " (MASORA_DESIGN.md §9)",
             )
         )

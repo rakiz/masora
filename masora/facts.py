@@ -27,7 +27,7 @@ from pathlib import Path
 from . import providers
 from .diagnostics import E_FACTS_NO_BASE, E_FACTS_NOINDEX, E_IDX_REPO, Diag
 from .index import IndexingError, _open_index, index_db_path, index_stale
-from .write import WriteError, auto_base
+from .write import WriteError, auto_base, origin_state
 
 CONTRACT_VERSION = 1
 _FLAG_NAMES = ("suspect", "doubted", "pending", "unknown", "unanchored")
@@ -65,14 +65,24 @@ def _facts(repo: Path, symbol: str | None) -> dict:
             Diag("error", E_FACTS_NO_BASE, exc.diags[0].message, exc.diags[0].path)
         ) from exc
     if base_dir is None:
-        raise FactsError(
-            Diag(
-                "error",
-                E_FACTS_NO_BASE,
-                f"no base resolved for {repo}: no [[mappings]] entry matches its origin remote and"
-                " no default_base is configured — run masora setup --base <url> (MASORA_DESIGN.md §9)",
+        kind, _remote = origin_state(repo)
+        if kind == "not_git_worktree":
+            message = (
+                f"no base resolved for {repo}: --repo is not a Git checkout — pass the code"
+                " checkout itself (not its workspace parent)"
             )
-        )
+        elif kind == "git_without_origin":
+            message = (
+                f"no base resolved for {repo}: the checkout has no readable origin, so"
+                " mapping-based resolution is unavailable — configure origin or configure"
+                " default_base"
+            )
+        else:
+            message = (
+                f"no base resolved for {repo}: no [[mappings]] entry matches its origin remote and"
+                " no default_base is configured — run masora setup --base <url> (MASORA_DESIGN.md §9)"
+            )
+        raise FactsError(Diag("error", E_FACTS_NO_BASE, message))
     db = index_db_path(base_dir, repo)
     if not db.is_file():
         raise FactsError(

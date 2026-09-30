@@ -316,6 +316,44 @@ def test_facts_no_base_resolved_exit_one(tmp_path, home, capsys):
     assert "E-FACTS-NO-BASE" in err
 
 
+def test_facts_not_a_git_checkout_names_the_checkout_remedy(tmp_path, home, capsys):
+    plain = tmp_path / "workspace"
+    plain.mkdir()
+
+    code, _document, err = facts(capsys, plain)
+
+    assert code == 1
+    assert capsys.readouterr().out == ""
+    assert "E-FACTS-NO-BASE" in err
+    assert "--repo is not a Git checkout" in err
+    assert "run masora setup" not in err
+
+
+def test_facts_without_origin_names_the_origin_remedy(tmp_path, home, capsys):
+    repo, _head = make_repo(tmp_path)
+
+    code, _document, err = facts(capsys, repo)
+
+    assert code == 1
+    assert capsys.readouterr().out == ""
+    assert "E-FACTS-NO-BASE" in err
+    assert "the checkout has no readable origin, so mapping-based resolution is unavailable" in err
+    assert "pass base explicitly" not in err
+
+
+def test_facts_unmapped_origin_keeps_the_setup_remedy(tmp_path, home, capsys):
+    repo, _head = make_repo(tmp_path)
+    git(repo, "remote", "add", "origin", "git@github.internal:org/unmapped.git")
+
+    code, _document, err = facts(capsys, repo)
+
+    assert code == 1
+    assert capsys.readouterr().out == ""
+    assert "E-FACTS-NO-BASE" in err
+    assert "run masora setup --base <url>" in err
+    assert "not a Git checkout" not in err
+
+
 def test_facts_broken_mapping_exit_one(tmp_path, home, capsys):
     repo, _head = make_repo(tmp_path)
     git(repo, "remote", "add", "origin", "git@github.internal:org/proj.git")

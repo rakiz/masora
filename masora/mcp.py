@@ -597,13 +597,16 @@ def _str(**kwargs) -> dict:
     return {"type": "string", **kwargs}
 
 
-def _schema(properties: dict, required: list[str]) -> dict:
-    return {
+def _schema(properties: dict, required: list[str], description: str | None = None) -> dict:
+    schema: dict = {
         "type": "object",
         "properties": properties,
         "required": required,
         "additionalProperties": False,
     }
+    if description is not None:
+        schema["description"] = description
+    return schema
 
 
 _BASE_PROPS = {
@@ -626,9 +629,12 @@ TOOLS = [
         ),
         "inputSchema": _schema(
             {
-                "statement": _str(description="full statement of this version"),
+                "statement": _str(
+                    description="the full text: no length constraint, the detailed explanation"
+                ),
                 "summary": _str(
-                    description="one line, <= 120 characters, used verbatim in injections"
+                    description="the injected one-liner: <= 120 characters, this is what cppgraph"
+                    " surfaces"
                 ),
                 "repo_root": _str(description="path to the code repo checkout"),
                 **_BASE_PROPS,
@@ -670,6 +676,12 @@ TOOLS = [
                 },
             },
             ["statement", "summary", "repo_root"],
+            description=(
+                "summary is the injected one-liner (<= 120 characters, this is what cppgraph"
+                " surfaces) and statement is the full text (no length constraint, the detailed"
+                " explanation); content is written in English (base event files are pushed"
+                " content)."
+            ),
         ),
     },
     {
@@ -685,7 +697,7 @@ TOOLS = [
                 "evidence": {
                     "type": "array",
                     "items": _str(),
-                    "description": "proof: graph replay, file ranges, tests, URLs",
+                    "description": "proof: graph replay, file ranges, tests, URLs (in English)",
                 },
                 "repo_root": _str(description="path to the code repo checkout"),
                 **_BASE_PROPS,
@@ -716,7 +728,7 @@ TOOLS = [
         "inputSchema": _schema(
             {
                 "id": _str(description="verify ULID, or lineage ULID"),
-                "reason": _str(description="why the verification is doubted"),
+                "reason": _str(description="why the verification is doubted (in English)"),
                 "repo_root": _str(description="path to the code repo checkout"),
                 **_BASE_PROPS,
                 "source": {
@@ -724,7 +736,11 @@ TOOLS = [
                     "enum": ["human", "llm"],
                     "description": "default llm",
                 },
-                "evidence": {"type": "array", "items": _str()},
+                "evidence": {
+                    "type": "array",
+                    "items": _str(),
+                    "description": "proof items (in English)",
+                },
                 "name": _str(description="free string when source is llm: the model name"),
                 "effort": {
                     "type": "string",
@@ -741,7 +757,7 @@ TOOLS = [
         "inputSchema": _schema(
             {
                 "id": _str(description="the doubt event's ULID"),
-                "reason": _str(description="why the doubt is lifted"),
+                "reason": _str(description="why the doubt is lifted (in English)"),
                 "repo_root": _str(description="path to the code repo checkout"),
                 **_BASE_PROPS,
                 "source": {
@@ -749,7 +765,11 @@ TOOLS = [
                     "enum": ["human", "llm"],
                     "description": "default llm",
                 },
-                "evidence": {"type": "array", "items": _str()},
+                "evidence": {
+                    "type": "array",
+                    "items": _str(),
+                    "description": "proof items (in English)",
+                },
                 "name": _str(description="free string when source is llm: the model name"),
                 "effort": {
                     "type": "string",
@@ -769,7 +789,7 @@ TOOLS = [
         "inputSchema": _schema(
             {
                 "id": _str(description="event ULID, or lineage ULID"),
-                "reason": _str(description="what contradicts the target"),
+                "reason": _str(description="what contradicts the target (in English)"),
                 "repo_root": _str(description="path to the code repo checkout"),
                 **_BASE_PROPS,
                 "source": {
@@ -777,7 +797,11 @@ TOOLS = [
                     "enum": ["human", "llm"],
                     "description": "default llm",
                 },
-                "evidence": {"type": "array", "items": _str()},
+                "evidence": {
+                    "type": "array",
+                    "items": _str(),
+                    "description": "proof items (in English)",
+                },
                 "name": _str(description="free string when source is llm: the model name"),
                 "effort": {
                     "type": "string",

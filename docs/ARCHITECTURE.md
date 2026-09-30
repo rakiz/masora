@@ -403,7 +403,10 @@ The write path (`masora/write.py`) is shared by all five write tools:
 `resolve_base()` honours an explicit `base` parameter first (a caller-provided
 base always wins), then matches the code repo's `origin` remote (normalized via
 `config.normalize_remote`) against the user config's `[[mappings]]`, then
-`default_base` — otherwise `E-MCP-NO-BASE` asks for an explicit base (§9: it
+`default_base` — otherwise `E-MCP-NO-BASE` refuses with the remedy for its
+cause: an omitted `repo_root` is told to pass the repo (the base resolves from
+that repo's origin remote), an unmapped repo is told to run
+`masora setup --base <url>` in the checkout or pass an explicit `base` (§9: it
 never guesses); ULIDs come from
 `ulid.new_ulid()` (monotonic in-process); the event dict is pre-validated with
 `schema.validate_event` and secret-scanned — high-confidence credential shapes

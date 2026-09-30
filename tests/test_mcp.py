@@ -239,6 +239,18 @@ def test_handshake_tools_list_shape(server):
     assert all(schema["additionalProperties"] is False for schema in schemas.values())
 
 
+def test_note_schema_states_the_summary_statement_split(server):
+    server.ready()
+    listing = server.request("tools/list")
+    note = next(tool for tool in listing["result"]["tools"] if tool["name"] == "note")
+    description = note["inputSchema"]["description"]
+    assert (
+        "summary is the injected one-liner (<= 120 characters, this is what cppgraph surfaces)"
+        " and statement is the full text (no length constraint, the detailed explanation)"
+    ) in description
+    assert "content is written in English" in description
+
+
 def test_initialize_negotiates_other_version(server):
     response = server.request("initialize", {"protocolVersion": "1999-01-01"})
     assert response["result"]["protocolVersion"] == PIN
@@ -609,9 +621,20 @@ def test_base_refusal_asks_for_explicit_base_then_accepts_it(server, code_repo, 
     server.ready()
     text, is_error = server.tool("note", note_args(repo, None))
     assert is_error is True
-    assert "E-MCP-NO-BASE" in text and "explicit base" in text
+    assert "E-MCP-NO-BASE" in text
+    assert "run masora setup --base <url> in this checkout" in text
+    assert "pass repo_root (the checkout you are asking about)" not in text
     text, is_error = server.tool("note", note_args(repo, base))
     assert is_error is False
+
+
+def test_no_base_refusal_for_missing_repo_root_asks_for_the_repo(server):
+    server.ready()
+    text, is_error = server.tool("search", {"query": "bring"})
+    assert is_error is True
+    assert "E-MCP-NO-BASE" in text
+    assert "pass repo_root (the checkout you are asking about)" in text
+    assert "run masora setup --base <url> in this checkout" not in text
 
 
 def test_base_refusal_for_unknown_explicit_base(server, code_repo, home, base):
@@ -620,6 +643,8 @@ def test_base_refusal_for_unknown_explicit_base(server, code_repo, home, base):
     text, is_error = server.tool("note", note_args(repo, str(home / "missing")))
     assert is_error is True
     assert "E-MCP-NO-BASE" in text
+    assert "run masora setup --base <url> in this checkout" not in text
+    assert "pass repo_root (the checkout you are asking about)" not in text
     assert not list(base.rglob("*.md"))
 
 

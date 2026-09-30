@@ -157,8 +157,10 @@ def auto_base(repo_root: Path | None) -> Path | None:
 def resolve_base(repo_root: Path | None, base: str | None) -> Path:
     """Explicit base first, then `auto_base` (§8-§9).
 
-    A caller-provided base always wins; an unmatched or missing base is never
-    guessed: `E-MCP-NO-BASE` asks for an explicit base.
+    A caller-provided base always wins; an unmatched base is never guessed:
+    the `E-MCP-NO-BASE` refusal states the remedy for its cause — an omitted
+    `repo_root` asks for the repo (the base resolves from that repo's origin
+    remote), an unmapped repo asks for `masora setup` or an explicit base.
     """
     if base is not None:
         explicit = Path(base)
@@ -177,12 +179,23 @@ def resolve_base(repo_root: Path | None, base: str | None) -> Path:
     matched = auto_base(repo_root)
     if matched is not None:
         return matched
+    if repo_root is None:
+        raise WriteError(
+            Diag(
+                "error",
+                E_MCP_NO_BASE,
+                "no base resolved: no repo_root was passed — pass repo_root (the checkout you are"
+                " asking about) — the base is resolved from that repo's origin remote"
+                " (MASORA_DESIGN.md §9)",
+            )
+        )
     raise WriteError(
         Diag(
             "error",
             E_MCP_NO_BASE,
             "no base resolved: the code repo matches no [[mappings]] entry and no default_base is"
-            " configured — pass an explicit base (MASORA_DESIGN.md §9)",
+            " configured — run masora setup --base <url> in this checkout, or pass the base"
+            " parameter explicitly (MASORA_DESIGN.md §9)",
         )
     )
 

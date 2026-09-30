@@ -8,6 +8,23 @@
 
 ## Current phase
 
+**Done:** two friction fixes (TODO.md, both ticked). `E-MCP-NO-BASE` remedy:
+`masora/write.py` `resolve_base` distinguishes its two causes and remedies
+each — an omitted `repo_root` (read tools fall back to the base directory,
+which by construction matches no remote) is told "pass repo_root (the
+checkout you are asking about) — the base is resolved from that repo's origin
+remote"; an unmapped repo is told "run masora setup --base <url> in this
+checkout, or pass the base parameter explicitly"; an unknown explicit `base`
+names neither remedy. `note` field split: the `masora/mcp.py` inputSchema
+description states the contract in one sentence (summary = the injected
+one-liner, ≤ 120 characters, what cppgraph surfaces; statement = the full
+text, no length constraint; content in English — base event files are pushed
+content), the summary/statement field descriptions match, and the write
+tools' `reason`/`evidence` descriptions carry the language expectation.
+Tests: 2 new + 2 updated in tests/test_mcp.py; suite 485 green; ruff clean.
+Next task: the first rollout (TODO.md — the real base on the author's
+`employees/` dir + the Confluence install page).
+
 **Done:** two-feature pass (TODO.md, both ticked). Feature A — readable sync
 PR: `masora/sync.py` `_pr_body`/`_pr_title` render the PR as a plain-English
 changelog of the pending set (title mirrors per-kind counts + tombstone

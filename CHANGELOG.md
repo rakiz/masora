@@ -6,6 +6,12 @@
       the current state only (release-notes style); the history of how the
       project got there lives between released versions. -->
 
+## [Unreleased]
+
+### Added
+
+- **The CHANGELOG-invariant guard** (tests/test_docs.py): three structural checks over the file's `## ` section headers, with HTML comments stripped first (the entry template at the bottom lives in one — its `## [X.Y.Z]` line must not trip the guards): no duplicated version header, at most one `## [Unreleased]`, and version sections sorted newest-first (a monotonic non-increasing semver ordering). Violations fail with the offending header(s) and their line numbers; the suite runs in the pre-commit hook, so a pass creating a second `[Unreleased]` — or a release sed converting stacked headers into duplicated version sections — is refused at commit time.
+
 ## 0.3.2 — 2026-09-30
 
 ### Added

@@ -8,6 +8,19 @@
 
 ## Current phase
 
+**Done:** the CHANGELOG-invariant guard (TODO.md, ticked) — three tests in
+tests/test_docs.py over the file's GLOBAL structure (the miss: stacked
+`## [Unreleased]` headers survived every per-pass diff and a release sed
+duplicated the release section): `test_changelog_version_headers_are_unique`,
+`test_changelog_has_at_most_one_unreleased`,
+`test_changelog_versions_sort_newest_first` — headers parsed after HTML
+comments are stripped (the entry template's `## [X.Y.Z]` line lives in one;
+comment content is replaced with its newlines so line numbers stay true);
+failures name the header(s) + line numbers; the pre-commit hook's suite run
+refuses the stacked/duplicated shapes at commit time. Verified against all
+three failure modes by self-test. CHANGELOG [Unreleased] Added bullet. 576
+tests green; ruff clean. Next task: the first rollout (TODO.md).
+
 **Done:** standing orders + before-memory + the before-compacting ritual
 (TODO.md, two items ticked) — all three live-rollout readings land in
 docs/AGENT_INSTRUCTIONS.md and are mirrored into the skill (the sections

@@ -15,8 +15,35 @@ from masora import diagnostics
 ROOT = Path(__file__).resolve().parents[1]
 TABLE = ROOT / "docs" / "TROUBLESHOOTING.md"
 README = ROOT / "README.md"
+CHANGELOG = ROOT / "CHANGELOG.md"
 
 _CODE_RE = re.compile(r"`((?:E|W)-[A-Z0-9-]+)`")
+_HEADERS_RE = re.compile(r"^#{1,2} .+$", re.MULTILINE)
+
+
+def _changelog_headers() -> list[tuple[str, int]]:
+    """The `## ` section headers of CHANGELOG.md as (header, 1-based line number).
+
+    HTML comments are stripped first — the entry template at the bottom lives
+    inside one and must not trip the guards; line numbers are preserved by
+    replacing each comment with the newlines it held.
+    """
+    text = CHANGELOG.read_text(encoding="utf-8")
+    without_comments = re.sub(
+        r"(?s)<!--.*?-->", lambda match: "\n" * match.group(0).count("\n"), text
+    )
+    return [
+        (line.strip(), number)
+        for number, line in enumerate(without_comments.splitlines(), start=1)
+        if line.startswith("## ")
+    ]
+
+
+def _version_triplet(header: str) -> tuple[int, int, int] | None:
+    match = re.match(r"## v?(\d+)\.(\d+)\.(\d+)", header)
+    if match is None:
+        return None
+    return int(match.group(1)), int(match.group(2)), int(match.group(3))
 
 
 def _exported_codes() -> set[str]:
@@ -49,8 +76,6 @@ def test_readme_links_the_troubleshooting_table() -> None:
 
 SKILL = ROOT / "docs" / "skills" / "masora" / "SKILL.md"
 AGENT_INSTRUCTIONS = ROOT / "docs" / "AGENT_INSTRUCTIONS.md"
-
-_HEADERS_RE = re.compile(r"^#{1,2} .+$", re.MULTILINE)
 
 
 def test_skill_carries_every_agent_instructions_header() -> None:
@@ -137,3 +162,40 @@ def test_standing_orders_before_memory_and_before_compacting_in_both_docs() -> N
     for fragment in (standing_orders, before_memory, before_compacting):
         assert fragment in canonical
         assert fragment in skill
+
+
+def test_changelog_version_headers_are_unique() -> None:
+    seen: dict[str, int] = {}
+    duplicates = []
+    for header, number in _changelog_headers():
+        if header in seen:
+            duplicates.append(f"line {number}: {header!r} (first at line {seen[header]})")
+        seen[header] = number
+    assert not duplicates, "duplicated CHANGELOG section headers: " + "; ".join(duplicates)
+
+
+def test_changelog_has_at_most_one_unreleased() -> None:
+    unreleased = [
+        (header, number)
+        for header, number in _changelog_headers()
+        if header.startswith("## [Unreleased]")
+    ]
+    assert len(unreleased) <= 1, "stacked [Unreleased] headers: " + "; ".join(
+        f"line {n}: {h}" for h, n in unreleased
+    )
+
+
+def test_changelog_versions_sort_newest_first() -> None:
+    previous: tuple[int, int, int] | None = None
+    failures = []
+    for header, number in _changelog_headers():
+        if header.startswith("## [Unreleased]"):
+            continue
+        version = _version_triplet(header)
+        if version is None:
+            failures.append(f"line {number}: {header!r} is not a version header")
+            continue
+        if previous is not None and version > previous:
+            failures.append(f"line {number}: {header} sorts AFTER an older section above it")
+        previous = version
+    assert not failures, "CHANGELOG is not newest-first: " + "; ".join(failures)

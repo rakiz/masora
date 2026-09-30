@@ -175,6 +175,15 @@ Tasks:
   `search` the base BEFORE answering from memory or external docs — web/doc
   confirmation is the fallback, not the default. → docs/AGENT_INSTRUCTIONS.md,
   docs/skills/masora/SKILL.md, tests/test_docs.py.
+- [x] The CHANGELOG-invariant guard (the miss: two stacked `## [Unreleased]`
+  headers survived several doc passes and a release sed converted BOTH into
+  duplicated `## 0.3.2` sections — every pass diff looked fine in
+  isolation). tests/test_docs.py gains three guards over the GLOBAL
+  structure: no duplicated `## <version>` header; at most one
+  `## [Unreleased]`; version sections sort newest-first (monotonic
+  non-increasing semver) — failures name the offending header(s) and their
+  line numbers; HTML comments are stripped first so the entry template's
+  `## [X.Y.Z]` line cannot trip them. → tests/test_docs.py.
 - [ ] First rollout: create the base on the author's `employees/` dir + Confluence install page (install, `masora setup --base <url>`, usage); migration to a dedicated repo if adopted.
 - [ ] Agent-graded evaluation of the phase objective — the protocol is
   WRITTEN (docs/EVALUATION.md, pre-registered: paired A/B over ~20 tasks —

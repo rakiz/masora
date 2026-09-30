@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -33,6 +34,7 @@ from masora.index import (
     file_fingerprint_provider,
     index_db_path,
     index_stale,
+    index_stale_reason,
     search_index,
 )
 from masora.providers import cppgraph_registry
@@ -710,3 +712,86 @@ def test_index_stale_without_repo_checks_base_only(git_base, repo, home):
     git(git_base, "commit", "-m", "v2")
     assert index_stale(db, git_base, repo=None) is True
     assert db.is_file()
+
+
+def _built_at_epoch(db: Path) -> float:
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        (raw,) = conn.execute("SELECT value FROM meta WHERE key = 'built_at'").fetchone()
+    finally:
+        conn.close()
+    return datetime.fromisoformat(raw).timestamp()
+
+
+def test_uncommitted_write_fires_freshness_axis(git_base, repo, home, capsys):
+    """The live-rollout freeze: a note written AFTER the build moves no git HEAD."""
+    write_event(git_base, CLAIM_REL, make_claim(ULID_L1, summary=f"The {TOKES} rotates"))
+    git(git_base, "add", "-A")
+    git(git_base, "commit", "-m", "claim")
+    git(git_base, "push", "origin", "main")
+    db = index_db_path(git_base, repo)
+    assert main(["index", str(git_base), "--repo", str(repo)]) == 0
+    assert index_stale(db, git_base, repo=None) is False
+    built = _built_at_epoch(db)
+
+    # uncommitted note: no add, no commit — the three git axes stay quiet;
+    # push its mtime past built_at + tolerance (the real gap is seconds, the
+    # wall-clock here is milliseconds)
+    write_event(
+        git_base,
+        V2_REL,
+        make_claim(ULID_V2A, ULID_L1, reason="code changed", summary="Second version summary"),
+    )
+    os.utime(git_base / V2_REL, (built + 5, built + 5))
+    assert index_stale(db, git_base, repo=None) is True
+    assert index_stale_reason(db, git_base, repo=None) is not None
+    assert "events written since the index build" in index_stale_reason(db, git_base, repo=None)
+    code = main(["search", str(git_base), "shard", "--repo", str(repo)])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "W-IDX-STALE" in out
+    assert "events written since the index build" in out
+
+    # the synthetic future mtime would out-date the NEXT build too — pull it
+    # back onto the build moment (a real file is never in the future)
+    os.utime(git_base / V2_REL, (built, built))
+    assert main(["index", str(git_base), "--repo", str(repo)]) == 0
+    assert index_stale(db, git_base, repo=None) is False
+    main(["search", str(git_base), "shard", "--repo", str(repo)])
+    assert "W-IDX-STALE" not in capsys.readouterr().out
+
+
+def test_freshness_tolerance_respected(git_base, repo, home):
+    write_event(git_base, CLAIM_REL, make_claim(ULID_L1))
+    result = build_index(git_base, repo)
+    db = result.db_path
+    built = _built_at_epoch(db)
+    claim_file = git_base / CLAIM_REL
+
+    # a file older than the build moment (built_at - 5 s) never fires
+    os.utime(claim_file, (built - 5, built - 5))
+    assert index_stale(db, git_base, repo=None) is False
+
+    # past the ~2 s tolerance it fires
+    os.utime(claim_file, (built + 5, built + 5))
+    assert index_stale(db, git_base, repo=None) is True
+
+
+def test_freshness_axis_ignores_non_event_files_but_walks_deleted_toml(git_base, repo, home):
+    write_event(git_base, CLAIM_REL, make_claim(ULID_L1))
+    result = build_index(git_base, repo)
+    db = result.db_path
+    built = _built_at_epoch(db)
+    # a non-markdown file moving its mtime is not walked
+    notes = git_base / "notes.txt"
+    notes.write_text("not an event\n", encoding="utf-8")
+    os.utime(notes, (built + 30, built + 30))
+    assert index_stale(db, git_base, repo=None) is False
+    # deleted.toml is
+    tombstone = git_base / "deleted.toml"
+    tombstone.write_text(
+        '[[deleted]]\nlineage = "01J8Z3K0000000000000000009"\nulids = []\n', encoding="utf-8"
+    )
+    os.utime(tombstone, (built + 30, built + 30))
+    assert index_stale(db, git_base, repo=None) is True
+    assert "events written since the index build" in index_stale_reason(db, git_base, repo=None)

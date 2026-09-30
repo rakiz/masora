@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -367,6 +368,52 @@ def test_facts_stale_warning_true_after_repo_head_move(tmp_path, base, capsys):
     assert code == 0
     assert document["stale_warning"] is True
     assert document["repo_head"] != head
+
+
+def test_facts_stale_warning_true_after_uncommitted_note(tmp_path, base, capsys):
+    """The live-rollout freeze: a note written after the build moves no git HEAD."""
+    repo, head = make_repo(tmp_path)
+    uid = "01J8Z3K0000000000000000000"
+    write_event(base, f"2026-09/x/{uid}.claim.md", claim_event(uid, repo, head, [SYM_A]))
+    assert build_index(base, repo).errors == []
+
+    code, document, _err = facts(capsys, repo)
+    assert code == 0
+    assert document["stale_warning"] is False
+
+    # an uncommitted write: the base git HEAD does not move, the mtime does;
+    # push it past built_at + tolerance (the real gap is seconds, the
+    # wall-clock here is milliseconds)
+    fresh_uid = "01J8Z3K0000000000000000002"
+    write_event(
+        base,
+        f"2026-09/x/{fresh_uid}.claim.md",
+        claim_event(fresh_uid, repo, head, [SYM_A], summary="Fresh note"),
+    )
+    import sqlite3
+    from datetime import datetime
+
+    conn = sqlite3.connect(f"file:{index_db_path(base, repo)}?mode=ro", uri=True)
+    try:
+        (raw,) = conn.execute("SELECT value FROM meta WHERE key = 'built_at'").fetchone()
+    finally:
+        conn.close()
+    built = datetime.fromisoformat(raw).timestamp()
+    os.utime(base / f"2026-09/x/{fresh_uid}.claim.md", (built + 5, built + 5))
+
+    code, document, _err = facts(capsys, repo)
+
+    assert code == 0
+    assert document["stale_warning"] is True
+    assert document["repo_head"] == head  # the git axes stayed quiet — freshness fired
+
+    # the synthetic future mtime would out-date the NEXT build too — pull it
+    # back onto the build moment (a real file is never in the future)
+    os.utime(base / f"2026-09/x/{fresh_uid}.claim.md", (built, built))
+    assert build_index(base, repo).errors == []
+    code, document, _err = facts(capsys, repo)
+    assert code == 0
+    assert document["stale_warning"] is False
 
 
 def test_facts_corrupt_index_exit_one(tmp_path, base, capsys):

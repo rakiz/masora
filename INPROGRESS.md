@@ -43,7 +43,14 @@ missing/unparsable/older/newer → store unavailable, `unknown` shadows,
 docs/CPPGRAPH_INTEGRATION.md §6 (verify label always renders; `low-effort`
 token only for `verified(llm)` at `effort: low`, never under `verified(human)`;
 `verified(graph)` bare;
-`unverified` renders nothing); 441 tests green. Next task: the first rollout
+`unverified` renders nothing); the filesystem-freshness staleness axis
+(masora/index.py: `index_stale()` fourth axis — `built_at` from the index
+meta against the base tree's newest event-`*.md`/`deleted.toml` mtime,
+~2 s tolerance, one walk per read; catches the rollout freeze where an
+UNCOMMITTED `note` moves no git HEAD and `masora facts`/`search` silently
+missed the just-written claim; the reason flows into `W-IDX-STALE`,
+`stale_warning` keeps its boolean shape); 446 tests green. Next task: the
+first rollout
 (TODO.md — the real base on the author's `employees/` dir + the Confluence
 install page). The
 `SessionStart`/`UserPromptSubmit` hooks belong to Phase 2 (no client before

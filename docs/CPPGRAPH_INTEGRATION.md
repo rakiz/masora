@@ -112,7 +112,7 @@ Field semantics:
 | `contract_version` | integer `1`; §3's shape IS version 1's shape — any field addition or change lands as a new major `contract_version`, and producers never enrich a shipped shape in place; a major-version change means an incompatible shape — cppgraph rejects unknown major versions and renders nothing; checked as a strict integer: a JSON boolean is invalid even where the language conflates bool and int (e.g. Python `True == 1`) |
 | `repo_head` | code repo HEAD the statuses were resolved against, or `null` (not a git checkout) |
 | `graph_commit` | cppgraph-indexed commit that served the code fingerprints, or `null` (no usable graph store) |
-| `stale_warning` | `true` when the base or code state moved since the index was built (statuses may be outdated); `false` current; `null` when not comparable |
+| `stale_warning` | `true` when the base or code state moved since the index was built, OR events were written after it (filesystem freshness — an uncommitted note moves no git HEAD; the build moment is compared against the base tree's newest event-file mtime with a ~2 s tolerance); `false` current; `null` when not comparable |
 | `facts` | zero or more facts, one per matching lineage; may be empty |
 | `facts[].lineage` | lineage id — stable across versions; use it for dedup/caching |
 | `facts[].summary` | one line, ≤ 120 chars — rendered verbatim |
@@ -141,7 +141,9 @@ command handles it.
 - **0** — facts delivered, possibly empty. The two warning classes are
   in-band and are *never* errors:
   1. **stale index** → `stale_warning: true` (Masora's `W-IDX-STALE`: base
-     HEAD, repo HEAD or the graph's indexed commit moved since the build).
+     HEAD, repo HEAD or the graph's indexed commit moved since the build, or
+     events were written after it — filesystem freshness catches uncommitted
+     notes that move no HEAD).
   2. **graph unavailable for fingerprints** → the affected lineages carry the
      `unknown` flag (Masora's `W-IDX-GRAPH` semantics: an anchor provider was
      unavailable, so `unknown` shadows the resolution instead of a guessed

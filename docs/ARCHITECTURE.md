@@ -243,11 +243,16 @@ and adds FTS5 search. Section references are to MASORA_DESIGN.md.
   unicode61 tokenizer → case/accent-insensitive; lineage/version unindexed).
   Tombstoned lineages (and tombstoned event ids) are excluded.
 - **Rebuild trigger awareness**: the build stores the base's git HEAD plus
-  the code state it fingerprinted (`repo_head`, `graph_commit` in meta);
-  `index_stale()` compares all three at search time — base HEAD, the
-  `--repo` HEAD and the discovered graph store's indexed commit (unknown
-  sides skipped, pre-provider index rows never warn) — and `search` prints
-  `W-IDX-STALE` when any drifted (statuses may be outdated — rebuild).
+  the code state it fingerprinted (`repo_head`, `graph_commit` in meta) and
+  the build moment (`built_at`, UTC ISO); `index_stale()` compares four axes
+  at read time — base HEAD, the `--repo` HEAD, the discovered graph store's
+  indexed commit (unknown sides skipped, pre-provider index rows never warn),
+  and filesystem freshness: the newest mtime across the base tree's event
+  files and `deleted.toml` against `built_at` (~2 s tolerance) — which is
+  what catches UNCOMMITTED `note` writes that move no git HEAD (an index can
+  otherwise stay frozen while `masora facts`/`search` silently miss the
+  just-written claim). `search` (CLI and MCP) renders the axis's reason in
+  `W-IDX-STALE`; one walk of the base tree per read, no caching.
 - **CLI**: `masora index <base-dir> [--repo <path>] [--cppgraph <db>]
   [--no-cppgraph]` prints the graph store used, counts by status;
   `masora search <base-dir> <query> [--repo <path>]` runs FTS and renders
@@ -366,7 +371,7 @@ anchor-identity list (`anchors`) beside `anchors_matched`.
 version anchors on the exact identity — the displayed version, or the newest
 when `displayed` is null (`resolution: none` / founderless-unknown, per the
 §6 fold) — and fills `anchors_matched`. The two warning classes are in-band
-and never errors: `stale_warning` is `index_stale()`'s three-axis drift
+and never errors: `stale_warning` is `index_stale()`'s four-axis drift
 comparison (`true`/`false`, `null` when nothing is comparable) and provider
 unavailability shows as per-lineage `unknown` flags. Hard failures (no base
 `E-FACTS-NO-BASE`, missing index `E-FACTS-NOINDEX`, unusable index

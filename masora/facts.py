@@ -12,9 +12,10 @@ empty-matched and skipped when they don't anchor the symbol. Each fact also
 carries the effective version's provenance (`source`, `name`, `effort`) and
 its FULL anchor-identity list (`anchors`). Hard failures
 exit 1 with a diagnostic on stderr and nothing on stdout; the two warning
-classes are in-band and never errors: `stale_warning` (index drift,
-W-IDX-STALE semantics) and per-lineage `unknown` flags (W-IDX-GRAPH
-semantics).
+classes are in-band and never errors: `stale_warning` (index drift on four
+axes — base HEAD, code HEAD, graph indexed commit, and filesystem freshness:
+events written after the build move no git HEAD — W-IDX-STALE semantics) and
+per-lineage `unknown` flags (W-IDX-GRAPH semantics).
 """
 
 from __future__ import annotations

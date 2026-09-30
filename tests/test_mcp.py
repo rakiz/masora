@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -877,6 +878,37 @@ def test_search_surfaces_staleness_without_rebuilding(server, code_repo, base):
     assert is_error is False
     assert "W-IDX-STALE" in text.splitlines()[0]
     assert db.stat().st_mtime_ns == before
+
+
+def test_search_freshness_axis_catches_uncommitted_note(server, code_repo, base):
+    """The live-rollout freeze, end-to-end: note after index build → W-IDX-STALE names it."""
+    repo, _head = code_repo
+    server.ready()
+    server.tool("note", note_args(repo, base))
+    first, is_error = server.tool(
+        "search", {"query": "bring", "repo_root": str(repo), "base": str(base)}
+    )
+    assert is_error is False
+    assert "W-IDX-STALE" not in first  # the build postdates the note
+
+    server.tool("note", note_args(repo, base, summary="Second note about bring-up"))
+    # deterministic freshness: push the new note's mtime past built_at + tolerance
+    # (the real gap is milliseconds — the axis fires only ~2 s after the build)
+    db = index_db_path(base, repo)
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        (raw,) = conn.execute("SELECT value FROM meta WHERE key = 'built_at'").fetchone()
+    finally:
+        conn.close()
+    built = datetime.fromisoformat(raw).timestamp()
+    for path in base.rglob("*.claim.md"):
+        os.utime(path, (built + 5, built + 5))
+    text, is_error = server.tool(
+        "search", {"query": "bring", "repo_root": str(repo), "base": str(base)}
+    )
+    assert is_error is False
+    assert "W-IDX-STALE" in text.splitlines()[0]
+    assert "events written since the index build" in text.splitlines()[0]
 
 
 def test_search_invalid_query_is_tool_error(server, code_repo, base):

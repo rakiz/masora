@@ -343,26 +343,53 @@ def _open_index(db: Path) -> sqlite3.Connection:
     return conn
 
 
+FRESHNESS_TOLERANCE_S = 2.0
+
+
 def index_stale(db: Path, base_dir: Path, repo: Path | None = None) -> bool | None:
     """True when the base or code state moved since the build (rebuild trigger, TODO line 46).
 
-    Compares the stored meta (`base_head`, `repo_head`, `graph_commit`) against
-    the current base HEAD, the `--repo` HEAD and the discovered graph store's
-    indexed commit. A comparison with an unknown side (pre-provider index row,
-    no `--repo`, no git HEAD, no discovered graph) is skipped; None only when
+    Four axes: the stored meta (`base_head`, `repo_head`, `graph_commit`)
+    compared against the current base HEAD, the `--repo` HEAD and the
+    discovered graph store's indexed commit, plus filesystem freshness — the
+    newest mtime across the base tree's event files and `deleted.toml` against
+    the build moment (`built_at`, tolerance `FRESHNESS_TOLERANCE_S`), which
+    catches UNCOMMITTED writes that move no HEAD (the live-rollout freeze). A
+    comparison with an unknown side (pre-built_at index row, no `--repo`, no
+    git HEAD, no discovered graph, no event files) is skipped; None only when
     nothing is comparable.
     """
+    return _stale_reason(db, base_dir, repo)[0]
+
+
+def index_stale_reason(db: Path, base_dir: Path, repo: Path | None = None) -> str | None:
+    """The staleness reason sentence, or None when clean or nothing is comparable.
+
+    Same four axes as `index_stale`; the reason flows into the W-IDX-STALE
+    message (`masora search`, MCP `search`) — `masora facts` keeps the bare
+    `stale_warning` boolean (no contract shape change).
+    """
+    return _stale_reason(db, base_dir, repo)[1]
+
+
+def _stale_reason(
+    db: Path, base_dir: Path, repo: Path | None = None
+) -> tuple[bool | None, str | None]:
     stored = _stored_meta(db)
     from .providers import discover_graph_db, open_graph, repo_head
 
-    checks: list[bool] = []
+    checks: list[tuple[bool, str]] = []
     current_base = _base_head(base_dir)
     if stored.get("base_head") and current_base:
-        checks.append(stored["base_head"] != current_base)
+        moved = stored["base_head"] != current_base
+        checks.append((moved, "base or code state moved since the index build (base HEAD changed)"))
     if repo is not None:
         current_repo = repo_head(repo)
         if stored.get("repo_head") and current_repo:
-            checks.append(stored["repo_head"] != current_repo)
+            moved = stored["repo_head"] != current_repo
+            checks.append(
+                (moved, "base or code state moved since the index build (code HEAD changed)")
+            )
         graph_db = discover_graph_db(repo)
         if graph_db is not None:
             handle = open_graph(graph_db)
@@ -370,10 +397,66 @@ def index_stale(db: Path, base_dir: Path, repo: Path | None = None) -> bool | No
                 current_graph = handle.source_commit
                 handle.conn.close()
                 if "graph_commit" in stored and current_graph:
-                    checks.append(stored["graph_commit"] != current_graph)
+                    moved = stored["graph_commit"] != current_graph
+                    checks.append(
+                        (
+                            moved,
+                            "base or code state moved since the index build (the graph store was re-indexed)",
+                        )
+                    )
+    built = _built_at_epoch(stored)
+    if built is not None:
+        newest = _newest_event_mtime(base_dir)
+        if newest is not None:
+            fresh = newest > built + FRESHNESS_TOLERANCE_S
+            checks.append(
+                (
+                    fresh,
+                    "events written since the index build (uncommitted or unsynced writes move no git HEAD)",
+                )
+            )
     if not checks:
+        return None, None
+    stale = any(flag for flag, _ in checks)
+    reason = next((why for flag, why in checks if flag), None)
+    return stale, reason
+
+
+def _built_at_epoch(stored: dict[str, str]) -> float | None:
+    """The recorded build moment as an epoch float; None when absent/unparsable."""
+    raw = stored.get("built_at")
+    if not raw:
         return None
-    return any(checks)
+    try:
+        return datetime.fromisoformat(raw).timestamp()
+    except ValueError:
+        return None
+
+
+def _newest_event_mtime(base_dir: Path) -> float | None:
+    """Newest mtime across the base tree's event files (`*.md`) and `deleted.toml`.
+
+    One walk, no caching — bases are small markdown trees; `.git` is skipped
+    like the checker does. None when the tree holds no comparable file.
+    """
+    newest: float | None = None
+    for path in base_dir.rglob("*.md"):
+        if ".git" in path.parts:
+            continue
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+        newest = mtime if newest is None else max(newest, mtime)
+    tombstone = base_dir / "deleted.toml"
+    if tombstone.is_file():
+        try:
+            mtime = tombstone.stat().st_mtime
+        except OSError:
+            pass
+        else:
+            newest = mtime if newest is None else max(newest, mtime)
+    return newest
 
 
 def _stored_meta(db: Path) -> dict[str, str]:

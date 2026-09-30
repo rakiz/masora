@@ -11,7 +11,13 @@ from .checker import check_base
 from .diagnostics import E_IDX_QUERY, W_IDX_STALE, Diag
 from .facts import run as run_facts
 from .gc import run as run_gc
-from .index import IndexingError, build_index, index_db_path, index_stale, search_index
+from .index import (
+    IndexingError,
+    build_index,
+    index_db_path,
+    index_stale_reason,
+    search_index,
+)
 from .mcp import PROTOCOL_VERSION
 from .mcp import serve as run_mcp
 from .setup import run as run_setup
@@ -108,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
     search = sub.add_parser(
         "search",
         help="run the FTS query over a built index and render status tuples (MASORA_DESIGN.md §6.2)",
-        description="Exit codes: 0 results or no match, 1 errors (no/unusable index), 2 invalid query syntax. Prints W-IDX-STALE when the base HEAD changed since the build.",
+        description="Exit codes: 0 results or no match, 1 errors (no/unusable index), 2 invalid query syntax. Prints W-IDX-STALE when the base or code state moved since the build, or events were written after it.",
     )
     search.add_argument("base_dir", type=Path, help="path to the Masora base directory")
     search.add_argument("query", help="FTS5 MATCH query over summaries and statements")
@@ -274,12 +280,9 @@ def _run_search(base_dir: Path, query: str, repo: Path) -> int:
     except IndexingError as exc:
         print(f"  {exc.diag.render()}")
         return 2 if exc.diag.code == E_IDX_QUERY else 1
-    if index_stale(db, base_dir, repo):
-        stale = Diag(
-            "warning",
-            W_IDX_STALE,
-            "base or code state moved since the last index build — rerun masora index",
-        )
+    stale_reason = index_stale_reason(db, base_dir, repo)
+    if stale_reason is not None:
+        stale = Diag("warning", W_IDX_STALE, f"{stale_reason} — rerun masora index")
         print(f"  {stale.render()}")
     if not hits:
         print("no results")

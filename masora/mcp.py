@@ -33,7 +33,7 @@ from .index import (
     _open_index,
     build_index,
     index_db_path,
-    index_stale,
+    index_stale_reason,
     search_index,
 )
 from .ulid import new_ulid
@@ -522,14 +522,9 @@ def _tool_search(args: dict) -> str:
     except IndexingError as exc:
         raise WriteError(exc.diag) from exc
     lines = []
-    if index_stale(db, base_dir, repo) is True:
-        lines.append(
-            Diag(
-                "warning",
-                W_IDX_STALE,
-                "base or code state moved since the last index build — rerun masora index",
-            ).render()
-        )
+    stale_reason = index_stale_reason(db, base_dir, repo)
+    if stale_reason is not None:
+        lines.append(Diag("warning", W_IDX_STALE, f"{stale_reason} — rerun masora index").render())
     if not hits:
         return "\n".join([*lines, "no results"])
     grouped: dict[str, list] = {}

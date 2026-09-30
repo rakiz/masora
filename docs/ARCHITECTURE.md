@@ -10,9 +10,10 @@ FTS (`index`, searched by `search`).
 ## Event files and layout (§1)
 
 - A base is a git repo: `YYYY-MM/<slug>-<lineage-ULID>/<ULID>.<kind>.md`
-  (the slug is an optional immutable label derived from the founder's summary;
-  hand-made trees may use the bare `<lineage-ULID>/` form), plus optional
-  `base.toml` (identity) and `deleted.toml` (tombstone).
+  (the slug is an optional immutable label derived from the founder's summary
+  by `write.slugify_summary` — case-boundary split, ≤ 30 chars, `lineage`
+  fallback; hand-made trees may use the bare `<lineage-ULID>/` form), plus
+  optional `base.toml` (identity) and `deleted.toml` (tombstone).
 - The layout is a collision-avoidance convention only — validation is
   content-based. `checker.py` globs `**/*.md` (skipping `.git`); moving files
   changes nothing. One lineage, one directory: the write path
@@ -219,8 +220,8 @@ keep working. Sequencing:
 every lineage into its canonical single home `YYYY-MM/<slug>-<lineage>` —
 the directory holding the founder file (`<lineage>.claim.md`), renamed to
 `<slug>-<lineage>` when it is still the bare `<lineage>` form (the slug is
-`write.lineage_slug(founder summary)`; a summary that yields no slug keeps
-the bare form), while a directory that already carries a slug keeps it
+`write.slugify_summary(founder summary)` — never empty), while a directory
+that already carries a slug keeps it
 verbatim — the slug is an immutable label. Every surviving file of the
 lineage living in another month bucket (the pre-`event_relpath` write rule)
 moves into that home and the vacated directories are pruned; the fold-proof

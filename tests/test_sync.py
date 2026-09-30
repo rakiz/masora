@@ -689,7 +689,7 @@ def test_sync_pr_body_lines_read_as_changelog(repo, fake_gh, github_remote):
     create = gh_calls(fake_gh)[1]
     body = create["stdin"]
     assert '- one-line-summary: "One line summary" — llm' in body
-    assert '- second-claim-about: "Second claim about locking" — llm' in body
+    assert '- second-claim-about-locking: "Second claim about locking" — llm' in body
     assert '- verified "One line summary" — by llm — 1 evidence item' in body
     assert '- doubted "One line summary" — I ran the case X=0 and it held. — by human' in body
     assert '- refuted "One line summary" — Replay says otherwise. — by human' in body

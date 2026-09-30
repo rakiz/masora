@@ -309,7 +309,7 @@ def test_note_happy_path_writes_canonical_event(server, code_repo, base):
     assert uid == lineage
     rel = lines[0].removeprefix("wrote ")
     assert rel == (
-        f"{datetime.now(UTC).strftime('%Y-%m')}/bring-up-order-start-{uid}/{uid}.claim.md"
+        f"{datetime.now(UTC).strftime('%Y-%m')}/bring-up-order-start-before-{uid}/{uid}.claim.md"
     )
     path = base / rel
     assert path.is_file()

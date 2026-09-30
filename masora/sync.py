@@ -649,9 +649,9 @@ def _reason_text(event: EventFile) -> str:
 def _lineage_label(event: EventFile, events: dict[str, EventFile]) -> str:
     founder = events.get(event.lineage or "")
     if founder is not None and founder.id == founder.lineage and founder.summary:
-        from .write import lineage_slug
+        from .write import slugify_summary
 
-        slug = lineage_slug(founder.summary)
+        slug = slugify_summary(founder.summary)
         if slug:
             return slug
     return event.lineage or event.id

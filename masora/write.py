@@ -17,7 +17,6 @@ import json
 import re
 import subprocess
 import tomllib
-import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
@@ -268,22 +267,25 @@ def render_event(data: dict) -> str:
     return f"---\n{emit_event(data)}\n---\n"
 
 
-def lineage_slug(summary: str) -> str:
-    """Deterministic directory slug of a summary: lowercase ASCII, [a-z0-9-],
-    at most 24 characters, trimmed at word boundaries; "" when nothing
-    survives (the caller then uses the bare lineage ULID).
+SLUG_MAXLEN = 30
+
+
+def slugify_summary(summary: str) -> str:
+    """Deterministic directory slug of a summary: camelCase and acronym runs
+    split at case boundaries, non-alphanumeric runs collapsed to `-`,
+    lowercased, the leading article stripped, cut at the word boundary under
+    SLUG_MAXLEN; a summary with no alphanumeric content falls back to
+    "lineage". The caller appends `-{ULID}` — the function never handles
+    collisions.
     """
-    text = unicodedata.normalize("NFKD", summary).encode("ascii", "ignore").decode("ascii")
-    words = re.findall(r"[a-z0-9]+", text.lower())
-    slug = ""
-    for word in words:
-        candidate = word if not slug else f"{slug}-{word}"
-        if len(candidate) > 24:
-            break
-        slug = candidate
-    if not slug and words:
-        slug = words[0][:24]
-    return slug
+    s = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "-", summary)
+    s = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", "-", s)
+    s = re.sub(r"[^a-zA-Z0-9]+", "-", s).lower().strip("-")
+    s = re.sub(r"^(a|an|the)-", "", s)
+    if len(s) > SLUG_MAXLEN:
+        cut = s[:SLUG_MAXLEN]
+        s = cut[: cut.rfind("-")] if "-" in cut else cut
+    return s.strip("-") or "lineage"
 
 
 def _lineage_home(base_dir: Path, lineage: str) -> Path | None:
@@ -321,7 +323,7 @@ def event_relpath(data: dict, base_dir: Path) -> str:
         prefix = home.relative_to(base_dir).as_posix()
         return f"{prefix}/{data['id']}.{data['kind']}.md"
     month = datetime.now(UTC).strftime("%Y-%m")
-    slug = lineage_slug(data["summary"]) if data["id"] == lineage else ""
+    slug = slugify_summary(data["summary"]) if data["id"] == lineage else ""
     directory = f"{slug}-{lineage}" if slug else lineage
     return f"{month}/{directory}/{data['id']}.{data['kind']}.md"
 

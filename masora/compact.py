@@ -34,7 +34,7 @@ from .gc import _prune_empty_dirs
 from .schema import EventRecord
 from .sync import _optional_rev, _render_deleted_events, git_env
 from .ulid import is_ulid
-from .write import lineage_slug
+from .write import slugify_summary
 
 PLAN_EXIT = 3
 ACTIVITY_KINDS = frozenset({"refute", "unrefute", "undoubt"})
@@ -344,7 +344,7 @@ def _rehome_plan(lineage: str, survivors: list[EventRecord]) -> RehomePlan | Non
     if founder is None:
         return None
     home = Path(founder.path).parent
-    slug = lineage_slug(founder.summary or "")
+    slug = slugify_summary(founder.summary or "")
     name = f"{slug}-{lineage}" if home.name == lineage and slug else home.name
     target = home.with_name(name)
     by_dir: dict[str, list[str]] = {}

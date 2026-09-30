@@ -6,6 +6,12 @@
       the current state only (release-notes style); the history of how the
       project got there lives between released versions. -->
 
+## 0.2.2 — 2026-09-30
+
+### Changed
+
+- **Directory slugs derive from `slugify_summary`** (`write.slugify_summary`, one shared function for the lineage-home creation, `compact --rehome`'s bare-home derivation and sync's PR display): camelCase and acronym runs split at case boundaries (`$changeStreamSplitLargeEvent` → `change-stream-split-large…`, `XMLParser` → `xml-parser`, `honorMaxTimeMSDuringBatch` → `honor-max-time-ms-during-batch`), non-alphanumeric runs collapsed to `-`, lowercased, the leading article (`a`/`an`/`the`) stripped, cut at the word boundary under 30 characters (single tokens hard-cut), and a summary with no alphanumeric content falls back to `lineage` (the caller appends `-{ULID}`; the function never handles collisions). Existing directories keep their slugs (the label is immutable — `--rehome` derives only bare `<ULID>` homes and keeps an existing slug verbatim), event-file format and ULIDs are untouched and `check` stays path-indifferent. (`masora/write.py`, `masora/compact.py`, `masora/sync.py`, `tests/test_write.py`, `tests/test_mcp.py`, `tests/test_sync.py`, FORMAT.md §1, docs/ARCHITECTURE.md.)
+
 ## 0.2.1 — 2026-09-30
 
 ### Fixed

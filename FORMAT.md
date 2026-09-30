@@ -30,9 +30,12 @@ doc gets amended.
   later event of the lineage joins it: an extension is looked up in the tree
   by the lineage-ULID suffix and written into the existing directory, never
   re-bucketed by the current month.
-- The slug is a deterministic lowercase form of the founder claim's summary
-  (ASCII, `[a-z0-9-]`, at most 24 characters, trimmed at word boundaries). It
-  is an immutable historical label: fixed once created, never an identity,
+- The slug is a deterministic form of the founder claim's summary (`[a-z0-9-]`,
+  at most 30 characters): camelCase and acronym runs split at case boundaries,
+  non-alphanumeric runs collapsed to `-`, lowercased, the leading article
+  (`a`/`an`/`the`) stripped, and cut at the word boundary; a summary with no
+  alphanumeric content falls back to `lineage`.
+  It is an immutable historical label: fixed once created, never an identity,
   never renamed when the summary changes, and optional for hand-made trees —
   the bare `<lineage-ULID>/` form is equally valid, and `check` never relies
   on the slug. Legacy layouts (bare lineage directories, lineages split over

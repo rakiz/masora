@@ -16,34 +16,56 @@ from helpers import (
 )
 
 from masora.checker import check_base
-from masora.write import lineage_slug, write_and_check
+from masora.write import slugify_summary, write_and_check
 
 MONTH = datetime.now(UTC).strftime("%Y-%m")
 
 
 def test_slug_is_deterministic():
-    assert lineage_slug("One line summary") == "one-line-summary"
-    assert lineage_slug("one line SUMMARY") == "one-line-summary"
-    assert lineage_slug("  One   line  summary ") == "one-line-summary"
+    assert slugify_summary("One line summary") == "one-line-summary"
+    assert slugify_summary("one line SUMMARY") == "one-line-summary"
+    assert slugify_summary("  One   line  summary ") == "one-line-summary"
 
 
-def test_slug_folds_unicode_to_ascii():
-    assert lineage_slug("Résumé — ça va") == "resume-ca-va"
+def test_slug_splits_camel_case():
+    assert slugify_summary("$changeStreamSplitLargeEvent") == "change-stream-split-large"
+    assert slugify_summary("changeStreamSplitLargeEvent").startswith("change-stream-split")
 
 
-def test_slug_of_empty_or_punctuation_only_summary_is_empty():
-    assert lineage_slug("") == ""
-    assert lineage_slug("!!! — ??? ...") == ""
+def test_slug_splits_acronym_runs():
+    assert slugify_summary("XMLParser") == "xml-parser"
+    assert slugify_summary("honorMaxTimeMSDuringBatch") == "honor-max-time-ms-during-batch"
+
+
+def test_slug_strips_the_leading_article():
+    assert slugify_summary("The resume token test") == "resume-token-test"
+    assert slugify_summary("A resume token") == "resume-token"
+    assert slugify_summary("An unanchored claim") == "unanchored-claim"
 
 
 def test_slug_trims_long_summaries_at_word_boundaries():
-    slug = lineage_slug("Resume token invalidated by a shard key change")
-    assert slug == "resume-token-invalidated"
-    assert len(slug) <= 24
+    slug = slugify_summary("Resume token invalidated by a shard key change")
+    assert slug == "resume-token-invalidated-by-a"
+    assert len(slug) <= 30
 
 
 def test_slug_hard_cuts_a_single_word_longer_than_the_budget():
-    assert lineage_slug("a" * 40) == "a" * 24
+    assert slugify_summary("a" * 40) == "a" * 30
+    assert len(slugify_summary("a" * 40)) <= 30
+
+
+def test_slug_of_no_alphanumeric_summary_falls_back_to_lineage():
+    assert slugify_summary("!!! — ??? ...") == "lineage"
+    assert slugify_summary("") == "lineage"
+
+
+def test_slug_keeps_digits():
+    assert slugify_summary("0x82 and 16MiB limits") == "0x82-and-16-mi-b-limits"
+
+
+def test_slug_of_already_conformant_string_is_unchanged():
+    assert slugify_summary("resume-token-invalidated") == "resume-token-invalidated"
+    assert slugify_summary("one-line-summary") == "one-line-summary"
 
 
 def test_founder_write_creates_slug_named_directory_in_current_month(base):
@@ -53,10 +75,10 @@ def test_founder_write_creates_slug_named_directory_in_current_month(base):
     assert (base / rel).is_file()
 
 
-def test_founder_with_slugless_summary_writes_bare_lineage_directory(base):
+def test_founder_with_slugless_summary_derives_the_lineage_fallback_directory(base):
     rel, _warnings = write_and_check(base, make_claim(ULID_L1, summary="!!!"))
 
-    assert rel == f"{MONTH}/{ULID_L1}/{ULID_L1}.claim.md"
+    assert rel == f"{MONTH}/lineage-{ULID_L1}/{ULID_L1}.claim.md"
 
 
 def test_extension_joins_the_existing_lineage_directory(base):

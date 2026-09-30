@@ -8,6 +8,27 @@
 
 ## Current phase
 
+**Done:** slug derivation replaced (TODO.md, ticked) — the owner-validated
+`write.slugify_summary` (byte-identical on the real 92-lineage base already
+migrated on disk) supersedes and removes the uncommitted stop-word-skip
+`lineage_slug`: camelCase and acronym runs split at case boundaries
+(`changeStreamSplitLargeEvent` → `change-stream-split-large…`, `XMLParser` →
+`xml-parser`), non-alphanumeric runs collapsed, lowercased, leading article
+stripped, word-boundary cut under `SLUG_MAXLEN` 30 (single tokens hard-cut),
+no-alphanumeric → "lineage". One shared function, three call sites:
+`write.event_relpath` (founder home — a slugless summary now derives
+`lineage-<ULID>` instead of the bare form), `compact._rehome_plan` (bare
+homes derive, existing slugs kept verbatim — unchanged rule), `sync.
+_lineage_label` (PR display). Event-file format, ULIDs and the path-
+indifferent checker untouched; the caller appends `-{ULID}`, no collision
+handling. Tests: 8 derivation tests in tests/test_write.py (owner's list;
+the stop-word + unicode-fold tests superseded and removed), test_mcp.py +
+test_sync.py expected strings adapted to the 30-char budget (one word packs
+more). FORMAT.md §1 + docs/ARCHITECTURE.md reworded; CHANGELOG [Unreleased]
+Changed bullet replaces the never-shipped stop-word entry. 524 tests green;
+ruff clean. Next task: the first rollout (TODO.md — the real base on the
+author's `employees/` dir + the Confluence install page).
+
 **Done:** v0.2.1 bug fix (live-rollout report, sub-directory base) —
 `masora status` computed the indexes directory from the CONFIG KEY
 (`config.indexes_root() / config.slug(name)`) while `index.index_db_path`

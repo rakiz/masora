@@ -35,7 +35,9 @@ doc gets amended.
   is an immutable historical label: fixed once created, never an identity,
   never renamed when the summary changes, and optional for hand-made trees —
   the bare `<lineage-ULID>/` form is equally valid, and `check` never relies
-  on the slug.
+  on the slug. Legacy layouts (bare lineage directories, lineages split over
+  several month buckets) are migrated to this canonical form by
+  `masora compact --rehome`.
 - File name: `<ULID>.<kind>.md` (suffix style), and the filename ULID **must
   equal** the frontmatter `id`. Kinds: `claim`, `verify`, `doubt`, `undoubt`,
   `refute`, `unrefute`. Suffix style sorts chronologically by ULID in directory

@@ -52,9 +52,10 @@ uv tool install .        # or: pip install .
 masora init <base-dir> --name "<team>" [--code-remote <url>]...  # create a NEW base locally: git repo + base.toml + first commit
 masora setup --base <url>[#<path>]  # clone a base + write ~/.config/masora/config.toml from its base.toml
 masora check <base-dir>  # validate a base (exit 0/1/2)
-masora compact <base-dir>  # drop pure history per lineage, fold-verified (plan exits 3; --yes executes)
+masora compact <base-dir>  # drop pure history per lineage, fold-verified; --rehome migrates old directory layouts (plan exits 3; --yes executes)
 masora sync              # publish pending events: one branch + one PR
 masora mcp               # run the MCP stdio server — register it in your MCP client's config
+masora status            # one screen: tool versions, your bases, index drift, update check
 ```
 
 `sync` variants:
@@ -64,6 +65,22 @@ masora mcp               # run the MCP stdio server — register it in your MCP 
 - `masora sync --drop` — discard the pending set: close the PR (if `gh` is
   available), delete the `masora/pending` branch locally and remotely; the
   local `.md` files of dropped events are left in place for you to remove.
+
+## Status
+
+`masora status [--force]` prints one readable screen and always exits 0 — it
+never fails hard: an offline release check is a quiet one-liner, a missing
+clone or unreadable config is reported as-is. It shows the installed tool
+version (with the supported `format_version`, the facts `contract_version`
+and the index `schema_version`), every configured base from your config
+(clone path with exists/missing, the clone's `origin` remote, event and
+tombstone counts, and per index database the repo it was built for plus the
+staleness reason, or `no index`), and the update check: the latest release
+from the GitHub API compared numerically against the installed version —
+`up to date` or `update available: vX.Y.Z` with the install hint. The check
+is cached in `~/.local/share/masora/update-check.json` (or
+`$MASORA_HOME/update-check.json`) for 24 hours; `--force` refetches now.
+`masora --version` prints just the version.
 
 A base is a git repo whose `main` branch holds event files laid out per
 FORMAT.md §1, plus a `base.toml` (`name` + the `code_remotes` it serves) at

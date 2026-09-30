@@ -40,10 +40,16 @@ L2_REL = "2026-09/y/01J8Z3K0000000000000000006.claim.md"
 ULID_R2 = "01J8Z3K0000000000000000009"
 ULID_C3 = "01J8Z3K000000000000000000A"
 ULID_R3 = "01J8Z3K000000000000000000B"
+ULID_D2 = "01J8Z3K000000000000000000C"
+ULID_U2 = "01J8Z3K000000000000000000D"
 C3_REL = "2026-09/x/01J8Z3K000000000000000000A.claim.md"
 R1_REL = "2026-09/x/01J8Z3K0000000000000000004.refute.md"
 R2_REL = "2026-09/x/01J8Z3K0000000000000000009.refute.md"
 R3_REL = "2026-09/x/01J8Z3K000000000000000000B.refute.md"
+BARE_HOME = f"2026-09/{ULID_L1}"
+CANON_HOME = f"2026-09/one-line-summary-{ULID_L1}"
+NEXT_MONTH = f"2026-10/{ULID_L1}"
+VERIFY2_REL = f"{NEXT_MONTH}/01J8Z3K0000000000000000005.verify.md"
 
 
 def git(repo: Path, *args: str) -> str:
@@ -447,3 +453,186 @@ def test_compact_over_every_fixture_tree(tmp_path):
         before_env = {env["lineage"]: _status_tuple(env) for env in pre.envelopes}
         for env in post.envelopes:
             assert _status_tuple(env) == before_env[env["lineage"]], fixture.name
+
+
+def test_rehome_plan_prints_and_writes_nothing(repo, capsys):
+    base, _origin = repo
+    write_event(base, f"{BARE_HOME}/{ULID_L1}.claim.md", make_claim(ULID_L1))
+    write_event(base, f"{BARE_HOME}/{ULID_V1A}.verify.md", make_verify(ULID_V1A, ULID_L1, ULID_L1))
+    write_event(base, VERIFY2_REL, make_verify(ULID_V2A, ULID_L1, ULID_L1))
+    before = tree_bytes(base)
+
+    assert main(["compact", str(base), "--rehome"]) == 3
+    out = capsys.readouterr().out
+    assert f"lineage {ULID_L1}: home {CANON_HOME}" in out
+    assert f"move 2 file(s): {BARE_HOME} -> {CANON_HOME}" in out
+    assert f"move 1 file(s): {NEXT_MONTH} -> {CANON_HOME}" in out
+    assert "plan only: nothing written" in out
+    assert tree_bytes(base) == before
+    assert not (base / "deleted.toml").exists()
+
+
+def test_rehome_renames_bare_ulid_dir_to_slug_form(repo, capsys):
+    base, _origin = repo
+    write_event(base, f"{BARE_HOME}/{ULID_L1}.claim.md", make_claim(ULID_L1))
+    write_event(base, f"{BARE_HOME}/{ULID_V1A}.verify.md", make_verify(ULID_V1A, ULID_L1, ULID_L1))
+    before = tree_bytes(base)
+
+    code = compact_run(base, yes=True, rehome=True)
+
+    assert code == 0
+    assert "rehomed: 2 event file(s) moved into canonical home(s)" in capsys.readouterr().out
+    after = tree_bytes(base)
+    assert not (base / BARE_HOME).exists()
+    for rel, content in before.items():
+        moved = rel.replace(BARE_HOME, CANON_HOME)
+        assert after[moved] == content, moved
+
+
+def test_rehome_merges_split_months_into_the_founder_home(repo, capsys):
+    base, _origin = repo
+    write_event(base, f"{BARE_HOME}/{ULID_L1}.claim.md", make_claim(ULID_L1))
+    write_event(base, f"{BARE_HOME}/{ULID_V1A}.verify.md", make_verify(ULID_V1A, ULID_L1, ULID_L1))
+    write_event(base, VERIFY2_REL, make_verify(ULID_V2A, ULID_L1, ULID_L1))
+    drifted_bytes = (base / VERIFY2_REL).read_bytes()
+
+    code = compact_run(base, yes=True, rehome=True)
+
+    assert code == 0
+    assert not (base / NEXT_MONTH).exists()
+    assert not (base / "2026-10").exists()
+    assert (base / CANON_HOME / f"{ULID_L1}.claim.md").is_file()
+    assert (base / CANON_HOME / f"{ULID_V1A}.verify.md").is_file()
+    assert (base / CANON_HOME / f"{ULID_V2A}.verify.md").read_bytes() == drifted_bytes
+    assert check_base(base).errors == []
+    assert "compacted: " not in capsys.readouterr().out
+
+
+def test_rehome_already_canonical_is_a_no_op(repo, capsys):
+    base, _origin = repo
+    write_event(base, f"{CANON_HOME}/{ULID_L1}.claim.md", make_claim(ULID_L1))
+    write_event(base, f"{CANON_HOME}/{ULID_V1A}.verify.md", make_verify(ULID_V1A, ULID_L1, ULID_L1))
+    before = tree_bytes(base)
+
+    code = compact_run(base, yes=True, rehome=True)
+
+    assert code == 0
+    assert (
+        "nothing to rehome: every lineage is at its minimal witness set in its canonical home"
+        in capsys.readouterr().out
+    )
+    assert tree_bytes(base) == before
+    assert not (base / "deleted.toml").exists()
+
+
+def test_rehome_twice_is_idempotent(repo, capsys):
+    base, _origin = repo
+    write_event(base, f"{BARE_HOME}/{ULID_L1}.claim.md", make_claim(ULID_L1))
+    write_event(base, f"{BARE_HOME}/{ULID_V1A}.verify.md", make_verify(ULID_V1A, ULID_L1, ULID_L1))
+    write_event(base, VERIFY2_REL, make_verify(ULID_V2A, ULID_L1, ULID_L1))
+    assert compact_run(base, yes=True, rehome=True) == 0
+    capsys.readouterr()
+    after_first = tree_bytes(base)
+
+    code = compact_run(base, yes=True, rehome=True)
+
+    assert code == 0
+    assert "nothing to rehome" in capsys.readouterr().out
+    assert tree_bytes(base) == after_first
+
+
+def test_rehome_and_compact_combined(repo, capsys):
+    base, _origin = repo
+    write_event(base, f"{BARE_HOME}/{ULID_L1}.claim.md", make_claim(ULID_L1))
+    write_event(base, f"{BARE_HOME}/{ULID_V1A}.verify.md", make_verify(ULID_V1A, ULID_L1, ULID_L1))
+    write_event(base, f"{BARE_HOME}/{ULID_D1A}.doubt.md", make_doubt(ULID_D1A, ULID_L1, ULID_V1A))
+    write_event(
+        base,
+        f"{BARE_HOME}/{ULID_U1A}.undoubt.md",
+        make_doubt(ULID_U1A, ULID_L1, ULID_D1A, kind="undoubt"),
+    )
+    seed(base)
+    write_event(
+        base,
+        f"{NEXT_MONTH}/{ULID_V2A}.claim.md",
+        make_claim(ULID_V2A, lineage=ULID_L1, reason="v2 after code change"),
+    )
+    write_event(
+        base,
+        f"{NEXT_MONTH}/{ULID_R2}.refute.md",
+        make_doubt(ULID_R2, ULID_L1, ULID_V2A, kind="refute"),
+    )
+    write_event(base, f"{NEXT_MONTH}/{ULID_D2}.doubt.md", make_doubt(ULID_D2, ULID_L1, ULID_V1A))
+    write_event(
+        base,
+        f"{NEXT_MONTH}/{ULID_U2}.undoubt.md",
+        make_doubt(ULID_U2, ULID_L1, ULID_D2, kind="undoubt"),
+    )
+    tombstone_before = (base / "deleted.toml").exists()
+
+    code = compact_run(base, yes=True, rehome=True)
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert f"drop {BARE_HOME}/{ULID_D1A}.doubt.md (doubt)" in out
+    assert f"drop {NEXT_MONTH}/{ULID_D2}.doubt.md (doubt)" in out
+    assert f"lineage {ULID_L1}: home {CANON_HOME}" in out
+    assert f"move 2 file(s): {BARE_HOME} -> {CANON_HOME}" in out
+    assert f"move 2 file(s): {NEXT_MONTH} -> {CANON_HOME}" in out
+    assert "compacted: 4 event file(s) removed across 1 lineage(s), 2 tombstoned" in out
+    assert not tombstone_before
+    survivors = (
+        f"{ULID_L1}.claim.md",
+        f"{ULID_V1A}.verify.md",
+        f"{ULID_V2A}.claim.md",
+        f"{ULID_R2}.refute.md",
+    )
+    for name in survivors:
+        assert (base / CANON_HOME / name).is_file(), name
+    dropped = (
+        f"{ULID_D1A}.doubt.md",
+        f"{ULID_U1A}.undoubt.md",
+        f"{ULID_D2}.doubt.md",
+        f"{ULID_U2}.undoubt.md",
+    )
+    for name in dropped:
+        assert not (base / CANON_HOME / name).exists(), name
+    assert not (base / BARE_HOME).exists() and not (base / NEXT_MONTH).exists()
+    assert (base / "deleted.toml").read_text(encoding="utf-8") == deleted_events_tombstone(
+        ULID_L1, [ULID_D1A, ULID_U1A]
+    )
+    assert check_base(base).errors == []
+
+
+def test_rehome_returns_drifted_extension_to_the_founder_month(repo, capsys):
+    base, _origin = repo
+    write_event(base, f"{CANON_HOME}/{ULID_L1}.claim.md", make_claim(ULID_L1))
+    write_event(base, f"{CANON_HOME}/{ULID_V1A}.verify.md", make_verify(ULID_V1A, ULID_L1, ULID_L1))
+    drifted_rel = VERIFY2_REL
+    write_event(base, drifted_rel, make_verify(ULID_V2A, ULID_L1, ULID_L1))
+    drifted_bytes = (base / drifted_rel).read_bytes()
+
+    code = compact_run(base, yes=True, rehome=True)
+
+    assert code == 0
+    assert not (base / NEXT_MONTH).exists()
+    assert not (base / "2026-10").exists()
+    assert (base / CANON_HOME / f"{ULID_V2A}.verify.md").read_bytes() == drifted_bytes
+    assert (base / CANON_HOME / f"{ULID_V1A}.verify.md").is_file()
+    assert (base / CANON_HOME / f"{ULID_L1}.claim.md").is_file()
+    assert check_base(base).errors == []
+
+
+def test_rehome_keeps_check_green(repo, capsys):
+    base, _origin = repo
+    write_event(base, f"{BARE_HOME}/{ULID_L1}.claim.md", make_claim(ULID_L1))
+    write_event(base, f"{BARE_HOME}/{ULID_V1A}.verify.md", make_verify(ULID_V1A, ULID_L1, ULID_L1))
+    write_event(base, VERIFY2_REL, make_verify(ULID_V2A, ULID_L1, ULID_L1))
+    assert check_base(base).errors == []
+
+    code = compact_run(base, yes=True, rehome=True)
+
+    assert code == 0
+    assert check_base(base).errors == []
+    assert check_base(base).warnings == []
+    assert not (base / "deleted.toml").exists()

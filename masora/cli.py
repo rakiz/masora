@@ -23,14 +23,17 @@ from .init import run as run_init
 from .mcp import PROTOCOL_VERSION
 from .mcp import serve as run_mcp
 from .setup import run as run_setup
+from .status import installed_version
+from .status import run as run_status
 from .sync import run as run_sync
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="masora",
-        description="Masora: git-backed knowledge base of anchored claims.",
+        description="Masora: git-backed knowledge base of anchored claims. Phase 1 provides `check`, `sync`, `setup` and `gc`.",
     )
+    parser.add_argument("--version", action="version", version=f"masora {installed_version()}")
     sub = parser.add_subparsers(dest="command", required=True)
     check = sub.add_parser(
         "check",
@@ -142,13 +145,23 @@ def main(argv: list[str] | None = None) -> int:
         " ULIDs and bytes. Dropped events known to the shared repo (present on"
         " origin/main or the sync merge-base) are tombstoned per-event in the"
         " [[deleted_events]] table of deleted.toml; unpublished events are dropped"
-        " silently. Runs masora check before and after the mutation.",
+        " silently. Runs masora check before and after the mutation. --rehome"
+        " additionally moves the surviving files into each lineage's canonical single"
+        " home YYYY-MM/<slug>-<lineage> (FORMAT.md §1), merging split month buckets —"
+        " a pure directory migration, no tombstones for moved files.",
     )
     compact.add_argument("base_dir", type=Path, help="path to the Masora base directory")
     compact.add_argument(
         "--yes",
         action="store_true",
         help="execute the compaction; without it compact prints the plan only and exits 3",
+    )
+    compact.add_argument(
+        "--rehome",
+        action="store_true",
+        help="migrate the layout: move every surviving file into its lineage's canonical"
+        " single home (the founder's month, <slug>-<lineage>), merging split month"
+        " buckets; moved files keep their ULIDs and bytes",
     )
     index = sub.add_parser(
         "index",
@@ -218,6 +231,20 @@ def main(argv: list[str] | None = None) -> int:
         help="exact SCIP symbol string; only lineages whose displayed version (or newest version"
         " for resolution none) anchors on it are returned",
     )
+    status = sub.add_parser(
+        "status",
+        help="one readable screen: tool versions, configured bases, index drift, release check",
+        description="Exit 0 — status never fails hard: an offline or failed release check is a"
+        " one-line note, a missing clone or unreadable config is reported as-is. The release"
+        " check hits the GitHub releases API (2 s timeout), is cached in"
+        " MASORA_HOME/update-check.json for 24 hours and compares the semver triplet"
+        " numerically; --force refetches now.",
+    )
+    status.add_argument(
+        "--force",
+        action="store_true",
+        help="refetch the release check now, bypassing the 24 h cache",
+    )
     args = parser.parse_args(argv)
 
     if args.command == "check":
@@ -239,7 +266,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "gc":
         return run_gc(args.base_dir, args.lineage, yes=args.yes)
     if args.command == "compact":
-        return run_compact(args.base_dir, yes=args.yes)
+        return run_compact(args.base_dir, yes=args.yes, rehome=args.rehome)
     if args.command == "index":
         return _run_index(args.base_dir, args.repo, args.cppgraph, args.no_cppgraph)
     if args.command == "search":
@@ -248,6 +275,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_mcp()
     if args.command == "facts":
         return run_facts(args.repo, symbol=args.symbol)
+    if args.command == "status":
+        return run_status(force=args.force)
     return 2
 
 

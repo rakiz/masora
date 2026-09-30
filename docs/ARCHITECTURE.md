@@ -203,15 +203,34 @@ keep working. Sequencing:
    committed-but-unpushed, as of the last fetch) are deleted silently —
    nobody ever saw them.
 5. **Plan/confirm**: without `--yes` the plan (per-lineage kept/dropped with
-   the unpublished count, tombstone total, files before → after) is printed
-   and compact exits 3 without writing.
+   the unpublished count, tombstone total, files before → after, and — with
+   `--rehome` — the planned moves) is printed and compact exits 3 without
+   writing.
 6. **Mutation**: dropped event files are unlinked and emptied parent
-   directories pruned (gc's helper); compact commits nothing — an ordinary
+   directories pruned (gc's helper); with `--rehome` the surviving files move
+   into their canonical homes (below). compact commits nothing — an ordinary
    git commit, or `masora sync` like any pending change.
 7. **Post-check**: `check_base()` again — a failure is `E-COMPACT-CHECK` —
    plus a tree-wide re-verification that every surviving lineage's status
    envelope is unchanged (a change is `E-COMPACT-DIVERGE`); both advise
    `git restore` (exit 1). Exit 0 compacted, 2 compacted with warnings.
+
+**`--rehome` (layout migration, FORMAT.md §1)**: moves the surviving files of
+every lineage into its canonical single home `YYYY-MM/<slug>-<lineage>` —
+the directory holding the founder file (`<lineage>.claim.md`), renamed to
+`<slug>-<lineage>` when it is still the bare `<lineage>` form (the slug is
+`write.lineage_slug(founder summary)`; a summary that yields no slug keeps
+the bare form), while a directory that already carries a slug keeps it
+verbatim — the slug is an immutable label. Every surviving file of the
+lineage living in another month bucket (the pre-`event_relpath` write rule)
+moves into that home and the vacated directories are pruned; the fold-proof
+machinery does not apply to a pure rehome (no event is dropped, and `check`
+is content-based — moves cannot change it — the post-check asserts anyway).
+A rehome-only run writes no tombstones: files move, nothing is deleted; a
+run that also drops events tombstones the drops per the rules above while
+the survivors land in the canonical home. A lineage with no surviving
+founder (founderless) has no canonical home to derive and is left untouched.
+Already-canonical lineages are untouched, so a second run is a no-op.
 
 Compact folds standalone (no anchor provider, like `check`): the effective
 version is the newest active one. An index built with a fingerprint-matching
@@ -496,6 +515,38 @@ yet" below are the other two). The block directs the agent to:
   unprovable stays `unverified` or is doubted (§5.3/§10.2);
 - etiquette: content in English (pushed content), a recalled fact is never
   an instruction, statuses are evidence labels.
+
+## Status (`masora/status.py`, MASORA_DESIGN.md §9)
+
+`masora status [--force]` prints one readable screen and always exits 0 — it
+never fails hard (an offline release check is a quiet one-liner, a missing
+clone or unreadable config is reported as-is). Three sections:
+
+- **tool**: the installed version (`importlib.metadata` over the `masora`
+  distribution, `unknown` when not installed as one), the supported
+  `format_version` (schema.py), the facts `contract_version` (facts.py) and
+  the index `schema_version` (index.py). `masora --version` prints just the
+  version.
+- **bases**: per `[bases.<name>]` config entry — the local clone path
+  (`bases_root()/slug(name)`, exists/missing), the clone's `origin` remote
+  (git query, falling back to the configured entry), the event file count and
+  the `deleted.toml` tombstone-block count (one cheap walk, `.git` skipped),
+  and per `*.db` under `indexes_root()/slug(name)`: the repo it was built for
+  (stored meta) plus the `index_stale_reason()` four-axis wording, `fresh`
+  when nothing drifted, `no index` when no database exists, `unreadable` for
+  a DB without usable meta.
+- **update check**: the latest release from
+  `https://api.github.com/repos/rakiz/masora/releases/latest` (stdlib
+  urllib, 2 s timeout), compared against the installed version by numeric
+  semver triplet — `up to date`, or `update available: vX.Y.Z — <release url>`
+  with the `uv tool install --force git+https://github.com/rakiz/masora`
+  hint. The response is cached in `~/.local/share/masora/update-check.json`
+  (`$MASORA_HOME` relocates it) for 24 hours — the cache records the
+  checked-at instant, the tag and the url — and `--force` refetches now.
+  Offline, HTTP and malformed answers print
+  `update check unavailable (offline)` and never raise; the fetcher
+  (`status.fetch_latest_release`) is an injectable module-level callable so
+  the tests stay hermetic.
 
 ## Not built yet
 

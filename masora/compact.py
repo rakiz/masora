@@ -1,5 +1,6 @@
 """`masora compact`: per-lineage compression to the minimal live witness set
-(FORMAT.md §6, §7.10, MASORA_DESIGN.md §6.2).
+(FORMAT.md §6, §7.10, MASORA_DESIGN.md §6.2) plus `--rehome` layout migration
+(FORMAT.md §1).
 
 Every lineage is reduced to the event files still contributing to its current
 §6 fold state; surviving files keep their ULIDs and bytes. The plan carries a
@@ -7,7 +8,10 @@ per-lineage proof — the witness fold must equal the full fold — and any
 diverging lineage refuses the whole run fail-closed (`E-COMPACT-DIVERGE`).
 Dropped events known to the shared repo (present on `origin/main` or the sync
 merge-base) are tombstoned per-event in the `[[deleted_events]]` table of
-`deleted.toml`; unpublished events are dropped silently.
+`deleted.toml`; unpublished events are dropped silently. `--rehome` moves the
+surviving files of every lineage into its canonical single home
+`YYYY-MM/<slug>-<lineage>` (the founder's month) and merges split month
+buckets, renaming directories only — nothing is deleted by rehoming.
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ from .gc import _prune_empty_dirs
 from .schema import EventRecord
 from .sync import _optional_rev, _render_deleted_events, git_env
 from .ulid import is_ulid
+from .write import lineage_slug
 
 PLAN_EXIT = 3
 ACTIVITY_KINDS = frozenset({"refute", "unrefute", "undoubt"})
@@ -45,6 +50,13 @@ class LineagePlan:
 
 
 @dataclass
+class RehomePlan:
+    lineage: str
+    target: str
+    moves: list[tuple[str, list[str]]] = field(default_factory=list)
+
+
+@dataclass
 class CompactPlan:
     lineages: list[LineagePlan]
     tombstone_pairs: set[tuple[str, str]]
@@ -52,10 +64,11 @@ class CompactPlan:
     files_after: int
     diverged: list[Diag]
     warnings: list[Diag]
+    rehomes: list[RehomePlan] = field(default_factory=list)
 
 
-def run(base_dir: Path, yes: bool = False) -> int:
-    print(f"masora compact {base_dir}")
+def run(base_dir: Path, yes: bool = False, rehome: bool = False) -> int:
+    print(f"masora compact {base_dir}" + (" --rehome" if rehome else ""))
     if not base_dir.is_dir():
         print(f"masora compact: base directory does not exist: {base_dir}", file=sys.stderr)
         return 1
@@ -68,16 +81,24 @@ def run(base_dir: Path, yes: bool = False) -> int:
         print(f"FAILED: {len(pre.errors)} error(s) (pre-check) — compact blocked")
         return 1
 
-    plan = _build_plan(base_dir, _known_ids(base_dir))
+    plan = _build_plan(base_dir, _known_ids(base_dir), rehome)
 
-    _print_plan(plan)
+    _print_plan(plan, rehome)
     for diag in plan.diverged:
         print(f"  {diag.render()}")
     if plan.diverged:
         print(f"FAILED: {len(plan.diverged)} error(s) — nothing written")
         return 1
-    if not sum(len(item.dropped) for item in plan.lineages):
-        print("nothing to compact: every lineage is already at its minimal witness set")
+    drops = sum(len(item.dropped) for item in plan.lineages)
+    moves = sum(len(names) for item in plan.rehomes for _src, names in item.moves)
+    if not drops and not moves:
+        if rehome:
+            print(
+                "nothing to rehome: every lineage is at its minimal witness set "
+                "in its canonical home"
+            )
+        else:
+            print("nothing to compact: every lineage is already at its minimal witness set")
         return 0
     if not yes:
         print("plan only: nothing written — re-run with --yes to compact")
@@ -96,6 +117,7 @@ def run(base_dir: Path, yes: bool = False) -> int:
             path.unlink()
             removed += 1
             _prune_empty_dirs(base_dir, path.parent)
+    moved = _execute_rehome(base_dir, plan.rehomes) if rehome else 0
 
     post = check_base(base_dir)
     print(f"post-check: scanned {post.file_count} event file(s), {post.lineage_count} lineage(s)")
@@ -115,10 +137,14 @@ def run(base_dir: Path, yes: bool = False) -> int:
         print("FAILED: 1 error(s) (post-check)")
         return 1
     warnings = len(plan.warnings) + len(post.warnings)
-    print(
-        f"compacted: {removed} event file(s) removed across {compacted} lineage(s), "
-        f"{len(plan.tombstone_pairs)} tombstoned, {plan.files_before} -> {plan.files_after} files"
-    )
+    if drops:
+        print(
+            f"compacted: {removed} event file(s) removed across {compacted} lineage(s), "
+            f"{len(plan.tombstone_pairs)} tombstoned, {moved} file(s) moved, "
+            f"{plan.files_before} -> {plan.files_after} files"
+        )
+    else:
+        print(f"rehomed: {moved} event file(s) moved into canonical home(s)")
     if warnings:
         print(f"compacted with warnings: {warnings} warning(s)")
         return 2
@@ -216,7 +242,7 @@ def observable_state(fold: LineageFold, activity: dict[str, bool], versions: lis
     )
 
 
-def _build_plan(base_dir: Path, known: set[str] | None) -> CompactPlan:
+def _build_plan(base_dir: Path, known: set[str] | None, rehome: bool = False) -> CompactPlan:
     records: list[EventRecord] = []
     for path in discover_event_files(base_dir):
         rel = str(path.relative_to(base_dir))
@@ -230,6 +256,7 @@ def _build_plan(base_dir: Path, known: set[str] | None) -> CompactPlan:
     diverged: list[Diag] = []
     warnings: list[Diag] = []
     tombstone_pairs: set[tuple[str, str]] = set()
+    rehomes: list[RehomePlan] = []
     for lineage in sorted(by_lineage):
         item, diverge = _plan_lineage(lineage, by_lineage[lineage], known)
         plans.append(item)
@@ -238,6 +265,10 @@ def _build_plan(base_dir: Path, known: set[str] | None) -> CompactPlan:
         for record in item.dropped:
             if known is not None and record.id in known:
                 tombstone_pairs.add((lineage, record.id))
+        if rehome:
+            rehome_plan = _rehome_plan(item.lineage, item.kept)
+            if rehome_plan is not None:
+                rehomes.append(rehome_plan)
     files_before = len(records)
     files_after = files_before - sum(len(item.dropped) for item in plans)
     return CompactPlan(
@@ -247,6 +278,7 @@ def _build_plan(base_dir: Path, known: set[str] | None) -> CompactPlan:
         files_after=files_after,
         diverged=diverged,
         warnings=warnings,
+        rehomes=rehomes,
     )
 
 
@@ -293,6 +325,55 @@ def _plan_lineage(
         ),
         diverged,
     )
+
+
+def _rehome_plan(lineage: str, survivors: list[EventRecord]) -> RehomePlan | None:
+    """The canonical-home migration of one lineage's surviving files (FORMAT.md §1).
+
+    The canonical home sits where the founder file lives, renamed
+    `<slug>-<lineage>` when the directory is the bare `<lineage>` form (the
+    slug is the founder summary's deterministic form, skipped when it yields
+    nothing); a directory that already carries a slug keeps it verbatim. Every
+    surviving file outside that home moves into it. A founderless lineage has
+    no canonical home to derive — it is left untouched.
+    """
+    founder = next(
+        (record for record in survivors if record.kind == "claim" and record.id == lineage),
+        None,
+    )
+    if founder is None:
+        return None
+    home = Path(founder.path).parent
+    slug = lineage_slug(founder.summary or "")
+    name = f"{slug}-{lineage}" if home.name == lineage and slug else home.name
+    target = home.with_name(name)
+    by_dir: dict[str, list[str]] = {}
+    for record in survivors:
+        parent = Path(record.path).parent
+        if parent == target:
+            continue
+        by_dir.setdefault(parent.as_posix(), []).append(Path(record.path).name)
+    if not by_dir:
+        return None
+    return RehomePlan(
+        lineage=lineage,
+        target=target.as_posix(),
+        moves=sorted(by_dir.items()),
+    )
+
+
+def _execute_rehome(base_dir: Path, rehomes: list[RehomePlan]) -> int:
+    moved = 0
+    for item in rehomes:
+        target = base_dir / item.target
+        target.mkdir(parents=True, exist_ok=True)
+        for src, names in item.moves:
+            source = base_dir / src
+            for name in names:
+                (source / name).rename(target / name)
+                moved += 1
+            _prune_empty_dirs(base_dir, source)
+    return moved
 
 
 def _to_event(record: EventRecord) -> Event:
@@ -359,16 +440,22 @@ def _append_deleted_events(base_dir: Path, pairs: set[tuple[str, str]]) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def _print_plan(plan: CompactPlan) -> None:
+def _print_plan(plan: CompactPlan, rehome: bool = False) -> None:
     for item in plan.lineages:
         if not item.dropped:
             continue
         print(
-            f"lineage {item.lineage}: keep {len(item.kept)} of {len(item.kept) + len(item.dropped)} "
+            f"lineage {item.lineage}: keep {len(item.kept)} of "
+            f"{len(item.kept) + len(item.dropped)} "
             f"event file(s), drop {len(item.dropped)} ({item.dropped_unpublished} unpublished)"
         )
         for record in item.dropped:
             print(f"  drop {record.path} ({record.kind})")
+    if rehome:
+        for item in plan.rehomes:
+            print(f"lineage {item.lineage}: home {item.target}")
+            for src, names in item.moves:
+                print(f"  move {len(names)} file(s): {src} -> {item.target}")
     if plan.tombstone_pairs:
         print(
             f"tombstone: append {len(plan.tombstone_pairs)} deleted_events ulid(s) to deleted.toml"

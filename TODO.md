@@ -43,6 +43,28 @@ Tasks:
   tombstoned per-event, unpublished events are dropped silently. →
   `masora/compact.py`, `[[deleted_events]]` tombstone table (FORMAT.md §7.10),
   sync acceptance of tombstoned per-event deletions, tests/test_compact.py.
+- [x] `masora compact <base-dir> --rehome`: layout migration without history
+  compression — rename every lineage directory to its canonical
+  `YYYY-MM/<slug>-<lineage>` form (founder's month; an existing slug is kept
+  verbatim, only bare `<lineage>` dirs get one prepended) and merge split
+  month buckets into that one home, moving files (same ULIDs, same bytes),
+  never deleting; combined with compaction the dropped events follow the
+  compact tombstone rules and the survivors land in the canonical home. →
+  `masora/compact.py` (`RehomePlan`, `_rehome_plan` over the surviving
+  records, `_execute_rehome` with gc's prune helper; plan exits 3 without
+  `--yes`; pre/post `check_base` green; already-canonical and founderless
+  lineages untouched — a second run is a no-op), `masora/cli.py` `--rehome`
+  flag, tests/test_compact.py (8 rehome tests).
+- [x] `masora status [--force]`: one readable screen, exit 0 always — tool
+  versions (installed version, supported format_version, facts
+  contract_version, index schema_version), the configured bases (clone path
+  with exists/missing, the clone's origin remote, event + tombstone counts,
+  per index DB the repo mapping and the four-axis staleness reason or "no
+  index"), and the cached release check (GitHub releases API, 24 h TTL in
+  `$MASORA_HOME/update-check.json`, `--force` refetch, offline is a quiet
+  one-liner, injectable fetcher); `--version` on the root parser. →
+  `masora/status.py`, `masora/config.py:update_check_path()`,
+  `masora/cli.py`, tests/test_status.py.
 - [ ] Injection of known facts into cppgraph responses (requires changes in the separate cppgraph repo).
 - [x] `masora facts --repo [--symbol]`: versioned JSON contract for the cppgraph injection (docs/CPPGRAPH_INTEGRATION.md). → `masora/facts.py` (strictly read-only: base resolved via the config mappings/default_base for `--repo`, existing index read and never built — missing/unusable = exit 1 with `E-FACTS-NOINDEX`/`E-IDX-CORRUPT` on stderr, nothing on stdout; one compact JSON document `{contract_version, repo_head, graph_commit, stale_warning, facts[]}`; `--symbol` matches the displayed version's anchors verbatim, or the newest version for `resolution: none`/founderless lineages where `displayed` is null; `stale_warning` = the `index_stale()` four-axis drift comparison (base HEAD, code HEAD, graph indexed commit, filesystem freshness — see the freshness item below), `null` when nothing is comparable; the two warning classes stay in-band and never error).
 - [ ] Fallback without cppgraph: exercise the base via CLI/MCP `search` by symbol.

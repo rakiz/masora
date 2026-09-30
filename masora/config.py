@@ -38,6 +38,15 @@ def indexes_root() -> Path:
     return Path.home() / ".local" / "share" / "masora" / "indexes"
 
 
+def update_check_path() -> Path:
+    """The cached release-check document (MASORA_DESIGN.md §9: user-side state,
+    never in a code repo)."""
+    home = masora_home()
+    if home is not None:
+        return home / "update-check.json"
+    return Path.home() / ".local" / "share" / "masora" / "update-check.json"
+
+
 def normalize_remote(url: str) -> str:
     """Normalize a git remote for matching: lowercase host, no scheme, no user, no trailing `.git`."""
     text = url.strip()

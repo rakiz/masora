@@ -8,6 +8,44 @@
 
 ## Current phase
 
+**Done:** `masora status [--force]` (TODO.md, ticked) — one readable screen,
+exit 0 always (masora/status.py: never fails hard — offline release check is
+a quiet one-liner, missing clone/unreadable config reported as-is). Tool
+section: installed version (importlib.metadata, "unknown" fallback),
+format_version, facts contract_version, index schema_version. Bases section:
+per `[bases.<name>]` entry — clone path (exists/missing), the clone's origin
+remote (git, configured entry as fallback), event + tombstone-block counts
+(cheap walk), per index DB the repo mapping + `index_stale_reason()` four-axis
+wording / fresh / no index / unreadable. Update check: GitHub releases API
+(urllib, 2 s timeout), numeric semver-triplet compare, `up to date` /
+`update available: vX.Y.Z — <url>` + the install hint, cached 24 h in
+`~/.local/share/masora/update-check.json` (`$MASORA_HOME` relocates it,
+`config.update_check_path()`), `--force` refetch, injectable module-level
+fetcher (`status.fetch_latest_release`) for hermetic tests. Root `--version`
+flag (argparse version action, exit 0). Tests: tests/test_status.py, 14
+hermetic tests (no network). README Status section; ARCHITECTURE Status
+section; CHANGELOG [Unreleased] bullet. 504 tests green; ruff clean. Next
+task: the first rollout (TODO.md — the real base on the author's `employees/`
+dir + the Confluence install page).
+
+**Done:** `masora compact --rehome` (TODO.md, ticked) — layout migration
+without history compression on top of `masora/compact.py`: `_rehome_plan`
+derives per lineage the canonical single home from the surviving founder file
+(its directory, renamed `<slug>-<lineage>` via `write.lineage_slug(founder
+summary)` when bare; an existing slug kept verbatim; founderless lineages
+untouched) and plans every surviving file outside that home as a move;
+`_execute_rehome` moves files (same ULIDs, same bytes), prunes vacated dirs
+with gc's helper. `--rehome` composes with compaction: drops follow the
+compact tombstone rules (known-to-origin only), survivors land canonically;
+the fold proof is vacuous for pure rehome runs (no event dropped, `check`
+content-based, post-check asserts anyway). Plan exits 3 without `--yes`;
+pre/post `check_base` green; already-canonical lineages untouched → a second
+run is a no-op. CLI `--rehome` flag; FORMAT.md §1 names the migration tool;
+README quick start + docs/ARCHITECTURE.md Compact section state the rule;
+CHANGELOG [Unreleased] bullet. 8 new tests (27 in test_compact.py); 504
+tests green; ruff clean. Next task: the first rollout (TODO.md — the real
+base on the author's `employees/` dir + the Confluence install page).
+
 **Done:** Agent instructions (TODO.md, ticked). docs/AGENT_INSTRUCTIONS.md —
 the canonical paste-ready block for an adopting project's `AGENTS.md`
 (MASORA_DESIGN.md §10.1 channel 3): the seven MCP tools one line each;

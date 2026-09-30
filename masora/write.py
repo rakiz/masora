@@ -17,6 +17,7 @@ import json
 import re
 import subprocess
 import tomllib
+import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
@@ -254,10 +255,62 @@ def render_event(data: dict) -> str:
     return f"---\n{emit_event(data)}\n---\n"
 
 
-def event_relpath(data: dict) -> str:
-    """`<YYYY-MM>/<lineage>/<id>.<kind>.md` under the base (FORMAT.md §1)."""
+def lineage_slug(summary: str) -> str:
+    """Deterministic directory slug of a summary: lowercase ASCII, [a-z0-9-],
+    at most 24 characters, trimmed at word boundaries; "" when nothing
+    survives (the caller then uses the bare lineage ULID).
+    """
+    text = unicodedata.normalize("NFKD", summary).encode("ascii", "ignore").decode("ascii")
+    words = re.findall(r"[a-z0-9]+", text.lower())
+    slug = ""
+    for word in words:
+        candidate = word if not slug else f"{slug}-{word}"
+        if len(candidate) > 24:
+            break
+        slug = candidate
+    if not slug and words:
+        slug = words[0][:24]
+    return slug
+
+
+def _lineage_home(base_dir: Path, lineage: str) -> Path | None:
+    """The single home of a lineage in the base tree, or None.
+
+    Candidates are directories named `<lineage>` or ending in
+    `-<lineage>`; a directory holding the founder file wins, ties and
+    founderless splits fall back to the sorted-first match.
+    """
+    candidates = [
+        path
+        for path in base_dir.rglob("*")
+        if ".git" not in path.parts
+        and path.is_dir()
+        and (path.name == lineage or path.name.endswith(f"-{lineage}"))
+    ]
+    if not candidates:
+        return None
+    founder = [path for path in candidates if (path / f"{lineage}.claim.md").is_file()]
+    return min(founder or candidates)
+
+
+def event_relpath(data: dict, base_dir: Path) -> str:
+    """`<YYYY-MM>/<slug>-<lineage>/<id>.<kind>.md` under the base (FORMAT.md §1).
+
+    An event on an existing lineage joins the lineage's single existing
+    directory verbatim (found by lineage-ULID suffix, whatever its slug or
+    month bucket); only a founder creates a directory, in the current month,
+    named `<slug>-<lineage>` (bare `<lineage>` when the summary yields no
+    slug, and for extensions whose lineage has no home in the tree).
+    """
+    lineage = data["lineage"]
+    home = _lineage_home(base_dir, lineage)
+    if home is not None:
+        prefix = home.relative_to(base_dir).as_posix()
+        return f"{prefix}/{data['id']}.{data['kind']}.md"
     month = datetime.now(UTC).strftime("%Y-%m")
-    return f"{month}/{data['lineage']}/{data['id']}.{data['kind']}.md"
+    slug = lineage_slug(data["summary"]) if data["id"] == lineage else ""
+    directory = f"{slug}-{lineage}" if slug else lineage
+    return f"{month}/{directory}/{data['id']}.{data['kind']}.md"
 
 
 def precheck(base_dir: Path) -> None:
@@ -354,7 +407,7 @@ def write_and_check(base_dir: Path, data: dict) -> tuple[str, list[Diag]]:
     Returns the base-relative path and the checker warnings (they ride along).
     """
     precheck(base_dir)
-    rel = event_relpath(data)
+    rel = event_relpath(data, base_dir)
     try:
         validate_event(data, data["kind"], rel)
         _scan_secrets(data, rel)

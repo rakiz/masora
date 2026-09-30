@@ -13,6 +13,7 @@ from helpers import (
     ULID_D1A,
     ULID_L1,
     ULID_L2,
+    ULID_R1A,
     ULID_V1A,
     ULID_V2A,
     ULID_V3A,
@@ -144,11 +145,14 @@ def test_sync_clean_add_pushes_pending_branch_and_opens_pr(repo, fake_gh, github
     calls = gh_calls(fake_gh)
     assert [call["args"][:2] for call in calls] == [["pr", "list"], ["pr", "create"]]
     create = calls[1]
-    assert "--title" in create["args"] and "masora sync" in create["args"]
     assert "--head" in create["args"] and "masora/pending" in create["args"]
     assert "--base" in create["args"] and "main" in create["args"]
-    assert f"`{ULID_L1}` claim: One line summary" in create["stdin"]
-    assert f"`{ULID_V1A}` verify: (no summary)" in create["stdin"]
+    assert create["args"][create["args"].index("--title") + 1] == (
+        "masora sync: 1 claim, 1 verification"
+    )
+    assert '- one-line-summary: "One line summary" — llm' in create["stdin"]
+    assert '- verified "One line summary" — by llm — 1 evidence item' in create["stdin"]
+    assert "(no summary)" not in create["stdin"]
     assert "opened PR https://github.com/acme/base/pull/42" in out
     assert "synced: 2 pending event(s)" in out
 
@@ -425,6 +429,22 @@ def test_sync_dangling_target_is_warning_only(repo, capsys):
     assert rev_ok(origin, "refs/heads/masora/pending")
 
 
+def test_sync_pr_body_unresolvable_target_falls_back_to_ulid(repo, fake_gh, github_remote):
+    base, _origin = repo
+    write_event(
+        base,
+        "2026-09/x/01J8Z3K0000000000000000002.doubt.md",
+        make_doubt(ULID_D1A, ULID_L1, DANGLING),
+    )
+
+    code = sync_run(base)
+
+    assert code == 2
+    calls = gh_calls(fake_gh)
+    create = calls[1]
+    assert f'- doubted "{DANGLING}" — A reason. — by human' in create["stdin"]
+
+
 def test_sync_local_check_errors_block_before_any_git_action(repo, capsys):
     base, origin = repo
     event = base / CLAIM_REL
@@ -622,3 +642,89 @@ def test_sync_git_spawns_immune_to_inherited_git_env(repo, tmp_path, monkeypatch
     assert (base / ".git" / "index").exists()
     assert "base.toml" in git(base, "ls-files")
     assert not bogus.exists()
+
+
+def test_sync_pr_title_mirrors_pending_counts(repo, fake_gh, github_remote):
+    base, _origin = repo
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    write_event(base, VERIFY_REL, make_verify(ULID_V1A, ULID_L1, ULID_L1))
+    write_event(
+        base,
+        "2026-09/x/01J8Z3K0000000000000000002.doubt.md",
+        make_doubt(ULID_D1A, ULID_L1, ULID_V1A),
+    )
+    write_event(base, "2026-09/y/01J8Z3K0000000000000000006.claim.md", make_claim(ULID_L2))
+
+    assert sync_run(base) == 0
+
+    calls = gh_calls(fake_gh)
+    create = calls[1]
+    assert create["args"][create["args"].index("--title") + 1] == (
+        "masora sync: 2 claims, 1 verification, 1 doubt"
+    )
+
+
+def test_sync_pr_body_lines_read_as_changelog(repo, fake_gh, github_remote):
+    base, _origin = repo
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    write_event(base, VERIFY_REL, make_verify(ULID_V1A, ULID_L1, ULID_L1))
+    write_event(
+        base,
+        "2026-09/x/01J8Z3K0000000000000000002.doubt.md",
+        make_doubt(ULID_D1A, ULID_L1, ULID_V1A, reason="I ran the case X=0 and it held."),
+    )
+    write_event(
+        base,
+        "2026-09/x/01J8Z3K0000000000000000004.refute.md",
+        make_doubt(ULID_R1A, ULID_L1, ULID_L1, kind="refute", reason="Replay says otherwise."),
+    )
+    write_event(
+        base,
+        "2026-09/y/01J8Z3K0000000000000000006.claim.md",
+        make_claim(ULID_L2, summary="Second claim about locking"),
+    )
+
+    assert sync_run(base) == 0
+
+    create = gh_calls(fake_gh)[1]
+    body = create["stdin"]
+    assert '- one-line-summary: "One line summary" — llm' in body
+    assert '- second-claim-about: "Second claim about locking" — llm' in body
+    assert '- verified "One line summary" — by llm — 1 evidence item' in body
+    assert '- doubted "One line summary" — I ran the case X=0 and it held. — by human' in body
+    assert '- refuted "One line summary" — Replay says otherwise. — by human' in body
+    assert "(no summary)" not in body
+
+
+def test_sync_pr_body_tombstone_additions_line(repo, fake_gh, github_remote):
+    base, _origin = repo
+    (base / "deleted.toml").write_text(
+        tombstone(ULID_L1, [ULID_L1, ULID_V1A]) + tombstone(ULID_L2, [ULID_L2]),
+        encoding="utf-8",
+    )
+
+    assert sync_run(base) == 0
+
+    create = gh_calls(fake_gh)[1]
+    assert create["args"][create["args"].index("--title") + 1] == "masora sync: 3 tombstoned"
+    assert "- 3 events removed by compact/gc" in create["stdin"]
+
+
+def test_pr_body_truncates_long_reason_at_eighty_chars():
+    from masora.sync import EventFile, _pr_body
+
+    event = EventFile(
+        id=ULID_D1A,
+        path="2026-09/x/doubt.md",
+        content=b"",
+        lineage=ULID_L1,
+        kind="doubt",
+        targets=ULID_V1A,
+        source="human",
+        reason="word " * 40,
+    )
+
+    body = _pr_body([event], [], {})
+
+    assert "word " * 16 + "…" in body
+    assert "word " * 17 not in body

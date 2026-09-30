@@ -72,6 +72,11 @@ class EventFile:
     lineage: str | None = None
     kind: str | None = None
     summary: str | None = None
+    targets: str | None = None
+    source: str | None = None
+    name: str | None = None
+    reason: str | None = None
+    evidence_count: int = 0
 
 
 def run(base_dir: Path, drop: bool = False, push: bool = False) -> int:
@@ -306,7 +311,11 @@ def _run_publish(base_dir: Path, push: bool) -> int:
                     )
                     print(f"pushed branch {PENDING_BRANCH} ({commit[:12]})")
                     _publish_pr(
-                        base_dir, [local_events[event_id] for event_id in added_ids], warnings
+                        base_dir,
+                        [local_events[event_id] for event_id in added_ids],
+                        warnings,
+                        local_events,
+                        len(pairs_local - pairs_base) + len(de_local - de_base),
                     )
     except SyncError as exc:
         print(f"  {exc.diag.render()}")
@@ -543,6 +552,13 @@ def _scan_events(root: Path) -> dict[str, EventFile]:
             lineage=_string(data, "lineage"),
             kind=_string(data, "kind"),
             summary=_string(data, "summary"),
+            targets=_string(data, "targets"),
+            source=_string(data, "source"),
+            name=_string(data, "name"),
+            reason=_string(data, "reason"),
+            evidence_count=(
+                len(evidence) if isinstance(evidence := data.get("evidence"), list) else 0
+            ),
         )
     return events
 
@@ -586,21 +602,119 @@ def _is_founder(event: EventFile | None) -> bool:
     return event is not None and event.kind == "claim" and event.id == event.lineage
 
 
-def _pr_body(pending: list[EventFile], warnings: list[Diag]) -> str:
-    lines = [PR_TITLE, "", f"Pending events ({len(pending)}):", ""]
-    for event in pending:
-        summary = (
-            event.summary if isinstance(event.summary, str) and event.summary else "(no summary)"
+_KIND_LABELS = {
+    "claim": ("claim", "claims"),
+    "verify": ("verification", "verifications"),
+    "doubt": ("doubt", "doubts"),
+    "refute": ("refutation", "refutations"),
+    "undoubt": ("undoubt", "undoubts"),
+    "unrefute": ("unrefute", "unrefutes"),
+}
+_KIND_VERBS = {
+    "doubt": "doubted",
+    "refute": "refuted",
+    "undoubt": "undoubted",
+    "unrefute": "unrefuted",
+}
+_KIND_ORDER = ("claim", "verify", "doubt", "refute", "undoubt", "unrefute", "event")
+
+
+def _plural(count: int, singular: str, plural: str | None = None) -> str:
+    return f"{count} {singular}" if count == 1 else f"{count} {plural or singular + 's'}"
+
+
+def _writer(event: EventFile) -> str:
+    if isinstance(event.name, str) and event.name:
+        return event.name
+    return event.source or "unknown"
+
+
+def _target_summary(event: EventFile, events: dict[str, EventFile]) -> str:
+    node = event.targets
+    seen = {event.id}
+    while node and node in events and node not in seen and len(seen) <= 4:
+        seen.add(node)
+        target = events[node]
+        if target.summary:
+            return target.summary
+        node = target.targets
+    return event.targets or "unknown target"
+
+
+def _reason_text(event: EventFile) -> str:
+    text = " ".join((event.reason or "").split())
+    return text if len(text) <= 80 else f"{text[:80]}…"
+
+
+def _lineage_label(event: EventFile, events: dict[str, EventFile]) -> str:
+    founder = events.get(event.lineage or "")
+    if founder is not None and founder.id == founder.lineage and founder.summary:
+        from .write import lineage_slug
+
+        slug = lineage_slug(founder.summary)
+        if slug:
+            return slug
+    return event.lineage or event.id
+
+
+def _event_line(event: EventFile, events: dict[str, EventFile]) -> str:
+    if event.kind == "claim":
+        summary = event.summary or "(summary unavailable)"
+        return f'- {_lineage_label(event, events)}: "{summary}" — {_writer(event)}'
+    if event.kind == "verify":
+        summary = _target_summary(event, events)
+        return (
+            f'- verified "{summary}" — by {_writer(event)}'
+            f" — {_plural(event.evidence_count, 'evidence item')}"
         )
-        lines.append(f"- `{event.id}` {event.kind or 'event'}: {summary}")
+    verb = _KIND_VERBS.get(event.kind or "", event.kind or "event")
+    summary = _target_summary(event, events)
+    return f'- {verb} "{summary}" — {_reason_text(event)} — by {_writer(event)}'
+
+
+def _pr_title(pending: list[EventFile], removed: int) -> str:
+    counts: dict[str, int] = {}
+    for event in pending:
+        kind = event.kind or "event"
+        counts[kind] = counts.get(kind, 0) + 1
+    segments = [
+        _plural(counts[kind], *_KIND_LABELS.get(kind, ("event", "events")))
+        for kind in _KIND_ORDER
+        if counts.get(kind)
+    ]
+    if removed:
+        segments.append(f"{removed} tombstoned")
+    if not segments:
+        return PR_TITLE
+    return f"{PR_TITLE}: {', '.join(segments)}"
+
+
+def _pr_body(
+    pending: list[EventFile],
+    warnings: list[Diag],
+    events: dict[str, EventFile] | None = None,
+    removed: int = 0,
+) -> str:
+    known = events if events is not None else {}
+    lines = [_pr_title(pending, removed), ""]
+    lines.extend(_event_line(event, known) for event in pending)
+    if removed:
+        lines.append(f"- {_plural(removed, 'event')} removed by compact/gc")
     if warnings:
         lines.extend(["", f"Warnings ({len(warnings)}):", ""])
         lines.extend(f"- {diag.render()}" for diag in warnings)
     return "\n".join(lines) + "\n"
 
 
-def _publish_pr(base_dir: Path, pending: list[EventFile], warnings: list[Diag]) -> None:
-    body = _pr_body(pending, warnings)
+def _publish_pr(
+    base_dir: Path,
+    pending: list[EventFile],
+    warnings: list[Diag],
+    events: dict[str, EventFile] | None = None,
+    removed: int = 0,
+) -> None:
+    title = _pr_title(pending, removed)
+    body = _pr_body(pending, warnings, events, removed)
     url = _remote_url(base_dir)
     slug = _github_slug(url)
     gh = _gh_on_path()
@@ -612,7 +726,11 @@ def _publish_pr(base_dir: Path, pending: list[EventFile], warnings: list[Diag]) 
     existing = _gh_pr_list(gh, slug)
     if existing:
         number, pr_url = existing
-        _gh_run(gh, ["pr", "edit", str(number), "--repo", slug, "--body-file", "-"], body)
+        _gh_run(
+            gh,
+            ["pr", "edit", str(number), "--repo", slug, "--title", title, "--body-file", "-"],
+            body,
+        )
         print(f"updated PR {pr_url}")
     else:
         pr_url = _gh_run(
@@ -627,7 +745,7 @@ def _publish_pr(base_dir: Path, pending: list[EventFile], warnings: list[Diag]) 
                 "--base",
                 MAIN_BRANCH,
                 "--title",
-                PR_TITLE,
+                title,
                 "--body-file",
                 "-",
             ],

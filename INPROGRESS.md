@@ -8,6 +8,29 @@
 
 ## Current phase
 
+**Done:** two-feature pass (TODO.md, both ticked). Feature A — readable sync
+PR: `masora/sync.py` `_pr_body`/`_pr_title` render the PR as a plain-English
+changelog of the pending set (title mirrors per-kind counts + tombstone
+segment; one line per event with the lineage slug, the resolved target
+summary followed along the `targets` chain, the reason truncated to 80
+characters, and `name`-else-`source` provenance; tombstone additions render
+one removal line); `EventFile` gained `targets`/`source`/`name`/`reason`/
+`evidence_count`, the YAML diff on the pending branch stays the audit
+surface. Feature B — human-named lineage directories: `masora/write.py`
+`lineage_slug` (deterministic lowercase ASCII `[a-z0-9-]` slug of the founder
+summary, ≤ 24 chars, word-boundary trimmed, empty → bare lineage ULID) and
+`event_relpath(data, base_dir)` — the founder creates
+`YYYY-MM/<slug>-<lineage>/` in its month, every extension joins the
+lineage's existing directory found by ULID suffix verbatim (no month
+re-bucketing, no split; legacy splits resolve to the founder-holding
+directory, else sorted-first, never a third dir); `check` stays
+path-indifferent. FORMAT.md §1, MASORA_DESIGN §7 and docs/ARCHITECTURE.md
+state the single-home rule and the `<slug>-<lineage-ULID>` convention. Tests:
+tests/test_write.py (new, 13), 5 new + 1 updated in tests/test_sync.py, 2
+updated in tests/test_mcp.py; suite 483 green; ruff clean. Next
+task: the first rollout (TODO.md — the real base on the author's `employees/`
+dir + the Confluence install page).
+
 **Done:** `masora compact <base-dir>` (TODO.md, ticked) — per-lineage
 compression to the minimal live witness set. `masora/compact.py`:
 `select_witness` (pure, property-tested against the brute-force oracle's

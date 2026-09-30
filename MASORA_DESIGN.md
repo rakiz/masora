@@ -259,26 +259,33 @@ F1 would still see v1) → refute is required for that case.
 
 ```
 knowledge/
-  2026-09/                                   # month of lineage creation
-    01J8Z3K…-resume-token-shard-key/         # lineage dir: <ulid>-<slug>
+  2026-09/                                   # month the founder was written
+    resume-token-shard-key-01J8Z3K…/         # lineage dir: <slug>-<ulid>
       01J8Z3K….claim.md                      # v1
       01J8Z3K….verify.md                     # verifies v1 (targets its ULID)
       01JA4QX….claim.md                      # v2 after code change
       01JB7RM….refute.md                     # refutes v1 (targets its ULID)
-    01J8ZP2…-lock-before-commit/
+    lock-before-commit-01J8ZP2…/
       01J8ZP2….claim.md
 ```
 
-- One directory per lineage; its history is its file listing.
-- Slug is cosmetic, fixed at creation, never an identity, never renamed.
+- One directory per lineage, and exactly one: all events of a lineage live in
+  that single directory, its history is its file listing. The directory is
+  created with the founder claim in the founder's month; every later event of
+  the lineage joins it (the writer looks the lineage up by ULID suffix and
+  writes into the existing directory — extensions are never re-bucketed by the
+  current month).
+- Slug: a deterministic lowercase form of the founder's summary (`[a-z0-9-]`,
+  ≤ 24 chars, word-boundary trimmed) — cosmetic, fixed at creation, immutable
+  thereafter, never an identity, never renamed; optional for hand-made trees
+  (a bare `<ulid>/` directory is equally valid).
 - Suffix gives the event kind: `.claim`, `.verify`, `.doubt`, `.undoubt`,
   `.refute`, `.unrefute` (later `.same-as`). Verification is an event (§12 item 5):
   promoting or re-verifying appends a file, nothing is ever edited in place.
 - Month bucket avoids tens of thousands of entries per dir while staying readable.
 - **Layout is convention, not law**: `masora check` validates content (unique
   ULIDs, resolvable references), never file locations; the index parses the whole
-  tree, so moving files changes nothing. New files are written month-bucketed by
-  convention (collision avoidance), nothing more.
+  tree, so moving files changes nothing.
 - **Never organise by symbol/module**: claims have several anchors (indirect
   dependencies have ≥2), code gets reorganised. Lookup by symbol is the SQLite
   index's job; the tree only prevents collisions.

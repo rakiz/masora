@@ -11,9 +11,9 @@ doc gets amended.
 <base>/
   base.toml                      # base identity (see masora setup)
   deleted.toml                   # tombstone, optional, maintained by gc and compact
-  2026-09/                       # month bucket, at file creation
-    01J8Z3K…/                    # one directory per lineage (lineage ULID)
-      01J8Z3K….claim.md          # v1 of the claim
+  2026-09/                       # month bucket of the lineage's founder
+    resume-token-shard-key-01J8Z3K…/    # one directory per lineage: <slug>-<lineage ULID>
+      01J8Z3K….claim.md          # v1 of the claim (the founder)
       01JA4QX….claim.md          # v2 (same lineage, new anchors/content)
       01JB1R….verify.md          # events targeting any ULID above
       01JB2S….doubt.md
@@ -22,10 +22,20 @@ doc gets amended.
 
 - Directory tree is a **collision-avoidance convention only** — never a lookup
   mechanism. The index parses the whole tree; moving files changes nothing
-  (`check` is content-based, §7). A lineage directory may optionally carry a
-  cosmetic slug (`<lineage-ULID>-<slug>/`); the bare ULID form
-  `<lineage-ULID>/` above is what the examples show and `check` never relies on
-  the slug.
+  (`check` is content-based, §7 — it validates paths never, so lineage
+  directories may be renamed or moved freely).
+- **One lineage, one directory.** All events of a lineage live in that
+  lineage's single directory. The writer creates it when the founder claim is
+  written — `YYYY-MM/<slug>-<lineage-ULID>/`, the founder's month — and every
+  later event of the lineage joins it: an extension is looked up in the tree
+  by the lineage-ULID suffix and written into the existing directory, never
+  re-bucketed by the current month.
+- The slug is a deterministic lowercase form of the founder claim's summary
+  (ASCII, `[a-z0-9-]`, at most 24 characters, trimmed at word boundaries). It
+  is an immutable historical label: fixed once created, never an identity,
+  never renamed when the summary changes, and optional for hand-made trees —
+  the bare `<lineage-ULID>/` form is equally valid, and `check` never relies
+  on the slug.
 - File name: `<ULID>.<kind>.md` (suffix style), and the filename ULID **must
   equal** the frontmatter `id`. Kinds: `claim`, `verify`, `doubt`, `undoubt`,
   `refute`, `unrefute`. Suffix style sorts chronologically by ULID in directory

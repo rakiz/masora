@@ -9,11 +9,15 @@ FTS (`index`, searched by `search`).
 
 ## Event files and layout (§1)
 
-- A base is a git repo: `YYYY-MM/<lineage-ULID>[-slug]/<ULID>.<kind>.md`,
-  plus optional `base.toml` (identity) and `deleted.toml` (tombstone).
+- A base is a git repo: `YYYY-MM/<slug>-<lineage-ULID>/<ULID>.<kind>.md`
+  (the slug is an optional immutable label derived from the founder's summary;
+  hand-made trees may use the bare `<lineage-ULID>/` form), plus optional
+  `base.toml` (identity) and `deleted.toml` (tombstone).
 - The layout is a collision-avoidance convention only — validation is
   content-based. `checker.py` globs `**/*.md` (skipping `.git`); moving files
-  changes nothing.
+  changes nothing. One lineage, one directory: the write path
+  (`write.event_relpath`) looks an existing lineage up by ULID suffix and
+  joins it; only a founder creates a directory (in its own month).
 - Event identity is the ULID (`id` == filename ULID); files are append-only,
   never modified after creation. Whole-lineage deletion is `masora gc`'s job,
   per-event dropping is `masora compact`'s (see the GC and Compact sections
@@ -409,7 +413,9 @@ fields, short or single-class values) —, then emitted in the canonical block
 style (plain keys,
 quoted identity/hash values, JSON-style control-char escaping —
 `emit_event()`), written to
-`<YYYY-MM>/<lineage>/<id>.<kind>.md` after a shared `check_base` pre-check
+`<YYYY-MM>/<slug>-<lineage>/<id>.<kind>.md` — extensions join the lineage's
+existing directory, founders create it in their month — after a shared
+`check_base` pre-check
 (nothing is written onto an invalid base), and followed by a full post-write
 `check_base` — a post-check failure unlinks the just-written file and reports
 the diagnostics, so a tool never returns success on an invalid tree (FORMAT.md

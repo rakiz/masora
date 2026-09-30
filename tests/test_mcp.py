@@ -296,7 +296,9 @@ def test_note_happy_path_writes_canonical_event(server, code_repo, base):
     lineage = next(line for line in lines if line.startswith("lineage ")).split()[1]
     assert uid == lineage
     rel = lines[0].removeprefix("wrote ")
-    assert rel == f"{datetime.now(UTC).strftime('%Y-%m')}/{uid}/{uid}.claim.md"
+    assert rel == (
+        f"{datetime.now(UTC).strftime('%Y-%m')}/bring-up-order-start-{uid}/{uid}.claim.md"
+    )
     path = base / rel
     assert path.is_file()
     raw = path.read_text(encoding="utf-8")
@@ -640,6 +642,9 @@ def test_verify_round_trip_moves_index_status(server, code_repo, base):
     verify_id = lines[1].split()[1]
     rel = lines[0].removeprefix("wrote ")
     assert rel.endswith(f"{verify_id}.verify.md")
+    assert (
+        rel.rsplit("/", 1)[0] == note_text.splitlines()[0].removeprefix("wrote ").rsplit("/", 1)[0]
+    )
     data = load_frontmatter((base / rel).read_text(encoding="utf-8"), rel)
     assert data["targets"] == uid
     assert data["source"] == "llm"

@@ -700,7 +700,7 @@ TOOLS = [
                     "description": "provenance of this event; default llm (graph is reserved for deriving tools, not writable here)",
                 },
                 "name": _str(
-                    description="free string when source is llm: the model name; when source is human the name is self-signed from the base repo's git config"
+                    description="free string when source is llm: the exact model id that produced the verdict, never an agent or tool alias; when source is human the name is self-signed from the base repo's git config"
                 ),
                 "effort": {
                     "type": "string",
@@ -750,7 +750,7 @@ TOOLS = [
                     "description": "who ran the verification; default llm",
                 },
                 "name": _str(
-                    description="free string when source is llm: the model name; when source is human the name is self-signed from the base repo's git config"
+                    description="free string when source is llm: the exact model id that produced the verdict, never an agent or tool alias; when source is human the name is self-signed from the base repo's git config"
                 ),
                 "effort": {
                     "type": "string",
@@ -784,7 +784,9 @@ TOOLS = [
                     "items": _str(),
                     "description": "proof items (in English)",
                 },
-                "name": _str(description="free string when source is llm: the model name"),
+                "name": _str(
+                    description="free string when source is llm: the exact model id, never an agent or tool alias"
+                ),
                 "effort": {
                     "type": "string",
                     "enum": ["low", "medium", "high"],
@@ -813,7 +815,9 @@ TOOLS = [
                     "items": _str(),
                     "description": "proof items (in English)",
                 },
-                "name": _str(description="free string when source is llm: the model name"),
+                "name": _str(
+                    description="free string when source is llm: the exact model id, never an agent or tool alias"
+                ),
                 "effort": {
                     "type": "string",
                     "enum": ["low", "medium", "high"],
@@ -845,7 +849,9 @@ TOOLS = [
                     "items": _str(),
                     "description": "proof items (in English)",
                 },
-                "name": _str(description="free string when source is llm: the model name"),
+                "name": _str(
+                    description="free string when source is llm: the exact model id, never an agent or tool alias"
+                ),
                 "effort": {
                     "type": "string",
                     "enum": ["low", "medium", "high"],

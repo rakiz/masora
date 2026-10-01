@@ -188,6 +188,13 @@ replayable bullets) — compact keeps the live state, not the archives.
   an existing verification, `doubt` it.
 - A proof may live in a test: locate it with the file tools and record it in
   the evidence.
+- When delegating verification to a sub-agent, hand the claim's anchors to
+  it as graph entry points IN THE BRIEF, and the verifier re-checks them
+  against the graph (definitions, callers, behaviour) — verifying by
+  restating the claim's prose is not verifying.
+- Sign events with the exact model id that produced the verdict (`name`) —
+  never an agent or orchestrator alias: `cheap-review` tells the reader
+  nothing about which model verified; the model id does.
 - `doubt` and `refute` are different acts: doubt disputes a verification
   without claiming the claim wrong; refute asserts the target is provably
   wrong. Choose deliberately.

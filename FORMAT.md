@@ -85,7 +85,7 @@ References between events are always **ULIDs**, never file paths.
 | `lineage` | ULID | stable across all versions and events of a lineage |
 | `kind` | enum | `claim` \| `verify` \| `doubt` \| `undoubt` \| `refute` \| `unrefute` |
 | `source` | enum | `human` \| `llm` \| `graph`; unified on **every** event kind (claims, `.verify`, `.doubt`, `.undoubt`, `.refute`, `.unrefute`) — the writer's nature, declarative, no credential system |
-| `name` | string, optional | free string self-signed by the writer: the git `user.name` when `source: human`, the model name when `source: llm` (the verifying session may sign its own, distinct from the claim writer's), empty/absent for `graph` today (a later deriving tool may sign e.g. `cppgraph@0.4`) |
+| `name` | string, optional | free string self-signed by the writer: the git `user.name` when `source: human`, the exact model id when `source: llm` — never an agent or orchestrator alias (the verifying session may sign its own, distinct from the claim writer's), empty/absent for `graph` today (a later deriving tool may sign e.g. `cppgraph@0.4`) |
 | `effort` | enum, optional | `low` \| `medium` \| `high`; ONLY meaningful when `source: llm` — the declared strength of the writing analysis, calibrating doubt-escalation |
 | `cost_tokens` | integer, optional | integer ≥ 0; economics only — read against `name` |
 | `targets` | ULID | event kinds only: the ULID this event is about |

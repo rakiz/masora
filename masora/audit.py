@@ -12,7 +12,7 @@ from __future__ import annotations
 # notes on the real corpus (132 lineages, 7 known block claims) without
 # false-flagging; calibration against the real base happens at the next sync.
 # Tune them there, never silently here.
-STATEMENT_MAX = 900
+STATEMENT_MAX = 1024
 ANCHORS_MAX = 8
 ANCHOR_FILES_MAX = 3
 

@@ -23,6 +23,7 @@ from helpers import (
     write_event,
 )
 
+from masora.audit import STATEMENT_MAX
 from masora.sync import REPO_LOCATION_ENV_VARS, _git, _remote_url, git_env
 from masora.sync import run as sync_run
 
@@ -732,7 +733,7 @@ def test_pr_body_truncates_long_reason_at_eighty_chars():
     assert "word " * 17 not in body
 
 
-STACKED_STATEMENT = "x" * 1000
+STACKED_STATEMENT = "x" * (STATEMENT_MAX + 1)
 
 
 def test_sync_stacked_claim_refuses_publication(repo, capsys):
@@ -746,7 +747,7 @@ def test_sync_stacked_claim_refuses_publication(repo, capsys):
     out = capsys.readouterr().out
     assert "E-SYNC-STACKED" in out
     assert "one-line-summary" in out
-    assert "statement is 1000 chars" in out
+    assert f"statement is {STATEMENT_MAX + 1} chars" in out
     assert "split into one atomic note per fact" in out
     assert "remove the unpublished block claim with `masora gc --lineage <id>`" in out
     assert "never published — no tombstone" in out
@@ -765,7 +766,7 @@ def test_sync_allow_stacked_warns_and_publishes(repo, fake_gh, github_remote, ca
     out = capsys.readouterr().out
     assert "W-SYNC-STACKED" in out
     assert "one-line-summary" in out
-    assert "statement is 1000 chars" in out
+    assert f"statement is {STATEMENT_MAX + 1} chars" in out
     assert "synced with warnings: 1 warning(s)" in out
     assert rev_ok(origin, "refs/heads/masora/pending")
     create = gh_calls(fake_gh)[1]

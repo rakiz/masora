@@ -6,9 +6,23 @@
       the current state only (release-notes style); the history of how the
       project got there lives between released versions. -->
 
+## 0.6.1 — 2026-10-01
+
+### Fixed
+
+- **The opencode /masora slash command** — fixes the 0.5.0 omission: `masora skill install` shipped the agent skill but no slash command, and opencode (unlike Claude Code) never surfaces an installed skill as a typed /command, so an opencode user could never actually type /masora. The installer now also writes an opencode command file (`~/.config/opencode/commands/masora.md`, packaged as `masora/skills/masora/COMMAND.md`): the template routes `$ARGUMENTS` to the installed `masora` CLI and has the agent interpret the output — success/failure stated, diagnostic codes explained with the concrete fix, applying the masora skill's knowledge-base rules. Same overwrite-as-update policy as the skill; Claude Code homes get NO command file (the skill already surfaces there, and a same-named command would shadow it); `masora skill print` stays skill-only. (`masora/skill.py`, `masora/cli.py`, `masora/skills/masora/COMMAND.md`, README.md, tests/test_skill.py.)
+
+### Changed
+
+- **Stacking threshold recalibrated** — `STATEMENT_MAX` 900 → 1024 (owner's call: a slightly larger tolerated statement, powers of two preferred); tests/test_sync.py's stacked fixtures now derive from the constant instead of pinning literal 1000-char statements, so future recalibrations touch one line. (`masora/audit.py`, tests/test_sync.py.)
+- **Verify delegation goes through the graph** — the verify discipline gains the delegation rule: when a sub-agent is asked to verify a claim, the brief carries the claim's anchors as cppgraph entry points, and the verifier re-checks them against the graph (definitions, callers, behaviour) — verifying by restating the claim's prose is not verifying. Mirrored byte-identically in the agent instructions and the packaged skill (guard-tested). (docs/AGENT_INSTRUCTIONS.md, `masora/skills/masora/SKILL.md`.)
+- **Signing: the model id, never an alias** — `name` on `source: llm` events is the exact model id that produced the verdict, never an agent or orchestrator alias (`cheap-review` tells the reader nothing about which model verified). Stated in the verify discipline (instructions + skill, mirrored), the `name` parameter description of all five MCP write tools, and FORMAT.md §4's `name` row. (docs/AGENT_INSTRUCTIONS.md, `masora/skills/masora/SKILL.md`, `masora/mcp.py`, FORMAT.md.)
+
+
 ## 0.6.0 — 2026-10-01
 
 ### Added
+
 
 - **The gc unpublished-lineage exception + the stacked-note reflex** — `masora gc` now splits its plan by PUBLISHED-NESS: a lineage with at least one event file in origin/main's tree keeps today's behavior (one append-only `[[deleted]]` block per lineage in `deleted.toml`), while a lineage origin/main never saw is removed locally WITHOUT tombstone rows — the shared ledger records only what the shared repo knew, so a dead-born ULID (a block claim written and gc'd before any sync) never reaches it (FORMAT.md rule 10 amended in the rule's voice; MASORA_DESIGN.md §12 item 14 records the decision and narrows gc's "no git spawn" property to "no git mutation — one read-only origin/main ls-tree for published-ness": missing origin/main or no origin ⇒ everything is unpublished, a git failure is an `E-GIT` error, never a silent guess). The plan labels unpublished lineages ("unpublished — removed locally, no tombstone (origin/main never saw it)") and the final summary carries the split. This completes the stacked-note flow: when `sync` refuses with `E-SYNC-STACKED`, the remedy now names the exact loop — split into one atomic note per fact, remove the unpublished block claim with `masora gc --lineage <id>` (never published — no tombstone), then re-run sync — and the agent instructions + skill gain the standing-order reflex ("Never publish a stacked note by default", mirrored byte-identical, pinned in both docs by test). (`masora/gc.py`, `masora/audit.py`, `masora/cli.py`, `masora/skills/masora/SKILL.md`, `docs/AGENT_INSTRUCTIONS.md`, FORMAT.md, MASORA_DESIGN.md §12, docs/ARCHITECTURE.md, tests/test_gc.py, tests/test_sync.py, tests/test_docs.py.)
 

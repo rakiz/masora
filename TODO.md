@@ -339,6 +339,7 @@ Tasks:
   masora/cli.py, masora/skills/masora/SKILL.md, docs/AGENT_INSTRUCTIONS.md,
   FORMAT.md, MASORA_DESIGN.md §12, docs/ARCHITECTURE.md, tests/test_gc.py,
   tests/test_sync.py, tests/test_docs.py.
+- [x] The opencode slash command shipped with the skill (rollout friction, second machine: opencode never surfaces an installed skill as a typed /command — only Claude Code does, so nothing masora shipped gave an opencode user a real /masora). → new packaged template `masora/skills/masora/COMMAND.md` (frontmatter + `!`-injected `masora $ARGUMENTS` + an interpret-the-output body that applies the masora skill's rules), `masora skill install` writes it to `~/.config/opencode/commands/masora.md` when the opencode home is detected (same overwrite-as-update policy; Claude Code homes get NO command file — the skill already surfaces as a slash command there and a same-named command would shadow it), `masora skill print` stays skill-only, CLI help + README install story carry one clause each. Tests: `test_skill.py` (command file installed == packaged, absent without the marker home, absent with no homes).
 - [ ] First rollout: create the base on the author's `employees/` dir + Confluence install page (install, `masora setup --base <url>`, usage); migration to a dedicated repo if adopted.
 - [ ] Agent-graded evaluation of the phase objective — the protocol is
   WRITTEN (docs/EVALUATION.md, pre-registered: paired A/B over ~20 tasks —

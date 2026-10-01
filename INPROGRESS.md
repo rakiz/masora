@@ -8,6 +8,30 @@
 
 ## Current phase
 
+**Done:** the four owner directives — (1) `STATEMENT_MAX` 900 → 1024 (owner
+calibration, power of two; tests/test_sync.py's literal 1000-char fixtures
+now derive from the constant); (2) the verify discipline gains the
+delegation rule (a sub-agent verifier re-checks the anchors against the
+graph, the brief carries them as cppgraph entry points) — mirrored
+byte-identically in AGENT_INSTRUCTIONS + the packaged skill; (3) signing =
+the exact model id, never an agent/orchestrator alias (instructions + skill
++ all five MCP write tools' `name` descriptions + FORMAT.md §4 wording);
+(4) the opencode command file reclassified a FIX of 0.5.0's omission — new
+0.6.1 Fixed section, out of 0.6.0's Added, pyproject 0.6.1. Tests: 3 new in
+test_skill.py; 639 green; ruff clean. Next task: the first rollout (TODO.md).
+
+**Done:** the opencode /masora slash command (rollout friction, second
+machine: opencode never surfaces an installed skill as a typed /command —
+only Claude Code does) — `masora skill install` now also writes
+`~/.config/opencode/commands/masora.md` from the new packaged template
+`masora/skills/masora/COMMAND.md` (routes $ARGUMENTS to the installed
+`masora` CLI, interpret-the-output body), same overwrite-as-update policy;
+Claude Code homes get NO command file (the skill already surfaces there, a
+same-named command would shadow it); `masora skill print` stays skill-only;
+CLI help + README carry one clause each. Tests: 3 new in test_skill.py
+(installed == packaged, absent without the marker home, absent with no
+homes). 639 tests green; ruff clean. Next task: the first rollout (TODO.md).
+
 **Done:** the gc unpublished-lineage exception + the stacked reflex (TODO.md,
 ticked) — gc splits its plan by PUBLISHED-NESS: per requested lineage, one
 read-only `ls-tree` of origin/main's tree (rev-parse probe first; missing

@@ -2,8 +2,14 @@
 description: Run the masora CLI and interpret the result
 ---
 
-Output of `masora $ARGUMENTS`:
+The user invoked /masora with: $ARGUMENTS
 
-!`masora $ARGUMENTS`
-
-Interpret this output: state whether the operation succeeded or failed. If diagnostic codes appear (E-* or W-*), explain them and suggest the concrete fix, applying the masora skill's knowledge-base rules. Do not re-run the command unless a follow-up verification is genuinely needed.
+Run `masora $ARGUMENTS` in the shell and capture BOTH stdout and stderr,
+then interpret the combined output: state whether the operation succeeded
+or failed. If a diagnostic code appears (E-* or W-*), explain it and
+suggest the concrete fix, applying the masora skill's knowledge-base
+rules. If the invocation was malformed (a guessed base directory, an
+unknown flag), correct it once — the base-taking subcommands (check,
+search, gc, compact, index) resolve the base from the checkout's masora
+configuration, and the MCP search tool resolves it on its own — and say
+what you corrected. Never loop: at most one corrective re-run.

@@ -265,6 +265,15 @@ Tasks:
   claims carry verified consequences a fresh code read under-weights).
   → masora/skills/masora/SKILL.md, docs/AGENT_INSTRUCTIONS.md,
   tests/test_docs.py.
+- [x] The cppgraph-side self-check inventory (docs/CPPGRAPH_INTEGRATION.md
+  `## 9`): the DIFF-able checklist of everything the cppgraph side must have
+  implemented — injection scope, binary detection, the flag, the spawn
+  (timeout/detached stdin/tree-kill/stdout cap), the fail-closed parser, the
+  rendering rules (budget, trust matrix, NOT envelope, no caching),
+  repo_root semantics, the PENDING items (input hygiene + the configurable
+  fact count), the read-only invariants — each with its verification shape
+  (a behavior or a test); the cppgraph agent diffs it against its own code
+  and implements the missing items. → docs/CPPGRAPH_INTEGRATION.md §9.
 - [ ] First rollout: create the base on the author's `employees/` dir + Confluence install page (install, `masora setup --base <url>`, usage); migration to a dedicated repo if adopted.
 - [ ] Agent-graded evaluation of the phase objective — the protocol is
   WRITTEN (docs/EVALUATION.md, pre-registered: paired A/B over ~20 tasks —

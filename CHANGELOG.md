@@ -6,6 +6,12 @@
       the current state only (release-notes style); the history of how the
       project got there lives between released versions. -->
 
+## [Unreleased]
+
+### Added
+
+- **The cppgraph-side self-check inventory** (docs/CPPGRAPH_INTEGRATION.md `## 9. cppgraph-side requirements — self-check inventory`): the DIFF-able checklist of everything the cppgraph side must have implemented, written so the cppgraph agent can diff it against its own code and implement the missing items — each row pairs the requirement with its verification shape (a behavior or a test): the injection scope (explain/who_calls/what_it_calls only), binary detection (instant silent skip), the `CPPGRAPH_MASORA` flag checked before any spawn, the spawn's hardening (2 s timeout, detached stdin, process-tree kill, stdout cap, failure = no injection never an error), the fail-closed parser (strict integer contract_version, whole-document rejection on a wrong type, additive-optional enrichment tolerated, unknown enums inert, summary ≤ 120 + printable), the rendering rules (the budget, the visible truncation, the trust matrix, the NOT envelope, the stale note only alongside facts, dedup, no caching), the repo_root semantics (a recorded-but-missing root skips; legacy graphs fall back to cwd), the PENDING items called out explicitly (input hygiene + the configurable `CPPGRAPH_MASORA_MAX_FACTS` fact count — implement next, not yet evidenced there) and the read-only invariants. Docs-only change.
+
 ## 0.5.1 — 2026-09-30
 
 ### Changed

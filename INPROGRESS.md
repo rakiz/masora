@@ -8,6 +8,17 @@
 
 ## Current phase
 
+**Done:** the cppgraph-side self-check inventory (TODO.md, ticked) —
+docs/CPPGRAPH_INTEGRATION.md `## 9`: the DIFF-able checklist of the full
+shipped contract, each row = requirement + verification shape (injection
+scope, binary detection, the flag, the spawn hardening, the fail-closed
+parser, the rendering/trust matrix, repo_root semantics, the PENDING
+input-hygiene + max-facts items marked implement-next, the read-only
+invariants). The doc-sync guards don't cover this file (the cppgraph
+contract lives outside tests/test_docs.py's diagnostics sync) — the suite +
+ruff ran anyway: 607 green; ruff clean. Next task: the first rollout
+(TODO.md).
+
 **Done:** the skill trigger fixed (TODO.md, ticked) — the live-rollout
 diagnosis (the shard-key question answered without masora; two verified
 claims missed) lands as: the frontmatter description names the question type

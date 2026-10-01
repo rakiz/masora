@@ -258,3 +258,21 @@ switch once the feature flag is turned on.
    responses and timing within noise.
 6. Report contract friction back to the Masora repo — shape changes land as a
    new major `contract_version`, never in place.
+
+## 9. cppgraph-side requirements — self-check inventory
+
+The checklist of everything the cppgraph side must have implemented, written
+to be DIFFED against its own code: each item names the requirement and how to
+verify it (a behavior or a test shape). An unchecked item is missing work.
+
+| # | Requirement | How to verify |
+|---|---|---|
+| 1 | Injection scope: `explain`/`who_calls`/`what_it_calls` only (the MCP `masora` field + the CLI printed lines) | A test per covered tool asserting the field/lines; a test per uncovered tool asserting their absence |
+| 2 | Detection: the masora binary on PATH (`shutil.which`); absent = instant silent skip, no spawn attempted | Remove masora from PATH in a test; assert byte-identical output and no subprocess spawned |
+| 3 | The flag: `CPPGRAPH_MASORA` — unset/`0`/`false` = OFF (the default until validated), `1`/`true` = ON; checked before any spawn | Parametrized flag tests (unset/`0`/`false`/`1`/`true`); a spawn-count assert on the OFF cases |
+| 4 | The spawn: `masora facts --repo <root> --symbol <S>`; a 2 s wall-clock timeout; the child's stdin DETACHED (MCP stdio-transport protection); the process TREE killed on timeout; an stdout cap (overflow = unparsable); any failure = no injection, never an error | A timeout test with a hanging child (assert the tree is gone after); a >cap-output test (unparsable, skipped); every failure mode asserts "no injection, no error" |
+| 5 | The parser: `contract_version` 1 as a strict integer (bool rejected); fail-closed per-fact shape validation (a wrong type rejects the WHOLE document); the additive-optional enrichment fields (`source`/`name`/`effort`/`anchors`) tolerated with defaults; unknown enum values inert; `summary` ≤ 120 + printable | Table-driven parser tests: a bool `contract_version`, one wrong-typed field in an otherwise-good document (whole-document rejection), missing enrichment fields (defaults), an unknown `effort`/`source` (inert), a 121-char summary |
+| 6 | Rendering: ≤ 2 facts, ≤ 60 tokens (CJK-aware estimate); the visible truncation line; at least one fact renders; statuses as labels (resolution, `verified(<source>)` bare, flags); the interpretive token ONLY for `verified(llm)` at `effort: low`; never under `verified(human)`/`verified(graph)`/`unverified`; the `NOT:` envelope for resolution `none`; the stale-index note only alongside facts; duplicate lineage ids deduped; no caching across responses | The §6 trust-matrix tests (every row); a >budget-facts test (truncation visible); a CJK-summary token estimate; a repeat-query test (no cached second render) |
+| 7 | `repo_root`: the store's recorded project root; a recorded-but-missing root SKIPS injection (never facts for the wrong checkout); legacy no-root graphs fall back to the cwd | A test with a store whose recorded root is deleted (skip asserted); a legacy store without the root (cwd fallback asserted) |
+| 8 | **PENDING ON THE CPPGRAPH SIDE (implement next — not yet evidenced there):** (a) INPUT HYGIENE — unknown parameters REJECTED, never silently ignored (the typo'd-param class silently returns unfiltered results); an absent path/filter target = an EXPLICIT error, never a silent whole-repo broadening; strict-argument tests proving both; (b) the CONFIGURABLE FACT COUNT — `CPPGRAPH_MASORA_MAX_FACTS` (default 2, higher allowed; the ≤ 60-token guidance stands; a cap reported visibly per the existing rule) | (a) a test per tool passing an unknown parameter (error, not unfiltered output) and an unmatchable filter (explicit error); (b) a test rendering with `CPPGRAPH_MASORA_MAX_FACTS=3` (three facts within the token budget; the cap visible when more match) |
+| 9 | The read-only invariants: never parse Masora's SQLite, never write anywhere Masora owns, never locate bases (only `--repo`) | A code-review item + a test asserting no file writes under `~/.local/share/masora` / `~/.config/masora` during an injection |

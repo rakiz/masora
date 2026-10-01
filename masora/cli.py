@@ -313,7 +313,9 @@ def main(argv: list[str] | None = None) -> int:
         help="install or print the packaged masora agent skill",
         description="install: write the packaged SKILL.md into every detected agent-framework"
         " skills dir (~/.claude, ~/.config/opencode — other frameworks are skipped silently),"
-        " creating the target dirs and overwriting on re-run (that is the update path);"
+        " creating the target dirs and overwriting on re-run (that is the update path); for"
+        " opencode this also installs the /masora slash command (commands/masora.md — Claude"
+        " Code already surfaces the skill as a slash command, so it gets no command file);"
         " print: the packaged content to stdout for any other mechanism. Copy-install only —"
         " masora never writes into a code repo.",
     )

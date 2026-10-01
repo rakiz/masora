@@ -109,7 +109,10 @@ same rules:
 - **The installable skill** — the rules ship inside the package:
   `masora skill install` writes `SKILL.md` into every detected agent
   framework's skills dir (`~/.claude`, `~/.config/opencode`; other
-  frameworks are skipped silently, re-running updates); `masora skill print`
+  frameworks are skipped silently, re-running updates) and, for opencode,
+  installs the `/masora` slash command into `~/.config/opencode/commands/`
+  (Claude Code already surfaces the skill as a slash command, so it gets
+  no command file); `masora skill print`
   pipes the content for any other mechanism. Its rules are conditional — the
   ritual tries `search` when the tools are available and continues normally
   when they are not.

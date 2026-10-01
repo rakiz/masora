@@ -274,6 +274,19 @@ Tasks:
   fact count), the read-only invariants — each with its verification shape
   (a behavior or a test); the cppgraph agent diffs it against its own code
   and implements the missing items. → docs/CPPGRAPH_INTEGRATION.md §9.
+- [x] `masora search <query>` — the base-dir positional is optional: omitted,
+  the base resolves like `masora facts` and the MCP tools (mappings on the
+  normalized `origin` remote, then `default_base`, MASORA_DESIGN.md §9) and
+  the header prints the resolved base; an explicit base_dir still wins and
+  the base gate is unchanged (skipped when None — resolution produces its own
+  refusal). New `E-SEARCH-NO-BASE` refuses exit 1 on stderr with the
+  cause-specific remedy (not a Git checkout / no readable origin / unmapped
+  repo with no default_base / broken mapping or config — "run masora setup
+  --base <url> in this checkout, or pass the base directory explicitly").
+  → `masora/cli.py` (`_run_search`, `_no_base_message`),
+  `masora/diagnostics.py` + docs/TROUBLESHOOTING.md, docs/ARCHITECTURE.md,
+  MASORA_DESIGN.md §12 (single-base-per-project decision), tests/test_index.py
+  (3 tests).
 - [ ] First rollout: create the base on the author's `employees/` dir + Confluence install page (install, `masora setup --base <url>`, usage); migration to a dedicated repo if adopted.
 - [ ] Agent-graded evaluation of the phase objective — the protocol is
   WRITTEN (docs/EVALUATION.md, pre-registered: paired A/B over ~20 tasks —

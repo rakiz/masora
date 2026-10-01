@@ -387,10 +387,13 @@ and adds FTS5 search. Section references are to MASORA_DESIGN.md.
   `W-IDX-STALE`; one walk of the base tree per read, no caching.
 - **CLI**: `masora index <base-dir> [--repo <path>] [--cppgraph <db>]
   [--no-cppgraph]` prints the graph store used, counts by status;
-  `masora search <base-dir> <query> [--repo <path>]` runs FTS and renders
+  `masora search [<base-dir>] <query> [--repo <path>]` runs FTS and renders
   `lineage [resolution verification flags]` + matched versions (MCP tools come
-  later). Exit codes: index 0/2 warnings/1 errors; search 0 (results or no
-  match) / 1 (no or unusable index) / 2 (invalid query syntax, `E-IDX-QUERY`).
+  later). When `base_dir` is omitted the base is resolved like `masora facts`
+  (mappings on the normalized origin remote, then `default_base`) and
+  `E-SEARCH-NO-BASE` refuses with the cause-specific remedy. Exit codes: index
+  0/2 warnings/1 errors; search 0 (results or no match) / 1 (no or unusable
+  index) / 2 (invalid query syntax, `E-IDX-QUERY`).
 
 ## Setup and user configuration (`masora/setup.py`, `masora/config.py`, MASORA_DESIGN.md §9)
 

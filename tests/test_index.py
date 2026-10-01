@@ -25,7 +25,7 @@ from helpers import (
 )
 
 from masora.cli import main
-from masora.config import indexes_root
+from masora.config import bases_root, indexes_root
 from masora.diagnostics import E_IDX_CORRUPT
 from masora.fold import Event
 from masora.index import (
@@ -944,3 +944,77 @@ def test_cli_and_mcp_render_the_details_line(base, repo, home, capsys):
     out = capsys.readouterr().out
     assert "matched keyword: CSFLE" in out
     assert f"details: masora explain {ULID_L1}" in out
+
+
+def origin_repo(tmp_path: Path, origin: str | None) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git(repo, "init", "-b", "main")
+    git(repo, "config", "user.name", "Masora Test")
+    git(repo, "config", "user.email", "masora@example.invalid")
+    if origin is not None:
+        git(repo, "remote", "add", "origin", origin)
+    return repo
+
+
+def configured_base(name: str) -> Path:
+    base_dir = bases_root() / name
+    base_dir.mkdir(parents=True)
+    (base_dir / "base.toml").write_text('name = "test-base"\ncode_remotes = []\n', encoding="utf-8")
+    return base_dir
+
+
+def test_search_without_base_dir_resolves_the_config_mapping(tmp_path, home, capsys):
+    repo = origin_repo(tmp_path, "git@github.internal:org/proj.git")
+    base_dir = configured_base("team")
+    write_event(base_dir, CLAIM_REL, make_claim(ULID_L1, summary=f"The {TOKES} rotates"))
+    assert build_index(base_dir, repo).errors == []
+    (home / "config.toml").write_text(
+        "[[mappings]]\n"
+        'code_remote = "https://GitHub.internal/org/proj.git"\n'
+        'bases = ["team"]\n\n'
+        "[bases.team]\n"
+        'remote = "git@github.internal:org/knowledge.git"\n',
+        encoding="utf-8",
+    )
+
+    code = main(["search", TOKES, "--repo", str(repo)])
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert f"masora search {base_dir}" in out
+    assert "1 match(es) in 1 lineage(s)" in out
+    assert f"  {ULID_L1} The {TOKES} rotates" in out
+
+
+def test_search_without_base_dir_uses_default_base(tmp_path, home, capsys):
+    repo = origin_repo(tmp_path, None)
+    base_dir = configured_base("solo")
+    write_event(base_dir, CLAIM_REL, make_claim(ULID_L1, summary=f"The {TOKES} rotates"))
+    assert build_index(base_dir, repo).errors == []
+    (home / "config.toml").write_text(
+        'default_base = "solo"\n\n[bases.solo]\nremote = "git@github.internal:org/solo.git"\n',
+        encoding="utf-8",
+    )
+
+    code = main(["search", TOKES, "--repo", str(repo)])
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert f"masora search {base_dir}" in out
+    assert "1 match(es) in 1 lineage(s)" in out
+
+
+def test_search_without_base_dir_refuses_an_unmapped_repo(tmp_path, home, capsys):
+    repo = origin_repo(tmp_path, "git@github.internal:org/unmapped.git")
+
+    code = main(["search", TOKES, "--repo", str(repo)])
+    captured = capsys.readouterr()
+
+    assert code == 1
+    assert captured.out == ""
+    assert "E-SEARCH-NO-BASE" in captured.err
+    assert (
+        "run masora setup --base <url> in this checkout, or pass the base directory explicitly"
+        in captured.err
+    )

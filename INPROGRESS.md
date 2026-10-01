@@ -8,6 +8,20 @@
 
 ## Current phase
 
+**Done:** `masora search <query>` — the base-dir positional is optional
+(TODO.md, ticked): omitted, the base resolves like `masora facts` and the MCP
+tools (`write.auto_base`: mappings on the normalized `origin` remote, then
+`default_base`) and the header prints the resolved base; an explicit base_dir
+keeps winning and the base gate is unchanged (skipped when None — resolution
+produces its own refusal). New `E-SEARCH-NO-BASE` refuses exit 1 on stderr
+with the cause-specific remedy (not a Git checkout / no readable origin /
+unmapped repo with no default_base / broken mapping or config), documented in
+docs/TROUBLESHOOTING.md the same change; MASORA_DESIGN.md §12 records the
+owner's single-base-per-project decision (multi-base config stays latent,
+internal-docs only). Tests: 3 new (mapping resolution, default_base,
+unmapped-repo refusal). 610 tests green; ruff clean. Next task: the first
+rollout (TODO.md).
+
 **Done:** the cppgraph-side self-check inventory (TODO.md, ticked) —
 docs/CPPGRAPH_INTEGRATION.md `## 9`: the DIFF-able checklist of the full
 shipped contract, each row = requirement + verification shape (injection

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .checker import check_base
 from .compact import run as run_compact
-from .diagnostics import E_IDX_QUERY, E_NOT_A_BASE, W_IDX_STALE, Diag
+from .diagnostics import E_IDX_QUERY, E_NOT_A_BASE, E_SEARCH_NO_BASE, W_IDX_STALE, Diag
 from .explain import ExplainError, explain_lineage
 from .facts import run as run_facts
 from .gc import run as run_gc
@@ -28,7 +28,7 @@ from .skill import run as run_skill
 from .status import installed_version
 from .status import run as run_status
 from .sync import run as run_sync
-from .write import WriteError, auto_base
+from .write import WriteError, auto_base, origin_state
 
 BASE_COMMANDS = ("check", "gc", "compact", "index", "search", "explain")
 
@@ -218,7 +218,14 @@ def main(argv: list[str] | None = None) -> int:
         help="run the FTS query over a built index and render status tuples (MASORA_DESIGN.md §6.2)",
         description="Exit codes: 0 results or no match, 1 errors (no/unusable index), 2 invalid query syntax. Prints W-IDX-STALE when the base or code state moved since the build, or events were written after it.",
     )
-    search.add_argument("base_dir", type=Path, help="path to the Masora base directory")
+    search.add_argument(
+        "base_dir",
+        type=Path,
+        nargs="?",
+        default=None,
+        help="path to the Masora base directory (omitted: resolved from the user config for"
+        " --repo — mappings on the normalized origin remote, then default_base)",
+    )
     search.add_argument("query", help="FTS MATCH query over summaries and statements")
     search.add_argument(
         "--repo",
@@ -308,7 +315,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    if args.command in BASE_COMMANDS and not _base_gate(args.base_dir):
+    if (
+        args.command in BASE_COMMANDS
+        and args.base_dir is not None
+        and not _base_gate(args.base_dir)
+    ):
         return 1
 
     if args.command == "check":
@@ -439,7 +450,46 @@ def _run_index(base_dir: Path, repo: Path, cppgraph: Path | None, no_cppgraph: b
     return 2 if result.warnings else 0
 
 
-def _run_search(base_dir: Path, query: str, repo: Path) -> int:
+def _no_base_message(repo: Path) -> str:
+    """The cause-specific no-base refusal for `masora search` (same detection as `masora facts`;
+    the remedies may also point at search's own explicit base_dir)."""
+    kind, _remote = origin_state(repo)
+    if kind == "not_git_worktree":
+        return (
+            f"no base resolved for {repo}: --repo is not a Git checkout — pass the code"
+            " checkout itself (not its workspace parent), or pass the base directory"
+            " explicitly"
+        )
+    if kind == "git_without_origin":
+        return (
+            f"no base resolved for {repo}: the checkout has no readable origin, so"
+            " mapping-based resolution is unavailable — configure origin or configure"
+            " default_base, or pass the base directory explicitly"
+        )
+    return (
+        f"no base resolved for {repo}: no [[mappings]] entry matches its origin remote and"
+        " no default_base is configured — run masora setup --base <url> in this checkout, or"
+        " pass the base directory explicitly"
+    )
+
+
+def _run_search(base_dir: Path | None, query: str, repo: Path) -> int:
+    if base_dir is None:
+        try:
+            base_dir = auto_base(repo)
+        except WriteError as exc:
+            diag = exc.diags[0]
+            print(
+                f"  {Diag('error', E_SEARCH_NO_BASE, diag.message, diag.path).render()}",
+                file=sys.stderr,
+            )
+            return 1
+        if base_dir is None:
+            print(
+                f"  {Diag('error', E_SEARCH_NO_BASE, _no_base_message(repo)).render()}",
+                file=sys.stderr,
+            )
+            return 1
     print(f"masora search {base_dir}")
     if not base_dir.is_dir():
         print(f"masora search: base directory does not exist: {base_dir}", file=sys.stderr)

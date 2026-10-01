@@ -622,6 +622,13 @@ SPEC.md). Items 6 and 8 remain postponed.
    behaviour is claimed but unproven. The data exists on both sides; nothing
    about the mechanism, the ranking or the surface is decided.
 
+12. **Single base per project** — *settled 2026-10-01 with the design owner*:
+    one base per code project is the expected usage in practice; the
+    multi-base configuration (§9's `[[mappings]]` / `[bases.<name>]`) stays a
+    latent capability documented only in the internal docs (SPEC.md,
+    MASORA_DESIGN.md, docs/ARCHITECTURE.md), never in install-facing docs
+    (README).
+
 Non-blocking refinements recorded from the design review (not Phase 1 scope):
 computed-status presentation matrix (`current + suspect`, `stale + suspect`,
 `restored`, provider-`unknown`); canonical proof-query vocabulary with

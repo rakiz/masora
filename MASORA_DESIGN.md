@@ -629,6 +629,21 @@ SPEC.md). Items 6 and 8 remain postponed.
     MASORA_DESIGN.md, docs/ARCHITECTURE.md), never in install-facing docs
     (README).
 
+13. **Sync-time stacking audit** — *settled 2026-10-01 with the design owner*:
+    a multi-fact "block claim" note is tolerated locally (no command blocks on
+    writing one) but must not reach the shared base — the publication gate is
+    where containment matters. `masora sync` audits its pending set (the added
+    CLAIM events only; verify/doubt/refute are structurally small) with
+    conservative stacking heuristics — statement length, anchor count, anchors
+    spanning several files — and refuses (`E-SYNC-STACKED`) naming each
+    flagged lineage with its fired signals and the split remedy; the refusal
+    mutates nothing. `--allow-stacked` is the explicit human decision to
+    publish anyway: the refusal becomes a per-lineage `W-SYNC-STACKED`
+    warning riding the PR body. The thresholds are conservative constants
+    (`masora/audit.py`), pending calibration on the real base — the
+    132-lineage audit expects the 7 known block claims to fire and the 125
+    clean ones to pass.
+
 Non-blocking refinements recorded from the design review (not Phase 1 scope):
 computed-status presentation matrix (`current + suspect`, `stale + suspect`,
 `restored`, provider-`unknown`); canonical proof-query vocabulary with

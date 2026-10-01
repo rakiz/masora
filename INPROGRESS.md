@@ -8,6 +8,23 @@
 
 ## Current phase
 
+**Done:** the sync-time stacked-note audit (TODO.md, ticked) — the
+publication gate audits the pending set (`masora/audit.py`: pure
+`stacking_signals`/`audit_pending` over the parsed pending CLAIM events;
+verify/doubt/refute skipped) on three conservative thresholds — statement
+> 900 chars, > 8 anchors, anchors spanning > 3 distinct files (the SCIP
+source-unit token of the identity; `.` = no file) — constants pending
+calibration on the real base (132 lineages: 7 block claims must fire, 125
+clean must pass). Flagged lineages named one per line with their signals +
+the split remedy; refusal `E-SYNC-STACKED` exit 1, nothing mutated, only
+ADDED events audited (a block claim already on origin/main never blocks a
+later sync). `--allow-stacked` = the explicit human override: per-lineage
+`W-SYNC-STACKED` warning rides the PR body, flow continues. Both codes
+documented the same change (two-way guarded); MASORA_DESIGN §12 item 13;
+ARCHITECTURE's Sync section states the gate order (after the diff, before
+any mutation). Tests: tests/test_audit.py (10), 4 new in tests/test_sync.py
+(refusal, override, clean pass, pending-scope). Suite green; ruff clean.
+
 **Done:** the anti-grep-the-base rule (TODO.md, ticked) — the `## Retrieval
 budget` section names the masora base itself as off-limits to text search:
 step 1 gains the enumeration route (`search '*'` lists every indexed lineage
@@ -94,9 +111,7 @@ test loops (the sentinel reclassifies them). Tests: 3 index
 (`test_mcp_search_star_enumerates`). 614 tests green; ruff clean. Next
 task: the first rollout (TODO.md).
 
-**Working now:** the rollout-lesson batch from the atomicity audit (TODO.md,
-one item): the sync-time stacked-note audit (pending-set heuristics,
-E-SYNC-STACKED refusal, --allow-stacked override). Commit per item, no push.
+**Working now:** nothing — the atomicity-audit batch is complete; next task: the first rollout (TODO.md). Threshold calibration on the real base (7 must fire / 125 must pass) happens at the next sync.
 
 **Done:** the explain surface (TODO.md — the item PROMOTED out of
 out-of-scope, ticked) — `masora/explain.py` (the fresh one-lineage story:

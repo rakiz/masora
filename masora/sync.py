@@ -17,6 +17,7 @@ from pathlib import Path
 
 import yaml
 
+from .audit import REMEDY, audit_pending
 from .checker import FILENAME_RE, check_base
 from .diagnostics import (
     E_FOUNDER,
@@ -25,8 +26,10 @@ from .diagnostics import (
     E_MERGE_BASE,
     E_NO_ORIGIN,
     E_REWRITE,
+    E_SYNC_STACKED,
     E_TOMBSTONE_SHAPE,
     E_TOMBSTONE_SHRINK,
+    W_SYNC_STACKED,
     CheckFailure,
     Diag,
 )
@@ -79,17 +82,17 @@ class EventFile:
     evidence_count: int = 0
 
 
-def run(base_dir: Path, drop: bool = False, push: bool = False) -> int:
+def run(base_dir: Path, drop: bool = False, push: bool = False, allow_stacked: bool = False) -> int:
     print(f"masora sync {base_dir}")
     if not base_dir.is_dir():
         print(f"masora sync: base directory does not exist: {base_dir}", file=sys.stderr)
         return 1
     if drop:
         return _run_drop(base_dir)
-    return _run_publish(base_dir, push)
+    return _run_publish(base_dir, push, allow_stacked)
 
 
-def _run_publish(base_dir: Path, push: bool) -> int:
+def _run_publish(base_dir: Path, push: bool, allow_stacked: bool = False) -> int:
     local = check_base(base_dir)
     print(
         f"local check: scanned {local.file_count} event file(s), {local.lineage_count} lineage(s)"
@@ -147,6 +150,14 @@ def _run_publish(base_dir: Path, push: bool) -> int:
                 f"{len(added_ids)} added, {len(common_ids) - len(rewritten_ids)} unchanged, "
                 f"{len(rewritten_ids)} rewritten, {len(deleted_ids)} deleted"
             )
+
+            stacked = _stacked_pending(local_events, added_ids)
+            if stacked:
+                _report_stacked(stacked, local_events, allow_stacked, warnings)
+                if not allow_stacked:
+                    print(REMEDY)
+                    print(f"FAILED: {len(stacked)} error(s)")
+                    return 1
 
             pairs_local = _tombstone_pairs(
                 (base_dir / "deleted.toml").read_bytes()
@@ -373,6 +384,59 @@ def _run_drop(base_dir: Path) -> int:
         "note: the local .md files of the dropped events were left in place; delete them or edit before the next sync"
     )
     return 0
+
+
+def _stacked_pending(
+    local_events: dict[str, EventFile], added_ids: list[str]
+) -> dict[str, list[str]]:
+    """The stacking audit over the pending CLAIM events; the parsed claim
+    events come from sync's own lenient frontmatter read (already past the
+    local check gate, so every pending file parses)."""
+    pairs = []
+    for event_id in added_ids:
+        event = local_events[event_id]
+        if event.kind != "claim":
+            continue
+        data = _lenient_frontmatter(event.content, Path(event.path).name)
+        if data is not None:
+            pairs.append((event.path, data))
+    return audit_pending(pairs)
+
+
+def _report_stacked(
+    stacked: dict[str, list[str]],
+    local_events: dict[str, EventFile],
+    allow_stacked: bool,
+    warnings: list[Diag],
+) -> None:
+    """One line per flagged lineage with its fired signals: a refusal when the
+    override is absent, a W-SYNC-STACKED warning riding the plan with it."""
+    print(
+        f"stacked block claims in the pending set: {_plural(len(stacked), 'lineage', 'lineages')}"
+    )
+    for key, signals in sorted(stacked.items()):
+        label, path = _stacked_label_path(key, local_events)
+        message = f"{label}: {'; '.join(signals)}"
+        if allow_stacked:
+            diag = Diag(
+                "warning",
+                W_SYNC_STACKED,
+                f"{message} — published with --allow-stacked",
+                path,
+            )
+            print(f"  {diag.render()}")
+            warnings.append(diag)
+        else:
+            print(f"  {Diag('error', E_SYNC_STACKED, message, path).render()}")
+
+
+def _stacked_label_path(key: str, events: dict[str, EventFile]) -> tuple[str, str | None]:
+    """Display label and file path of a flagged lineage id — the founder's
+    slug when the lineage resolves, else the key itself (a pathless file)."""
+    founder = events.get(key)
+    if founder is not None and founder.lineage == key:
+        return _lineage_label(founder, events), founder.path
+    return key, key if key.endswith(".md") else None
 
 
 def _deletion_diags(

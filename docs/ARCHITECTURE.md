@@ -141,6 +141,16 @@ Pipeline (each step's failures abort with exit 1):
    `gh`, or the compare URL printed. Idempotent: when the branch already
    carries the pending set, nothing is pushed.
 
+Between the diff (step 3) and the tampering checks (step 4), the pending CLAIM
+events run through the stacking audit (`masora/audit.py`, MASORA_DESIGN.md
+§12): conservative heuristics — statement length, anchor count, anchors
+spanning several files — decide nothing locally, only publication. Each
+flagged lineage is named with its fired signals; `sync` refuses
+(`E-SYNC-STACKED`) with the split remedy, mutating nothing.
+`--allow-stacked` is the explicit human override: the refusal becomes a
+per-lineage `W-SYNC-STACKED` warning riding the PR body and the flow
+continues.
+
 - `--push` (solo base): pushes the merged commit straight to `origin/main`
   and advances the local `main`.
 - `--drop`: closes the PR (`gh` when available), deletes `masora/pending`

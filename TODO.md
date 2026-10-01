@@ -307,7 +307,7 @@ Tasks:
   `list_stale`, NEVER grep the base's `*.md` event files; mirrored
   byte-identical into the skill. → docs/AGENT_INSTRUCTIONS.md,
   masora/skills/masora/SKILL.md, tests/test_docs.py.
-- [ ] Sync-time stacked-note audit (owner's ruling: a multi-fact note is
+- [x] Sync-time stacked-note audit (owner's ruling: a multi-fact note is
   tolerated locally but must not reach the shared base — the publication gate
   is where containment matters): `sync` audits the pending set with stacking
   heuristics (statement length, anchor count, anchors spanning several files,
@@ -318,7 +318,9 @@ Tasks:
   unless `--allow-stacked` (then a per-lineage W-SYNC-STACKED warning rides
   the plan). → masora/audit.py, masora/sync.py, masora/cli.py,
   masora/diagnostics.py + docs/TROUBLESHOOTING.md, MASORA_DESIGN.md §12,
-  docs/ARCHITECTURE.md, tests.
+  docs/ARCHITECTURE.md, tests/test_audit.py
+  (`test_audit_pending_merges_signals_across_claims_of_a_lineage`),
+  tests/test_sync.py.
 - [ ] First rollout: create the base on the author's `employees/` dir + Confluence install page (install, `masora setup --base <url>`, usage); migration to a dedicated repo if adopted.
 - [ ] Agent-graded evaluation of the phase objective — the protocol is
   WRITTEN (docs/EVALUATION.md, pre-registered: paired A/B over ~20 tasks —

@@ -730,3 +730,70 @@ def test_pr_body_truncates_long_reason_at_eighty_chars():
 
     assert "word " * 16 + "…" in body
     assert "word " * 17 not in body
+
+
+STACKED_STATEMENT = "x" * 1000
+
+
+def test_sync_stacked_claim_refuses_publication(repo, capsys):
+    base, origin = repo
+    main_before = git(origin, "rev-parse", "refs/heads/main")
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, statement=STACKED_STATEMENT))
+
+    code = sync_run(base)
+
+    assert code == 1
+    out = capsys.readouterr().out
+    assert "E-SYNC-STACKED" in out
+    assert "one-line-summary" in out
+    assert "statement is 1000 chars" in out
+    assert "split into atomic notes" in out
+    assert not rev_ok(origin, "refs/heads/masora/pending")
+    assert git(origin, "rev-parse", "refs/heads/main") == main_before
+
+
+def test_sync_allow_stacked_warns_and_publishes(repo, fake_gh, github_remote, capsys):
+    base, origin = repo
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, statement=STACKED_STATEMENT))
+
+    code = sync_run(base, allow_stacked=True)
+
+    assert code == 2
+    out = capsys.readouterr().out
+    assert "W-SYNC-STACKED" in out
+    assert "one-line-summary" in out
+    assert "statement is 1000 chars" in out
+    assert "synced with warnings: 1 warning(s)" in out
+    assert rev_ok(origin, "refs/heads/masora/pending")
+    create = gh_calls(fake_gh)[1]
+    assert "W-SYNC-STACKED" in create["stdin"]
+    assert "one-line-summary" in create["stdin"]
+
+
+def test_sync_clean_claim_passes_the_stacking_audit(repo, capsys):
+    base, _origin = repo
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+
+    code = sync_run(base)
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "E-SYNC-STACKED" not in out
+    assert "W-SYNC-STACKED" not in out
+
+
+def test_sync_stacking_audit_covers_only_added_claims(repo, capsys):
+    # A block claim already on origin/main is tolerated: the gate audits the
+    # pending set — what has not reached the shared base yet.
+    base, _origin = repo
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, statement=STACKED_STATEMENT))
+    seed(base)
+    write_event(base, VERIFY_REL, make_verify(ULID_V1A, ULID_L1, ULID_L1))
+
+    code = sync_run(base)
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "E-SYNC-STACKED" not in out
+    assert "W-SYNC-STACKED" not in out
+    assert "synced: 1 pending event(s)" in out

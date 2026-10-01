@@ -89,6 +89,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="solo-base mode: push the merged result directly to origin/main instead of a pending branch and PR",
     )
+    sync.add_argument(
+        "--allow-stacked",
+        action="store_true",
+        help="publish flagged block claims anyway, per-lineage warning",
+    )
     init = sub.add_parser(
         "init",
         help="create a new Masora base locally (MASORA_DESIGN.md §9)",
@@ -332,7 +337,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "sync":
         if args.drop and args.push:
             sync.error("--drop and --push are mutually exclusive")
-        return run_sync(args.base_dir, drop=args.drop, push=args.push)
+        return run_sync(
+            args.base_dir, drop=args.drop, push=args.push, allow_stacked=args.allow_stacked
+        )
     if args.command == "setup":
         return run_setup(args.base)
     if args.command == "init":

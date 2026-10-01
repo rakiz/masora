@@ -82,10 +82,20 @@ FTS (`index`, searched by `search`).
 0. **Base gate**: `base.toml` must exist at the passed root (`E-NOT-A-BASE`)
    — a directory that is not a base refuses up front instead of walking the
    tree into confusing stray-file errors; the gate covers every consumer
-   (the CLI commands, the write-path pre/post checks, the compact/gc gates),
-   and the CLI dispatch for `check`/`gc`/`compact`/`index`/`search` adds the
+   (the CLI commands, the write-path pre/post checks, the compact/gc gates).
+   The CLI dispatch for `check`/`sync`/`gc`/`compact`/`index`/`search` runs
+   one pre-flight base gate before any work: an omitted `base_dir` resolves
+   the base in order — the hinted directory itself when it is a base
+   (`base.toml` at its root: the cwd for `check`/`sync`/`gc`/`compact`,
+   `--repo` for `index`/`search`/`explain`), then the checkout's masora
+   configuration (the `write.auto_base`
+   chain — mappings on the normalized `origin` remote, then `default_base`,
+   the same resolution the MCP tools perform) — and the command proceeds with
+   the resolved directory, while a passed non-base root is refused with the
    smart remedy — the base configured for the current repo's `origin`
-   remote, when one resolves (it never auto-corrects, exit 1 stands).
+   remote, when one resolves (it never auto-corrects, exit 1 stands). For
+   `sync` the gate precedes any diff or mutation: a refused run mutates
+   nothing.
 1. Discover `**/*.md`.
 2. Parse each file: filename regex + ULID, frontmatter canonicalization,
    per-kind schema; `id`/`kind` must equal the filename's (`E-FILENAME`).
@@ -109,6 +119,10 @@ Standalone `check` does no anchor resolution and no append-only diff — both
 need git/provider context and belong to `sync`.
 
 ## Sync (`masora/sync.py`, §7.8–§7.10, MASORA_DESIGN.md §8)
+
+The base directory is resolved (or refused, `E-NOT-A-BASE`) by the CLI's
+pre-flight base gate — before this pipeline, before any diff or mutation: a
+refused sync mutates nothing.
 
 Pipeline (each step's failures abort with exit 1):
 
@@ -411,9 +425,13 @@ and adds FTS5 search. Section references are to MASORA_DESIGN.md.
   [--no-cppgraph]` prints the graph store used, counts by status;
   `masora search [<base-dir>] <query> [--repo <path>]` runs FTS and renders
   `lineage [resolution verification flags]` + matched versions (MCP tools come
-  later). When `base_dir` is omitted the base is resolved like `masora facts`
-  (mappings on the normalized origin remote, then `default_base`) and
-  `E-SEARCH-NO-BASE` refuses with the cause-specific remedy. Exit codes: index
+   later). When `base_dir` is omitted the base is resolved by the shared
+   gate's order — the hinted directory itself when it holds `base.toml`
+   (`--repo`, else the cwd), then like `masora facts` (mappings on the
+   normalized origin remote, then `default_base`); an
+   unresolvable checkout refuses with `E-NOT-A-BASE` and the cause-specific
+   remedy — the same pre-flight gate every base-taking CLI command runs.
+  Exit codes: index
   0/2 warnings/1 errors; search 0 (results or no match) / 1 (no or unusable
   index) / 2 (invalid query syntax, `E-IDX-QUERY`).
 

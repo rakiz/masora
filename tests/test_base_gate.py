@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from helpers import make_claim, write_event
+from helpers import ULID_L1, make_claim, write_event
 
 from masora.cli import main
 from masora.sync import git_env
@@ -52,6 +52,24 @@ def tree_bytes(base: Path) -> dict[str, bytes]:
         for path in sorted(base.rglob("*"))
         if path.is_file() and ".git" not in path.parts
     }
+
+
+def write_mapping_config(masora_home: Path, name: str, code_remote: str) -> Path:
+    """A minimal valid base under the masora home, registered for `code_remote` by
+    a [[mappings]] entry (the shape `masora setup` writes)."""
+    base = masora_home / "bases" / name / "masora_mdb"
+    base.mkdir(parents=True)
+    (base / "base.toml").write_text(f'name = "{name}"\ncode_remotes = []\n', encoding="utf-8")
+    (masora_home / "config.toml").write_text(
+        "[[mappings]]\n"
+        f'code_remote = "{code_remote}"\n'
+        f'bases = ["{name}"]\n\n'
+        f"[bases.{name}]\n"
+        'remote = "git@github.internal:org/checkout.git"\n'
+        'path = "masora_mdb"\n',
+        encoding="utf-8",
+    )
+    return base
 
 
 def test_check_refuses_a_git_repo_root_without_base_toml(checkout_root, capsys):
@@ -133,6 +151,146 @@ def test_remedy_absent_when_no_mapping_resolves(checkout_root, capsys):
     out = capsys.readouterr().out
     assert "E-NOT-A-BASE" in out
     assert "the base configured for this repo" not in out
+
+
+def test_omitted_base_dir_resolves_the_configured_base(checkout_root, masora_home, capsys):
+    """The friction: a base-taking command run with no path resolves the base from
+    the checkout's masora configuration and runs against it."""
+    git(checkout_root, "remote", "add", "origin", "git@github.internal:org/checkout.git")
+    base = write_mapping_config(masora_home, "employees", "github.internal/org/checkout.git")
+
+    assert main(["check"]) == 0
+    out = capsys.readouterr().out
+    assert f"masora check {base}" in out
+    assert "clean: no errors, no warnings" in out
+
+
+def test_omitted_base_dir_resolves_default_base(checkout_root, masora_home, capsys):
+    """An origin-less checkout still resolves through `default_base` — the same
+    semantics as the MCP write tools' resolution."""
+    base = masora_home / "bases" / "solo" / "masora_mdb"
+    base.mkdir(parents=True)
+    (base / "base.toml").write_text('name = "solo"\ncode_remotes = []\n', encoding="utf-8")
+    (masora_home / "config.toml").write_text(
+        'default_base = "solo"\n\n'
+        "[bases.solo]\n"
+        'remote = "git@github.internal:org/checkout.git"\n'
+        'path = "masora_mdb"\n',
+        encoding="utf-8",
+    )
+
+    assert main(["check"]) == 0
+    assert f"masora check {base}" in capsys.readouterr().out
+
+
+def test_omitted_base_dir_refuses_when_nothing_resolves(checkout_root, masora_home, capsys):
+    git(checkout_root, "remote", "add", "origin", "git@github.internal:org/checkout.git")
+
+    code = main(["check"])
+
+    assert code == 1
+    out = capsys.readouterr().out
+    assert "E-NOT-A-BASE" in out
+    assert "no [[mappings]] entry matches its origin remote" in out
+    assert (
+        "run masora setup --base <url> in this checkout, or pass the base directory explicitly"
+        in out
+    )
+    assert "FAILED: 1 error(s)" in out
+
+
+def test_explicit_base_dir_wins_over_the_configuration(checkout_root, masora_home, capsys):
+    git(checkout_root, "remote", "add", "origin", "git@github.internal:org/checkout.git")
+    configured = write_mapping_config(masora_home, "employees", "github.internal/org/checkout.git")
+    explicit = checkout_root / "local-base"
+    explicit.mkdir()
+    (explicit / "base.toml").write_text('name = "local"\ncode_remotes = []\n', encoding="utf-8")
+
+    assert main(["check", str(explicit)]) == 0
+    out = capsys.readouterr().out
+    assert f"masora check {explicit}" in out
+    assert str(configured) not in out
+
+
+def test_check_from_inside_a_base_directory_runs_it(
+    checkout_root, masora_home, monkeypatch, capsys
+):
+    """Run from inside a base directory with no positional and no configured
+    mapping: the command runs that base."""
+    base = checkout_root / "the-base"
+    base.mkdir()
+    (base / "base.toml").write_text('name = "B"\ncode_remotes = []\n', encoding="utf-8")
+    monkeypatch.chdir(base)
+
+    assert main(["check"]) == 0
+    out = capsys.readouterr().out
+    assert f"masora check {base}" in out
+    assert "E-NOT-A-BASE" not in out
+
+
+def test_sync_from_inside_a_base_directory_runs_it(checkout_root, masora_home, monkeypatch, capsys):
+    """Same default for sync: the gate resolves the hinted (cwd) base and sync
+    is dispatched with it — the sync machinery never sees a refusal."""
+    base = checkout_root / "the-base"
+    base.mkdir()
+    (base / "base.toml").write_text('name = "B"\ncode_remotes = []\n', encoding="utf-8")
+    monkeypatch.chdir(base)
+    captured: dict = {}
+
+    def fake_sync(base_dir, **kwargs):
+        captured["base"] = base_dir
+        return 0
+
+    monkeypatch.setattr("masora.cli.run_sync", fake_sync)
+
+    assert main(["sync"]) == 0
+    assert captured["base"] == base
+    assert "E-NOT-A-BASE" not in capsys.readouterr().out
+
+
+def test_the_hinted_base_beats_the_configuration(checkout_root, masora_home, monkeypatch, capsys):
+    """Order: explicit positional > the hinted directory IS a base > the
+    configuration chain — a base.toml in the hint dir wins over a mapping."""
+    git(checkout_root, "remote", "add", "origin", "git@github.internal:org/checkout.git")
+    configured = write_mapping_config(masora_home, "employees", "github.internal/org/checkout.git")
+    here = checkout_root / "here-base"
+    here.mkdir()
+    (here / "base.toml").write_text('name = "here"\ncode_remotes = []\n', encoding="utf-8")
+    monkeypatch.chdir(here)
+
+    assert main(["check"]) == 0
+    out = capsys.readouterr().out
+    assert f"masora check {here}" in out
+    assert str(configured) not in out
+
+
+def test_omitted_base_dir_resolves_for_gc_compact_and_index(checkout_root, masora_home, capsys):
+    """The shared gate resolution feeds every base-taking command: each runs
+    against the resolved base (its header names it) instead of refusing."""
+    git(checkout_root, "remote", "add", "origin", "git@github.internal:org/checkout.git")
+    base = write_mapping_config(masora_home, "employees", "github.internal/org/checkout.git")
+    write_event(
+        base,
+        "2026-09/x/01J8Z3K0000000000000000000.claim.md",
+        make_claim(ULID_L1),
+    )
+
+    # An unknown-but-well-formed lineage proves gc ran on the resolved base
+    # (the gate passed; the refusal would be E-NOT-A-BASE instead).
+    assert main(["gc", "--lineage", "01J8Z3K0000000000000000001"]) == 1
+    out = capsys.readouterr().out
+    assert f"masora gc {base}" in out
+    assert "E-GC-UNKNOWN" in out
+
+    capsys.readouterr()
+    assert main(["compact"]) == 0
+    out = capsys.readouterr().out
+    assert f"masora compact {base}" in out
+
+    capsys.readouterr()
+    assert main(["index", "--repo", str(checkout_root)]) == 0
+    out = capsys.readouterr().out
+    assert f"masora index {base}" in out
 
 
 def test_a_freshly_inited_base_passes_the_gate(tmp_path, capsys):

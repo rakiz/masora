@@ -1055,9 +1055,8 @@ def test_search_without_base_dir_refuses_an_unmapped_repo(tmp_path, home, capsys
     captured = capsys.readouterr()
 
     assert code == 1
-    assert captured.out == ""
-    assert "E-SEARCH-NO-BASE" in captured.err
+    assert "E-NOT-A-BASE" in captured.out
     assert (
         "run masora setup --base <url> in this checkout, or pass the base directory explicitly"
-        in captured.err
+        in captured.out
     )

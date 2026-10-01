@@ -54,7 +54,7 @@ Requires Python ≥ 3.13.
 uv tool install .        # or: pip install .
 masora init <base-dir> --name "<team>" [--code-remote <url>]...  # create a NEW base locally: git repo + base.toml + first commit
 masora setup --base <url>[#<path>]  # clone a base + write ~/.config/masora/config.toml from its base.toml
-masora check <base-dir>  # validate a base (exit 0/1/2)
+masora check <base-dir>  # validate a base (exit 0/1/2) — in a checkout registered with `masora setup`, the base directory may be omitted (every base-taking command resolves it from the configuration)
 masora compact <base-dir>  # drop pure history per lineage, fold-verified; --rehome migrates old directory layouts (plan exits 3; --yes executes)
 masora sync              # publish pending events: one branch + one PR
 masora explain <base-dir> <lineage-ulid>  # the complete story of ONE lineage, statuses included

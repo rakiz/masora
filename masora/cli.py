@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .checker import check_base
 from .compact import run as run_compact
-from .diagnostics import E_IDX_QUERY, E_NOT_A_BASE, E_SEARCH_NO_BASE, W_IDX_STALE, Diag
+from .diagnostics import E_IDX_QUERY, E_NOT_A_BASE, W_IDX_STALE, Diag
 from .explain import ExplainError, explain_lineage
 from .facts import run as run_facts
 from .gc import run as run_gc
@@ -41,17 +41,56 @@ def _configured_base_hint() -> Path | None:
         return None
 
 
-def _base_gate(base_dir: Path) -> bool:
-    """Refuse a non-base root up front with E-NOT-A-BASE plus the configured-base
-    remedy for this repo's remote; the commands never auto-correct."""
-    if not base_dir.is_dir() or (base_dir / "base.toml").is_file():
-        return True
-    print(f"  {Diag('error', E_NOT_A_BASE, f'not a base: no base.toml at {base_dir}').render()}")
-    hint = _configured_base_hint()
+def _refuse_no_base(message: str, hint: Path | None = None) -> None:
+    """The E-NOT-A-BASE refusal shape: the diagnostic, the optional configured-base
+    hint, the FAILED summary."""
+    print(f"  {Diag('error', E_NOT_A_BASE, message).render()}")
     if hint is not None:
         print(f"the base configured for this repo: {hint}")
     print("FAILED: 1 error(s)")
-    return False
+
+
+def _base_gate(base_dir: Path | None, repo_hint: Path) -> Path | None:
+    """The CLI's pre-flight base gate, before any command work; returns the base
+    directory the command runs against, or None when it is refused.
+
+    A passed root must be a base — refused with E-NOT-A-BASE plus the
+    configured-base remedy for this repo's remote; the commands never
+    auto-correct. An omitted positional resolves the base in order: the hinted
+    directory itself when it is a base (`base.toml` at its root — the cwd for
+    check/sync/gc/compact, `--repo` for index/search/explain), then the
+    checkout's masora configuration (`write.auto_base`: mappings on the
+    normalized origin remote, then `default_base` — the same chain the MCP
+    write tools resolve with), and the command proceeds with the resolved
+    directory as if it had been passed; a failed resolution refuses with the
+    same E-NOT-A-BASE code and a remedy stating both fixes — pass the base
+    directory explicitly, or run `masora setup --base <url>` in this checkout.
+    The gate runs before sync's diff and mutation too, so a refused sync still
+    mutates nothing.
+    """
+    if base_dir is not None:
+        # A missing directory passes — each command reports its own existence
+        # error; the gate refuses an existing root without base.toml.
+        if not base_dir.is_dir() or (base_dir / "base.toml").is_file():
+            return base_dir
+        _refuse_no_base(f"not a base: no base.toml at {base_dir}", _configured_base_hint())
+        return None
+    if (repo_hint / "base.toml").is_file():
+        # The hinted directory itself is a base: a bare command run from inside
+        # a base directory runs it, ahead of the configuration chain.
+        return repo_hint
+    try:
+        resolved = auto_base(repo_hint)
+    except (WriteError, OSError) as exc:
+        _refuse_no_base(
+            f"no base resolved for {repo_hint}: {exc} — run masora setup --base <url>"
+            " in this checkout, or pass the base directory explicitly"
+        )
+        return None
+    if resolved is not None:
+        return resolved
+    _refuse_no_base(_unresolved_base_message(repo_hint))
+    return None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -66,7 +105,14 @@ def main(argv: list[str] | None = None) -> int:
         help="validate a base (whole-tree self-consistency per FORMAT.md §7)",
         description="Exit codes: 0 clean, 1 errors, 2 warnings only. Standalone mode: schema, uniqueness, tombstones and fold validity; no anchor provider, no append-only diff (that is `sync`).",
     )
-    check.add_argument("base_dir", type=Path, help="path to the Masora base directory")
+    check.add_argument(
+        "base_dir",
+        type=Path,
+        nargs="?",
+        default=None,
+        help="path to the Masora base directory (omitted: resolved from the checkout's"
+        " masora configuration — mappings on the normalized origin remote, then default_base)",
+    )
     sync = sub.add_parser(
         "sync",
         help="publish pending events as one branch and one PR (MASORA_DESIGN.md §8)",
@@ -76,8 +122,9 @@ def main(argv: list[str] | None = None) -> int:
         "base_dir",
         type=Path,
         nargs="?",
-        default=Path("."),
-        help="path to the Masora base directory (default: current directory)",
+        default=None,
+        help="path to the Masora base directory (omitted: resolved from the checkout's"
+        " masora configuration — mappings on the normalized origin remote, then default_base)",
     )
     sync.add_argument(
         "--drop",
@@ -152,7 +199,14 @@ def main(argv: list[str] | None = None) -> int:
         help="delete whole lineages on explicit, confirmed request (FORMAT.md §7.10)",
         description="Exit codes: 3 plan printed (nothing written), 0 deleted, 2 deleted with warnings, 1 errors. Runs masora check before and after the mutation and removes every event file of the requested lineage(s). Lineages present on origin/main get their tombstone appended to deleted.toml; lineages origin/main never saw are removed without tombstone rows. gc never suggests lineages.",
     )
-    gc.add_argument("base_dir", type=Path, help="path to the Masora base directory")
+    gc.add_argument(
+        "base_dir",
+        type=Path,
+        nargs="?",
+        default=None,
+        help="path to the Masora base directory (omitted: resolved from the checkout's"
+        " masora configuration — mappings on the normalized origin remote, then default_base)",
+    )
     gc.add_argument(
         "--lineage",
         action="append",
@@ -181,7 +235,14 @@ def main(argv: list[str] | None = None) -> int:
         " home YYYY-MM/<slug>-<lineage> (FORMAT.md §1), merging split month buckets —"
         " a pure directory migration, no tombstones for moved files.",
     )
-    compact.add_argument("base_dir", type=Path, help="path to the Masora base directory")
+    compact.add_argument(
+        "base_dir",
+        type=Path,
+        nargs="?",
+        default=None,
+        help="path to the Masora base directory (omitted: resolved from the checkout's"
+        " masora configuration — mappings on the normalized origin remote, then default_base)",
+    )
     compact.add_argument(
         "--yes",
         action="store_true",
@@ -199,7 +260,14 @@ def main(argv: list[str] | None = None) -> int:
         help="rebuild the SQLite index of a base for one code repo (MASORA_DESIGN.md §6.2, §8)",
         description="Exit codes: 0 built, 1 errors, 2 built with warnings. Full rebuild only — the index is disposable (drop + recreate), tombstoned lineages are excluded. The default registry ships the `file` anchor provider plus the `code` provider over a cppgraph graph store (auto-discovered at <repo>/.cppgraph, newest graph.db); `--cppgraph` points elsewhere, `--no-cppgraph` forces file-only (code anchors report unknown).",
     )
-    index.add_argument("base_dir", type=Path, help="path to the Masora base directory")
+    index.add_argument(
+        "base_dir",
+        type=Path,
+        nargs="?",
+        default=None,
+        help="path to the Masora base directory (omitted: resolved from the checkout's"
+        " masora configuration — mappings on the normalized origin remote, then default_base)",
+    )
     index.add_argument(
         "--repo",
         type=Path,
@@ -327,12 +395,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    if (
-        args.command in BASE_COMMANDS
-        and args.base_dir is not None
-        and not _base_gate(args.base_dir)
-    ):
-        return 1
+    if args.command in BASE_COMMANDS or args.command == "sync":
+        # One pre-flight base gate for every base-taking command — sync included:
+        # the base is resolved or refused here, before any diff or mutation, so a
+        # refused sync still mutates nothing.
+        repo_hint = args.repo if getattr(args, "repo", None) is not None else Path.cwd()
+        base_dir = _base_gate(args.base_dir, repo_hint)
+        if base_dir is None:
+            return 1
+        args.base_dir = base_dir
 
     if args.command == "check":
         return _run_check(args.base_dir)
@@ -464,15 +535,17 @@ def _run_index(base_dir: Path, repo: Path, cppgraph: Path | None, no_cppgraph: b
     return 2 if result.warnings else 0
 
 
-def _no_base_message(repo: Path) -> str:
-    """The cause-specific no-base refusal for `masora search` (same detection as `masora facts`;
-    the remedies may also point at search's own explicit base_dir)."""
+def _unresolved_base_message(repo: Path) -> str:
+    """The cause-specific refusal for an omitted base_dir whose resolution found
+    nothing (the same origin detection as `masora facts`); the remedies name the
+    two fixes — register the checkout with `masora setup --base <url>`, or pass
+    the base directory explicitly."""
     kind, _remote = origin_state(repo)
     if kind == "not_git_worktree":
         return (
-            f"no base resolved for {repo}: --repo is not a Git checkout — pass the code"
-            " checkout itself (not its workspace parent), or pass the base directory"
-            " explicitly"
+            f"no base resolved for {repo}: it is not a Git checkout — pass the base"
+            " directory explicitly (mapping-based resolution needs the checkout's origin"
+            " remote)"
         )
     if kind == "git_without_origin":
         return (
@@ -487,23 +560,7 @@ def _no_base_message(repo: Path) -> str:
     )
 
 
-def _run_search(base_dir: Path | None, query: str, repo: Path) -> int:
-    if base_dir is None:
-        try:
-            base_dir = auto_base(repo)
-        except WriteError as exc:
-            diag = exc.diags[0]
-            print(
-                f"  {Diag('error', E_SEARCH_NO_BASE, diag.message, diag.path).render()}",
-                file=sys.stderr,
-            )
-            return 1
-        if base_dir is None:
-            print(
-                f"  {Diag('error', E_SEARCH_NO_BASE, _no_base_message(repo)).render()}",
-                file=sys.stderr,
-            )
-            return 1
+def _run_search(base_dir: Path, query: str, repo: Path) -> int:
     print(f"masora search {base_dir}")
     if not base_dir.is_dir():
         print(f"masora search: base directory does not exist: {base_dir}", file=sys.stderr)

@@ -24,6 +24,7 @@ from helpers import (
 )
 
 from masora.audit import STATEMENT_MAX
+from masora.cli import main
 from masora.sync import REPO_LOCATION_ENV_VARS, _git, _remote_url, git_env
 from masora.sync import run as sync_run
 
@@ -801,3 +802,82 @@ def test_sync_stacking_audit_covers_only_added_claims(repo, capsys):
     assert "E-SYNC-STACKED" not in out
     assert "W-SYNC-STACKED" not in out
     assert "synced: 1 pending event(s)" in out
+
+
+def test_sync_without_base_dir_resolves_the_configured_base(tmp_path, monkeypatch, capsys):
+    """Omitted base_dir: the pre-flight gate resolves the base from the checkout's
+    masora configuration before sync runs — the header names the resolved base."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("MASORA_HOME", str(home))
+    base = home / "bases" / "team" / "masora_mdb"
+    base.mkdir(parents=True)
+    (base / "base.toml").write_text('name = "test-base"\n', encoding="utf-8")
+    git(base, "init", "-b", "main")
+    git(base, "config", "user.name", "Masora Test")
+    git(base, "config", "user.email", "masora@example.invalid")
+    origin = tmp_path / "origin.git"
+    subprocess.run(
+        ["git", "init", "--bare", "-b", "main", str(origin)],
+        capture_output=True,
+        check=True,
+        env=git_env(),
+    )
+    git(base, "remote", "add", "origin", str(origin))
+    seed(base, "init")
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    git(checkout, "init", "-b", "main")
+    git(checkout, "config", "user.name", "Masora Test")
+    git(checkout, "config", "user.email", "masora@example.invalid")
+    git(checkout, "remote", "add", "origin", "git@github.internal:org/checkout.git")
+    (home / "config.toml").write_text(
+        "[[mappings]]\n"
+        'code_remote = "github.internal/org/checkout.git"\n'
+        'bases = ["team"]\n\n'
+        "[bases.team]\n"
+        'remote = "git@github.internal:org/knowledge.git"\n'
+        'path = "masora_mdb"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(checkout)
+
+    code = main(["sync"])
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert f"masora sync {base}" in out
+    assert "no pending events: nothing to sync" in out
+
+
+def test_sync_without_base_dir_refuses_and_mutates_nothing(tmp_path, monkeypatch, capsys):
+    """Omitted base_dir with nothing resolvable: the pre-flight gate refuses before
+    sync is dispatched — the sync machinery (its git plumbing included) never runs
+    and the checkout stays untouched."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("MASORA_HOME", str(home))
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    git(checkout, "init", "-b", "main")
+    git(checkout, "config", "user.name", "Masora Test")
+    git(checkout, "config", "user.email", "masora@example.invalid")
+    git(checkout, "remote", "add", "origin", "git@github.internal:org/checkout.git")
+    monkeypatch.chdir(checkout)
+
+    def never(*args, **kwargs):
+        raise AssertionError("sync ran past the base-gate refusal")
+
+    monkeypatch.setattr("masora.cli.run_sync", never)
+
+    code = main(["sync"])
+
+    assert code == 1
+    out = capsys.readouterr().out
+    assert "E-NOT-A-BASE" in out
+    assert (
+        "run masora setup --base <url> in this checkout, or pass the base directory explicitly"
+        in out
+    )
+    stray = [path for path in checkout.rglob("*") if path.is_file() and ".git" not in path.parts]
+    assert stray == []

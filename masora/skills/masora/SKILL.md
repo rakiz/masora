@@ -73,10 +73,14 @@ The order, before you go dig:
 
 1. `search` the masora base. A zero-result is not an answer: retry ONCE with
    alternate domain words or a reader-style question — summaries and
-   questions/keywords may use different vocabulary.
+   questions/keywords may use different vocabulary. `search '*'` lists every
+   indexed lineage with its status tuple — the way to audit or check for an
+   existing claim before writing.
 2. `explain` each relevant lineage before relying on it: search is the short
    index; `explain` is the fresh fold, the full statement, the anchors and
-   the evidence. Never read raw masora event files.
+   the evidence. Never read or grep the base's raw event files (`*.md` under
+   the base directory) — they carry no status: a refuted/doubted claim read
+   raw looks valid. Audit through search/explain only.
 3. cppgraph for C++ structure and symbol identity.
 4. ONE narrow text/file search ONLY when the answer may live outside the
    graph — comments, doc-comments, non-C++ tests (jstests), test names,

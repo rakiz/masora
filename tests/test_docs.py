@@ -176,6 +176,33 @@ def test_standing_orders_before_memory_and_before_compacting_in_both_docs() -> N
         assert fragment in skill
 
 
+def test_retrieval_budget_names_the_match_all_sentinel() -> None:
+    fragment = (
+        "`search '*'` lists every indexed lineage with its status tuple — the way"
+        " to audit or check for an existing claim before writing."
+    )
+
+    def flat(text: str) -> str:
+        return " ".join(text.split())
+
+    assert fragment in flat(AGENT_INSTRUCTIONS.read_text(encoding="utf-8"))
+    assert fragment in flat(skill_text())
+
+
+def test_retrieval_budget_forbids_grepping_the_base() -> None:
+    fragment = (
+        "Never read or grep the base's raw event files (`*.md` under the base"
+        " directory) — they carry no status: a refuted/doubted claim read raw"
+        " looks valid. Audit through search/explain only."
+    )
+
+    def flat(text: str) -> str:
+        return " ".join(text.split())
+
+    assert fragment in flat(AGENT_INSTRUCTIONS.read_text(encoding="utf-8"))
+    assert fragment in flat(skill_text())
+
+
 def test_changelog_version_headers_are_unique() -> None:
     seen: dict[str, int] = {}
     duplicates = []

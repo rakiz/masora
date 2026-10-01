@@ -8,6 +8,20 @@
 
 ## Current phase
 
+**Done:** the anti-grep-the-base rule (TODO.md, ticked) — the `## Retrieval
+budget` section names the masora base itself as off-limits to text search:
+step 1 gains the enumeration route (`search '*'` lists every indexed lineage
+with its status tuple — the way to audit or check for an existing claim
+before writing), step 2's prohibition is explicit and covers grep — never
+read or grep the base's raw event files (`*.md` under the base directory),
+they carry no status: a refuted/doubted claim read raw looks valid; audit
+through search/explain only. Mirrored byte-identical into the skill (the
+## Tools→EOF tail stays identical, diff-verified); guards:
+`test_retrieval_budget_names_the_match_all_sentinel` +
+`test_retrieval_budget_forbids_grepping_the_base` (whitespace-normalized
+substrings in BOTH docs). Docs-only: no code changes. 616 tests green; ruff
+clean. Next task: the sync-time stacked-note audit (TODO.md).
+
 **Done:** `masora search <query>` — the base-dir positional is optional
 (TODO.md, ticked): omitted, the base resolves like `masora facts` and the MCP
 tools (`write.auto_base`: mappings on the normalized `origin` remote, then
@@ -81,10 +95,8 @@ test loops (the sentinel reclassifies them). Tests: 3 index
 task: the first rollout (TODO.md).
 
 **Working now:** the rollout-lesson batch from the atomicity audit (TODO.md,
-two items): (1) the anti-grep-the-base rule in
-the retrieval-budget section + skill; (2) the sync-time stacked-note audit
-(pending-set heuristics, E-SYNC-STACKED refusal, --allow-stacked override).
-Commit per item, no push.
+one item): the sync-time stacked-note audit (pending-set heuristics,
+E-SYNC-STACKED refusal, --allow-stacked override). Commit per item, no push.
 
 **Done:** the explain surface (TODO.md — the item PROMOTED out of
 out-of-scope, ticked) — `masora/explain.py` (the fresh one-lineage story:

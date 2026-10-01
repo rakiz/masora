@@ -300,7 +300,7 @@ Tasks:
   `test_search_star_renders_details_line_and_statuses`,
   `test_search_star_on_empty_base_prints_no_results`),
   tests/test_mcp.py (`test_mcp_search_star_enumerates`).
-- [ ] Anti-grep-the-base rule (same rollout lesson: the grep fallback is the
+- [x] Anti-grep-the-base rule (same rollout lesson: the grep fallback is the
   exact anti-pattern — raw event files carry NO status): the `## Retrieval
   budget` section names the base itself as off-limits to text search —
   enumerate through `search '*'`, detail through `explain`, staleness through

@@ -15,6 +15,7 @@ from helpers import (
     OMIT,
     SHA,
     ULID_L1,
+    ULID_L2,
     ULID_V1A,
     ULID_V2A,
     anchor,
@@ -44,6 +45,7 @@ from masora.sync import git_env
 CLAIM_REL = "2026-09/x/01J8Z3K0000000000000000000.claim.md"
 V2_REL = "2026-09/x/01J8Z3K0000000000000000005.claim.md"
 VERIFY_REL = "2026-09/x/01J8Z3K0000000000000000001.verify.md"
+L2_REL = "2026-09/x/01J8Z3K0000000000000000006.claim.md"
 TOKES = "shard key"
 
 
@@ -295,7 +297,7 @@ def test_fts_query_syntax_error(base, repo, home, capsys):
 def test_fts_query_syntax_error_without_fts_marker_in_message(base, repo, home, capsys):
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
     main(["index", str(base), "--repo", str(repo)])
-    for query in ('"', "*", "NEAR(x y", "AND", "a OR"):
+    for query in ('"', "NEAR(x y", "AND", "a OR"):
         code = main(["search", str(base), query, "--repo", str(repo)])
         out = capsys.readouterr().out
         assert code == 2, f"{query!r}: {out}"
@@ -306,7 +308,7 @@ def test_fts_query_syntax_error_without_fts_marker_in_message(base, repo, home, 
 def test_fts_query_syntax_error_without_fts_marker_direct(base, repo, home):
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
     result = build_index(base, repo)
-    for query in ('"', "*", "NEAR(x y", "AND", "a OR"):
+    for query in ('"', "NEAR(x y", "AND", "a OR"):
         with pytest.raises(IndexingError) as exc:
             search_index(result.db_path, query)
         assert exc.value.diag.code == "E-IDX-QUERY"
@@ -944,6 +946,47 @@ def test_cli_and_mcp_render_the_details_line(base, repo, home, capsys):
     out = capsys.readouterr().out
     assert "matched keyword: CSFLE" in out
     assert f"details: masora explain {ULID_L1}" in out
+
+
+def test_search_star_enumerates_every_lineage(base, repo, home):
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, summary=f"The {TOKES} rotates"))
+    write_event(
+        base,
+        V2_REL,
+        make_claim(ULID_V2A, ULID_L1, reason="code changed", summary="Second version summary"),
+    )
+    write_event(base, L2_REL, make_claim(ULID_L2, summary="An unrelated second lineage"))
+    result = build_index(base, repo)
+    assert result.exit_code() == 0
+    hits = search_index(result.db_path, "*")
+    # one hit per lineage: the displayed version (the newest active one here)
+    assert [(h.lineage, h.version) for h in hits] == [
+        (ULID_L1, ULID_V2A),
+        (ULID_L2, ULID_L2),
+    ]
+    assert all(h.matched_questions == () and h.matched_keywords == () for h in hits)
+
+
+def test_search_star_renders_details_line_and_statuses(base, repo, home, capsys):
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, summary=f"The {TOKES} rotates"))
+    main(["index", str(base), "--repo", str(repo)])
+    code = main(["search", str(base), "*", "--repo", str(repo)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "1 match(es) in 1 lineage(s)" in out
+    assert f"{ULID_L1} [unknown unverified flags: unknown]" in out
+    assert f"  {ULID_L1} The {TOKES} rotates" in out
+    assert f"details: masora explain {ULID_L1}" in out
+    assert "matched question:" not in out
+    assert "matched keyword:" not in out
+
+
+def test_search_star_on_empty_base_prints_no_results(base, repo, home, capsys):
+    main(["index", str(base), "--repo", str(repo)])
+    code = main(["search", str(base), "*", "--repo", str(repo)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "no results" in out
 
 
 def origin_repo(tmp_path: Path, origin: str | None) -> Path:

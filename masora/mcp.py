@@ -863,7 +863,10 @@ TOOLS = [
         ),
         "inputSchema": _schema(
             {
-                "query": _str(description="FTS5 MATCH query over summaries and statements"),
+                "query": _str(
+                    description="FTS5 MATCH query over summaries and statements;"
+                    " the '*' sentinel enumerates every indexed lineage"
+                ),
                 **{k: v for k, v in _BASE_PROPS.items() if k != "repo_root"},
                 "repo_root": _str(
                     description="path to the code repo the index is keyed on (default: the base dir)"

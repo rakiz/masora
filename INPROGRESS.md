@@ -66,10 +66,23 @@ index (incl. the v3-refused+rebuilt and the details-line rendering), 1
 facts shape; 598 tests green; ruff clean. Next task: the first rollout
 (TODO.md).
 
+**Done:** match-all search (TODO.md, ticked) — `*` is the enumeration
+sentinel: `search_index` bypasses FTS and returns one hit per indexed
+lineage — its displayed version (newest when none is displayed, the
+`masora facts` effective-version rule) — with empty matched
+questions/keywords, rendered exactly like normal hits (status tuple +
+`details:` tail, CLI + MCP); tombstoned exclusion, E-IDX-NOINDEX/CORRUPT
+and W-IDX-STALE unchanged. The `*` cases left the invalid-query-syntax
+test loops (the sentinel reclassifies them). Tests: 3 index
+(`test_search_star_enumerates_every_lineage`,
+`test_search_star_renders_details_line_and_statuses`,
+`test_search_star_on_empty_base_prints_no_results`) + 1 mcp
+(`test_mcp_search_star_enumerates`). 614 tests green; ruff clean. Next
+task: the first rollout (TODO.md).
+
 **Working now:** the rollout-lesson batch from the atomicity audit (TODO.md,
-three items): (1) match-all search — the `*` query enumerates every indexed
-lineage with its status tuple (CLI + MCP); (2) the anti-grep-the-base rule in
-the retrieval-budget section + skill; (3) the sync-time stacked-note audit
+two items): (1) the anti-grep-the-base rule in
+the retrieval-budget section + skill; (2) the sync-time stacked-note audit
 (pending-set heuristics, E-SYNC-STACKED refusal, --allow-stacked override).
 Commit per item, no push.
 

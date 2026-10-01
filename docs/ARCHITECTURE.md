@@ -369,11 +369,14 @@ and adds FTS5 search. Section references are to MASORA_DESIGN.md.
   and keywords MATCHes, and unions the hits by version; each `SearchHit`
   carries `matched_questions` and `matched_keywords` (the distinct matched
   texts, ordinal order) — a question/keyword-only hit surfaces its version's
-  content row; the CLI and MCP `search` render a `matched question:` /
-  `matched keyword:` line per match and every hit group ends with
-  `details: masora explain <lineage>` (the door to the full story). `masora
-  facts` is untouched: the contract version stays 1 and the JSON shape
-  carries no questions/keywords.
+   content row; the CLI and MCP `search` render a `matched question:` /
+   `matched keyword:` line per match and every hit group ends with
+   `details: masora explain <lineage>` (the door to the full story). The
+   `*` query is the match-all sentinel: it bypasses FTS and returns one hit
+   per indexed lineage — its displayed version (its newest version when none
+   is displayed) — with empty matched questions/keywords. `masora
+   facts` is untouched: the contract version stays 1 and the JSON shape
+   carries no questions/keywords.
 - **Rebuild trigger awareness**: the build stores the base's git HEAD plus
   the code state it fingerprinted (`repo_head`, `graph_commit` in meta) and
   the build moment (`built_at`, UTC ISO); `index_stale()` compares four axes

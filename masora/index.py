@@ -116,6 +116,18 @@ FROM search JOIN lineages ON lineages.lineage = search.lineage
 WHERE search.version = ?
 """
 
+MATCH_ALL_SQL = """
+SELECT search.lineage, search.version, search.summary, lineages.displayed,
+       lineages.resolution, lineages.verification, lineages.suspect,
+       lineages.doubted, lineages.pending, lineages.unknown, lineages.unanchored
+FROM lineages JOIN search ON search.version = COALESCE(
+    lineages.displayed,
+    (SELECT versions.version FROM versions WHERE versions.lineage = lineages.lineage
+     ORDER BY versions.version DESC LIMIT 1)
+)
+ORDER BY search.lineage
+"""
+
 
 def _hit_from_row(
     row: tuple, matched_questions: tuple[str, ...], matched_keywords: tuple[str, ...] = ()
@@ -143,7 +155,10 @@ def search_index(db: Path, query: str) -> list[SearchHit]:
     version; raises IndexingError for missing/corrupt index or bad query
     syntax. Every hit carries the distinct matched questions and keywords
     (ordinal order); a question/keyword-only hit surfaces its version's
-    content row."""
+    content row. The `*` query is the match-all sentinel: it bypasses FTS and
+    enumerates every indexed lineage once as its displayed version (its newest
+    version when none is displayed — the effective version, the same rule
+    `masora facts` applies), with no matched questions/keywords."""
     if not query.strip():
         raise IndexingError(Diag("error", E_IDX_QUERY, "empty FTS query"))
     if not db.is_file():
@@ -152,6 +167,16 @@ def search_index(db: Path, query: str) -> list[SearchHit]:
         )
     conn = _open_index(db)
     try:
+        if query.strip() == "*":
+            try:
+                rows = conn.execute(MATCH_ALL_SQL).fetchall()
+            except sqlite3.DatabaseError as exc:
+                # the sentinel query itself is fixed and valid — any DB failure
+                # here is corruption, not query syntax
+                raise IndexingError(_corrupt_diag(db, str(exc))) from exc
+            return sorted(
+                (_hit_from_row(r, ()) for r in rows), key=lambda h: (h.lineage, h.version)
+            )
         try:
             rows = conn.execute(SEARCH_SQL, (query,)).fetchall()
             question_rows = conn.execute(QUESTIONS_SQL, (query,)).fetchall()

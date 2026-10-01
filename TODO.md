@@ -287,7 +287,7 @@ Tasks:
   `masora/diagnostics.py` + docs/TROUBLESHOOTING.md, docs/ARCHITECTURE.md,
   MASORA_DESIGN.md §12 (single-base-per-project decision), tests/test_index.py
   (3 tests).
-- [ ] Match-all search (rollout lesson: the atomicity audit wanted "all
+- [x] Match-all search (rollout lesson: the atomicity audit wanted "all
   LLM-authored claims" and `masora search '*'` died with E-IDX-QUERY — FTS
   MATCH has no match-all — so the agent fell back to grepping the base's RAW
   event files, bypassing fold/statuses/refutations): the `*` query is the
@@ -295,7 +295,11 @@ Tasks:
   displayed version) with the full status tuple, tombstoned lineages stay
   excluded, W-IDX-STALE unchanged; the help text + docs name it. →
   masora/index.py, masora/cli.py, masora/mcp.py, README,
-  docs/ARCHITECTURE.md, tests.
+  docs/ARCHITECTURE.md, tests/test_index.py
+  (`test_search_star_enumerates_every_lineage`,
+  `test_search_star_renders_details_line_and_statuses`,
+  `test_search_star_on_empty_base_prints_no_results`),
+  tests/test_mcp.py (`test_mcp_search_star_enumerates`).
 - [ ] Anti-grep-the-base rule (same rollout lesson: the grep fallback is the
   exact anti-pattern — raw event files carry NO status): the `## Retrieval
   budget` section names the base itself as off-limits to text search —

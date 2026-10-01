@@ -216,7 +216,9 @@ def main(argv: list[str] | None = None) -> int:
     search = sub.add_parser(
         "search",
         help="run the FTS query over a built index and render status tuples (MASORA_DESIGN.md §6.2)",
-        description="Exit codes: 0 results or no match, 1 errors (no/unusable index), 2 invalid query syntax. Prints W-IDX-STALE when the base or code state moved since the build, or events were written after it.",
+        description="Exit codes: 0 results or no match, 1 errors (no/unusable index), 2 invalid query syntax."
+        " The `*` query enumerates every indexed lineage."
+        " Prints W-IDX-STALE when the base or code state moved since the build, or events were written after it.",
     )
     search.add_argument(
         "base_dir",
@@ -226,7 +228,10 @@ def main(argv: list[str] | None = None) -> int:
         help="path to the Masora base directory (omitted: resolved from the user config for"
         " --repo — mappings on the normalized origin remote, then default_base)",
     )
-    search.add_argument("query", help="FTS MATCH query over summaries and statements")
+    search.add_argument(
+        "query",
+        help="FTS MATCH query over summaries and statements ('*' enumerates every indexed lineage)",
+    )
     search.add_argument(
         "--repo",
         type=Path,

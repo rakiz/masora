@@ -40,10 +40,11 @@ leaves the code untouched.
    and merges into `main`.
 5. **Recall** — later sessions query the base: `masora mcp` serves the write
    and recall tools (`note`, `verify`, `doubt`, `undoubt`, `refute`, `search`,
-   `explain`, `list_stale`) over MCP stdio, and `masora search <base-dir>
+   `explain`, `list_stale`) over MCP stdio, and `masora search [<base-dir>]
    <query>` reads the index from the CLI — matching summaries, statements
    and each claim's `questions`/`keywords` (the matched lines are shown on
-   the hit, and every hit group ends with the `masora explain` pointer).
+   the hit, and every hit group ends with the `masora explain` pointer);
+   the `'*'` query enumerates every indexed lineage.
 
 ## Quick start
 

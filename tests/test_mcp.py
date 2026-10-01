@@ -1068,6 +1068,20 @@ def test_search_invalid_query_is_tool_error(server, code_repo, base):
     assert "E-IDX-QUERY" in text
 
 
+def test_mcp_search_star_enumerates(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+    server.tool("note", note_args(repo, base))
+    server.tool("note", note_args(repo, base, summary="Second note about bring-up"))
+    text, is_error = server.tool(
+        "search", {"query": "*", "repo_root": str(repo), "base": str(base)}
+    )
+    assert is_error is False
+    assert text.splitlines()[0] == "2 match(es) in 2 lineage(s)"
+    assert "[current unverified flags: -]" in text
+    assert "details: masora explain" in text
+
+
 def test_list_stale_lists_non_current_lineages(server, code_repo, base):
     repo, _head = code_repo
     server.ready()

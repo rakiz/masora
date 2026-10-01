@@ -150,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
     gc = sub.add_parser(
         "gc",
         help="delete whole lineages on explicit, confirmed request (FORMAT.md §7.10)",
-        description="Exit codes: 3 plan printed (nothing written), 0 deleted, 2 deleted with warnings, 1 errors. Runs masora check before and after the mutation, removes every event file of the requested lineage(s) and appends their tombstone to deleted.toml. gc never suggests lineages.",
+        description="Exit codes: 3 plan printed (nothing written), 0 deleted, 2 deleted with warnings, 1 errors. Runs masora check before and after the mutation and removes every event file of the requested lineage(s). Lineages present on origin/main get their tombstone appended to deleted.toml; lineages origin/main never saw are removed without tombstone rows. gc never suggests lineages.",
     )
     gc.add_argument("base_dir", type=Path, help="path to the Masora base directory")
     gc.add_argument(

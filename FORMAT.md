@@ -10,7 +10,7 @@ doc gets amended.
 ```
 <base>/
   base.toml                      # base identity (see masora setup)
-  deleted.toml                   # tombstone, optional, maintained by gc and compact
+  deleted.toml                   # tombstone of ULIDs the shared repo knew, optional, maintained by gc and compact
   2026-09/                       # month bucket of the lineage's founder
     resume-token-shard-key-01J8Z3K…/    # one directory per lineage: <slug>-<lineage ULID>
       01J8Z3K….claim.md          # v1 of the claim (the founder)
@@ -382,7 +382,12 @@ refuses up front with `E-NOT-A-BASE` and nothing below runs.
     `{lineage: "<ulid>", ulids: ["<ulid>", …]}`; it is append-only BY CONTENT
     (entries are added, never removed or edited — a tombstone that shrank vs the
     merge-base is tampering); concurrent gc PRs merge by union; `check` validates
-    that every tombstoned ULID is absent from the tree. A `[[deleted_events]]`
+    that every tombstoned ULID is absent from the tree. One exception: a lineage
+    whose event files are absent from origin/main's tree was never published —
+    `gc` removes it locally WITHOUT tombstone rows. The ledger records only what
+    the shared repo knew; a dead-born ULID (written and deleted before any sync)
+    never reaches it. Published lineages keep the append-only `[[deleted]]` rule
+    unchanged. A `[[deleted_events]]`
     block of the same `{lineage, ulids}` shape tombstones individual events of
     a lineage that stays alive (`masora compact`'s output): `check` rejects any
     event whose `id` appears in it, the `lineage` ULID itself is not

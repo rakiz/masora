@@ -89,6 +89,10 @@ trust path. Waiting for the user's order loses the moment and the knowledge.
 - Before compaction or session end — `note` what you learned worth keeping.
   Knowledge captured this way stays `source: llm`, `unverified`.
 
+When `sync` refuses with E-SYNC-STACKED: write one atomic note per fact,
+`masora gc --lineage` each unpublished block claim, re-run sync. Never publish
+a stacked note by default.
+
 ## How to note well
 
 - One claim = one fact. If you wrote "and" twice, that is several claims:

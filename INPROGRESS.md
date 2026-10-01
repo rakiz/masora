@@ -8,6 +8,30 @@
 
 ## Current phase
 
+**Done:** the gc unpublished-lineage exception + the stacked reflex (TODO.md,
+ticked) — gc splits its plan by PUBLISHED-NESS: per requested lineage, one
+read-only `ls-tree` of origin/main's tree (rev-parse probe first; missing
+origin/main or no origin ⇒ unpublished; git failure ⇒ `E-GIT`, never silent)
+decides — published lineages keep today's `[[deleted]]` append (FORMAT.md
+rule 10 amended: the ledger records only what the shared repo knew; dead-born
+ULIDs never reach it), unpublished ones are removed locally with the plan
+label "unpublished — removed locally, no tombstone (origin/main never saw
+it)", the summary carries the unpublished count, and an unpublished-only run
+creates no deleted.toml at all. The E-SYNC-STACKED remedy names the exact
+loop (split into one atomic note per fact, `masora gc --lineage <id>` the
+unpublished block claim, re-run sync — or --allow-stacked); the agent
+instructions + skill gain the standing-order reflex at the end of "When to
+note" (## Tools→EOF tails still byte-identical; new flat-substring guard in
+both docs). MASORA_DESIGN §12 item 14 (gc's "no git spawn" narrows to "no git
+mutation — one read-only origin/main ls-tree"); ARCHITECTURE's GC + Sync
+sections. Tests: 5 gc tests seeded (the tombstone path needs the lineage on
+origin/main now) + 4 new (`test_gc_unpublished_lineage_removes_files_without_
+tombstone`, `test_gc_published_lineage_still_tombstones`,
+`test_gc_mixed_request_splits_published_and_unpublished`,
+`test_gc_unpublished_lineage_without_origin_deletes_locally`), the stacked
+refusal test asserts the gc remedy. 636 tests green; ruff clean. Next task:
+the first rollout (TODO.md).
+
 **Done:** the sync-time stacked-note audit (TODO.md, ticked) — the
 publication gate audits the pending set (`masora/audit.py`: pure
 `stacking_signals`/`audit_pending` over the parsed pending CLAIM events;

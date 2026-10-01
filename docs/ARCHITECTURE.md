@@ -146,7 +146,9 @@ events run through the stacking audit (`masora/audit.py`, MASORA_DESIGN.md
 §12): conservative heuristics — statement length, anchor count, anchors
 spanning several files — decide nothing locally, only publication. Each
 flagged lineage is named with its fired signals; `sync` refuses
-(`E-SYNC-STACKED`) with the split remedy, mutating nothing.
+(`E-SYNC-STACKED`) with the split remedy — split into one atomic note per
+fact, remove the unpublished block claim with `masora gc --lineage <id>`
+(never published — no tombstone), re-run sync —, mutating nothing.
 `--allow-stacked` is the explicit human override: the refusal becomes a
 per-lineage `W-SYNC-STACKED` warning riding the PR body and the flow
 continues.
@@ -169,12 +171,19 @@ lineage is negative knowledge). Sequencing:
 3. **Plan**: the lineage's event files (content-scanned — location plays no
    role), its fold status — a lineage with active (non-refuted) versions is
    deleted with `W-GC-ACTIVE` — and already-tombstoned requests as no-ops.
-   Without `--yes` the plan is printed and gc exits 3 without writing
-   anything.
-4. **Mutation**: one `[[deleted]]` block per lineage (`ulids` = every event
-   ULID of the lineage) is appended to `deleted.toml` (append-only by
-   content, §7.10), the lineage's event files are unlinked and emptied
-   parent directories pruned. gc commits nothing — the deletion is an
+   Published-ness splits the plan: a lineage is PUBLISHED when at least one of
+   its event files is in origin/main's tree (one read-only `ls-tree` of
+   `refs/remotes/origin/main`; missing origin/main or no origin ⇒ everything
+   is unpublished, a git failure is an `E-GIT` error — never a silent guess);
+   an UNPUBLISHED lineage is labeled "unpublished — removed locally, no
+   tombstone (origin/main never saw it)". Without `--yes` the plan is printed
+   and gc exits 3 without writing anything.
+4. **Mutation**: one `[[deleted]]` block per published lineage (`ulids` =
+   every event ULID of the lineage) is appended to `deleted.toml`
+   (append-only by content, §7.10); unpublished lineages' event files are
+   unlinked with NO tombstone rows — the ledger records only what the shared
+   repo knew. All lineages' event files are unlinked and emptied parent
+   directories pruned. gc commits nothing — the deletion is an
    ordinary git commit left to the user, or travels through `masora sync`
    like any pending change.
 5. **Post-check**: `check_base()` again; a failure is `E-GC-CHECK` (exit 1).

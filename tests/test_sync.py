@@ -747,7 +747,10 @@ def test_sync_stacked_claim_refuses_publication(repo, capsys):
     assert "E-SYNC-STACKED" in out
     assert "one-line-summary" in out
     assert "statement is 1000 chars" in out
-    assert "split into atomic notes" in out
+    assert "split into one atomic note per fact" in out
+    assert "remove the unpublished block claim with `masora gc --lineage <id>`" in out
+    assert "never published — no tombstone" in out
+    assert "re-run sync" in out
     assert not rev_ok(origin, "refs/heads/masora/pending")
     assert git(origin, "rev-parse", "refs/heads/main") == main_before
 

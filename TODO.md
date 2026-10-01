@@ -319,8 +319,26 @@ Tasks:
   the plan). → masora/audit.py, masora/sync.py, masora/cli.py,
   masora/diagnostics.py + docs/TROUBLESHOOTING.md, MASORA_DESIGN.md §12,
   docs/ARCHITECTURE.md, tests/test_audit.py
-  (`test_audit_pending_merges_signals_across_claims_of_a_lineage`),
-  tests/test_sync.py.
+   (`test_audit_pending_merges_signals_across_claims_of_a_lineage`),
+   tests/test_sync.py.
+- [x] The gc unpublished-lineage exception + the stacked reflex (owner's
+  ruling: the split of a refused block claim leaves the ORIGINAL block claim
+  in the pending set — it must be deleted locally, and since origin/main never
+  saw it, its deletion must NOT append tombstone rows: dead-born ULIDs never
+  reach the shared ledger). gc checks published-ness per requested lineage
+  against origin/main's tree (one read-only `ls-tree` through
+  `sync.git_env()`; missing origin/main ref or no origin ⇒ unpublished; git
+  failure ⇒ `E-GIT`, never silent): published lineages keep today's
+  `[[deleted]]` append (FORMAT.md rule 10, amended in the rule's voice),
+  unpublished ones are removed locally with the plan label "unpublished —
+  removed locally, no tombstone (origin/main never saw it)" and the summary
+  split; the E-SYNC-STACKED remedy names the exact loop (split into one
+  atomic note per fact, `masora gc --lineage <id>` the unpublished block
+  claim, re-run sync); the agent instructions + skill gain the standing-order
+  reflex (byte-identical sections). → masora/gc.py, masora/audit.py,
+  masora/cli.py, masora/skills/masora/SKILL.md, docs/AGENT_INSTRUCTIONS.md,
+  FORMAT.md, MASORA_DESIGN.md §12, docs/ARCHITECTURE.md, tests/test_gc.py,
+  tests/test_sync.py, tests/test_docs.py.
 - [ ] First rollout: create the base on the author's `employees/` dir + Confluence install page (install, `masora setup --base <url>`, usage); migration to a dedicated repo if adopted.
 - [ ] Agent-graded evaluation of the phase objective — the protocol is
   WRITTEN (docs/EVALUATION.md, pre-registered: paired A/B over ~20 tasks —

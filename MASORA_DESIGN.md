@@ -644,6 +644,22 @@ SPEC.md). Items 6 and 8 remain postponed.
     132-lineage audit expects the 7 known block claims to fire and the 125
     clean ones to pass.
 
+14. **gc's unpublished-lineage exception + the stacked reflex** — *settled
+    2026-10-01 with the design owner*: a lineage whose event files are absent
+    from origin/main's tree was never published — `masora gc` removes it
+    locally WITHOUT tombstone rows (`deleted.toml` records only what the
+    shared repo knew; a dead-born ULID never reaches the shared ledger), and
+    published lineages keep the append-only `[[deleted]]` rule unchanged
+    (FORMAT.md §7.10). Published-ness is only knowable from origin/main, so
+    gc's "no git spawn" property narrows to "no git mutation — one read-only
+    origin/main ls-tree for published-ness" (after a ref-existence probe; a
+    missing origin/main or no origin ⇒ everything is unpublished, a git
+    failure is an `E-GIT` error — never a silent guess). The stacked-reflex
+    loop completes the §12.13 remedy: when sync refuses with E-SYNC-STACKED,
+    the agent splits into one atomic note per fact, deletes the unpublished
+    block claim with `masora gc --lineage` (no tombstone — origin/main never
+    saw it) and re-runs sync; a stacked note is never published by default.
+
 Non-blocking refinements recorded from the design review (not Phase 1 scope):
 computed-status presentation matrix (`current + suspect`, `stale + suspect`,
 `restored`, provider-`unknown`); canonical proof-query vocabulary with

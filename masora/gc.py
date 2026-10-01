@@ -1,7 +1,13 @@
-"""`masora gc`: whole-lineage deletion with tombstones (FORMAT.md §1, §7.9-§7.10, SPEC.md Goals)."""
+"""`masora gc`: whole-lineage deletion with tombstones for published lineages
+(FORMAT.md §1, §7.9-§7.10, SPEC.md Goals).
+
+A lineage origin/main never saw (never published) is removed locally without
+tombstone rows: the shared ledger records only what the shared repo knew.
+"""
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,10 +17,20 @@ from .diagnostics import (
     E_GC_CHECK,
     E_GC_ULID,
     E_GC_UNKNOWN,
+    E_GIT,
     W_GC_ACTIVE,
     Diag,
 )
-from .sync import EventFile, SyncError, _render_tombstone, _scan_events, _tombstone_pairs
+from .sync import (
+    MAIN_BRANCH,
+    REMOTE,
+    EventFile,
+    SyncError,
+    _render_tombstone,
+    _scan_events,
+    _tombstone_pairs,
+    git_env,
+)
 from .ulid import is_ulid
 
 PLAN_EXIT = 3
@@ -30,6 +46,7 @@ class GcError(Exception):
 class LineagePlan:
     lineage: str
     events: list[EventFile]
+    published: bool
     warnings: list[Diag] = field(default_factory=list)
 
 
@@ -80,7 +97,10 @@ def run(base_dir: Path, lineages: list[str], yes: bool = False) -> int:
         print("plan only: nothing written — re-run with --yes to delete")
         return PLAN_EXIT
 
-    _append_tombstone(base_dir, plan.pairs)
+    # Only published lineages reach the ledger: an unpublished-only run
+    # creates no deleted.toml at all.
+    if plan.pairs:
+        _append_tombstone(base_dir, plan.pairs)
     removed = 0
     for item in plan.lineages:
         for event in item.events:
@@ -103,7 +123,11 @@ def run(base_dir: Path, lineages: list[str], yes: bool = False) -> int:
         print(f"FAILED: {len(post.errors) + 1} error(s) (post-check)")
         return 1
     warnings = len(plan.warnings) + len(post.warnings)
-    print(f"collected: {len(plan.lineages)} lineage(s), {removed} event file(s) removed")
+    summary = f"collected: {len(plan.lineages)} lineage(s), {removed} event file(s) removed"
+    unpublished = sum(1 for item in plan.lineages if not item.published)
+    if unpublished:
+        summary += f", {unpublished} unpublished (no tombstone)"
+    print(summary)
     if warnings:
         print(f"collected with warnings: {warnings} warning(s)")
         return 2
@@ -136,6 +160,7 @@ def _build_plan(base_dir: Path, requested: list[str], pre: CheckResult) -> GcPla
     for event in events.values():
         if event.lineage:
             by_lineage.setdefault(event.lineage, []).append(event)
+    origin_paths = _origin_tree_paths(base_dir)
     statuses = {envelope["lineage"]: envelope for envelope in pre.envelopes}
     plans: list[LineagePlan] = []
     already: list[str] = []
@@ -163,23 +188,75 @@ def _build_plan(base_dir: Path, requested: list[str], pre: CheckResult) -> GcPla
                     f"lineage {lineage} still has active (non-refuted) versions — deleting it discards live knowledge; refutations are usually the right correction",
                 )
             )
-        plans.append(LineagePlan(lineage=lineage, events=events_of, warnings=warnings_of))
+        published = origin_paths is not None and any(
+            event.path in origin_paths for event in events_of
+        )
+        plans.append(
+            LineagePlan(
+                lineage=lineage, events=events_of, published=published, warnings=warnings_of
+            )
+        )
         warnings.extend(warnings_of)
-    pairs = {(item.lineage, event.id) for item in plans for event in item.events}
+    pairs = {(item.lineage, event.id) for item in plans if item.published for event in item.events}
     return GcPlan(lineages=plans, already_deleted=already, pairs=pairs, warnings=warnings)
+
+
+def _origin_tree_paths(base_dir: Path) -> set[str] | None:
+    """The file paths of origin/main's tree — the published-ness oracle: a
+    lineage is published iff one of its event files is in there. One read-only
+    ls-tree, no fetch (the remote-tracking ref is as of the last one). None
+    when origin/main does not resolve — no origin remote or no main branch
+    means nothing was ever published. A git failure raises: published-ness is
+    never guessed silently."""
+    rev = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(base_dir),
+            "rev-parse",
+            "--verify",
+            f"refs/remotes/{REMOTE}/{MAIN_BRANCH}",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=git_env(),
+    )
+    if rev.returncode != 0:
+        return None
+    proc = subprocess.run(
+        ["git", "-C", str(base_dir), "ls-tree", "-r", "--name-only", rev.stdout.strip()],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=git_env(),
+    )
+    if proc.returncode != 0:
+        raise GcError(
+            Diag(
+                "error",
+                E_GIT,
+                f"git ls-tree {REMOTE}/{MAIN_BRANCH} failed: {proc.stderr.strip()} — "
+                "published-ness cannot be determined, gc blocked",
+            )
+        )
+    return set(proc.stdout.splitlines())
 
 
 def _print_plan(plan: GcPlan) -> None:
     for item in plan.lineages:
         print(f"lineage {item.lineage}: {len(item.events)} event file(s)")
+        if not item.published:
+            print("  unpublished — removed locally, no tombstone (origin/main never saw it)")
         for event in item.events:
             print(f"  delete {event.path} ({event.kind or 'event'})")
         for diag in item.warnings:
             print(f"  {diag.render()}")
     for lineage in plan.already_deleted:
         print(f"lineage {lineage}: already tombstoned, nothing to do")
-    if plan.lineages:
-        print(f"tombstone: append {len(plan.lineages)} [[deleted]] block(s) to deleted.toml")
+    published = sum(1 for item in plan.lineages if item.published)
+    if published:
+        print(f"tombstone: append {published} [[deleted]] block(s) to deleted.toml")
 
 
 def _append_tombstone(base_dir: Path, pairs: set[tuple[str, str]]) -> None:

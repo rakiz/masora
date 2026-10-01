@@ -17,7 +17,8 @@ ANCHORS_MAX = 8
 ANCHOR_FILES_MAX = 3
 
 REMEDY = (
-    "split into atomic notes: corrections are new events, never edits — "
+    "split into one atomic note per fact, remove the unpublished block claim with "
+    "`masora gc --lineage <id>` (never published — no tombstone), then re-run sync — "
     "or pass --allow-stacked to publish anyway"
 )
 

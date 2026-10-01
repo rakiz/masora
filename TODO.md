@@ -287,6 +287,34 @@ Tasks:
   `masora/diagnostics.py` + docs/TROUBLESHOOTING.md, docs/ARCHITECTURE.md,
   MASORA_DESIGN.md §12 (single-base-per-project decision), tests/test_index.py
   (3 tests).
+- [ ] Match-all search (rollout lesson: the atomicity audit wanted "all
+  LLM-authored claims" and `masora search '*'` died with E-IDX-QUERY — FTS
+  MATCH has no match-all — so the agent fell back to grepping the base's RAW
+  event files, bypassing fold/statuses/refutations): the `*` query is the
+  enumeration sentinel — CLI + MCP `search` return EVERY indexed lineage (its
+  displayed version) with the full status tuple, tombstoned lineages stay
+  excluded, W-IDX-STALE unchanged; the help text + docs name it. →
+  masora/index.py, masora/cli.py, masora/mcp.py, README,
+  docs/ARCHITECTURE.md, tests.
+- [ ] Anti-grep-the-base rule (same rollout lesson: the grep fallback is the
+  exact anti-pattern — raw event files carry NO status): the `## Retrieval
+  budget` section names the base itself as off-limits to text search —
+  enumerate through `search '*'`, detail through `explain`, staleness through
+  `list_stale`, NEVER grep the base's `*.md` event files; mirrored
+  byte-identical into the skill. → docs/AGENT_INSTRUCTIONS.md,
+  masora/skills/masora/SKILL.md, tests/test_docs.py.
+- [ ] Sync-time stacked-note audit (owner's ruling: a multi-fact note is
+  tolerated locally but must not reach the shared base — the publication gate
+  is where containment matters): `sync` audits the pending set with stacking
+  heuristics (statement length, anchor count, anchors spanning several files,
+  question count — thresholds calibrated against the real base: the 7 known
+  block claims fire, the 125 clean ones pass); flagged lineages are named one
+  per line with their signals and the split remedy (atomic `note`s —
+  corrections are new events, never edits); sync refuses (E-SYNC-STACKED)
+  unless `--allow-stacked` (then a per-lineage W-SYNC-STACKED warning rides
+  the plan). → masora/audit.py, masora/sync.py, masora/cli.py,
+  masora/diagnostics.py + docs/TROUBLESHOOTING.md, MASORA_DESIGN.md §12,
+  docs/ARCHITECTURE.md, tests.
 - [ ] First rollout: create the base on the author's `employees/` dir + Confluence install page (install, `masora setup --base <url>`, usage); migration to a dedicated repo if adopted.
 - [ ] Agent-graded evaluation of the phase objective — the protocol is
   WRITTEN (docs/EVALUATION.md, pre-registered: paired A/B over ~20 tasks —

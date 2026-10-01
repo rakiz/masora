@@ -66,16 +66,12 @@ index (incl. the v3-refused+rebuilt and the details-line rendering), 1
 facts shape; 598 tests green; ruff clean. Next task: the first rollout
 (TODO.md).
 
-**Working now:** the owner-validated batch — (1) the `keywords` field (the
-questions' sibling: claim-only, optional, 1–10 alternate-vocabulary strings,
-E-KEYWORDS, the keywords FTS table, SCHEMA_VERSION 3→4, the THREE-source
-search union, matched keywords rendered, facts untouched); (2) the
-`details: masora explain <lineage>` line ending every hit group (CLI + MCP);
-(3) the retrieval-budget pass (a `## Retrieval budget` section: masora
-search → explain → cppgraph → ONE narrow text search; the two-sided
-anti-grep rule; the tests-as-evidence rule); (4) CPPGRAPH_INTEGRATION's
-`## Input hygiene` + the configurable fact budget (default 2); (5) §12's
-open cross-analysis tests×code idea.
+**Working now:** the rollout-lesson batch from the atomicity audit (TODO.md,
+three items): (1) match-all search — the `*` query enumerates every indexed
+lineage with its status tuple (CLI + MCP); (2) the anti-grep-the-base rule in
+the retrieval-budget section + skill; (3) the sync-time stacked-note audit
+(pending-set heuristics, E-SYNC-STACKED refusal, --allow-stacked override).
+Commit per item, no push.
 
 **Done:** the explain surface (TODO.md — the item PROMOTED out of
 out-of-scope, ticked) — `masora/explain.py` (the fresh one-lineage story:

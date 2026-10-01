@@ -22,7 +22,7 @@ wheels = [
 
 [[package]]
 name = "masora"
-version = "0.6.1"
+version = "0.6.2"
 source = { editable = "." }
 dependencies = [
     { name = "pyyaml" },

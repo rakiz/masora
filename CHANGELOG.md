@@ -6,6 +6,18 @@
       the current state only (release-notes style); the history of how the
       project got there lives between released versions. -->
 
+## 0.6.2 — 2026-10-01
+
+### Added
+
+- **The base directory resolves from the configuration when omitted** — the `base_dir` positional of `masora check`, `sync`, `gc`, `compact` and `index` is optional now (`search` already took it optional): omitted, one pre-flight base gate in the CLI dispatch resolves the base from the checkout's masora configuration (`write.auto_base` — `[[mappings]]` on the normalized `origin` remote, then `default_base`, the same chain the MCP write tools resolve with) and the command proceeds with the resolved directory; a failed resolution refuses with the existing `E-NOT-A-BASE` (no new diagnostic code) and a remedy stating both fixes — pass the base directory explicitly, or run `masora setup --base <url>` in this checkout (the cause-specific wording — not a Git checkout, no readable `origin`, unmapped repo — is kept, detected the same way `masora facts` does). A passed root is unchanged: same refusal, same remedy, same configured-base hint, and an explicit base always wins over the configuration. `sync` is resolved/refused in the same gate before any diff or mutation — a refused sync spawns no git and writes nothing. Rollout friction (twice, second machine via /masora): `masora search shard key` took "shard" as the base, and a bare `masora sync` took "." and refused with `E-NOT-A-BASE`. Owner adjustments: the gate keeps the old `.` default — with the positional omitted, a hinted directory that itself holds `base.toml` (the cwd for check/sync/gc/compact, `--repo` for index/search/explain) IS the base, ahead of the mappings/`default_base` chain (explicit positional still wins); and the dormant `E-SEARCH-NO-BASE` (shipped in 0.6.0, emitted by no path since the shared gate) is retired the same day — removed from `masora/diagnostics.py` and its docs/TROUBLESHOOTING.md row. (`masora/cli.py`, README.md, docs/ARCHITECTURE.md, docs/TROUBLESHOOTING.md, tests/test_base_gate.py, tests/test_sync.py, tests/test_index.py.)
+
+
+### Fixed
+
+- **The opencode /masora command template** — fixes the 0.6.1 template's `!`-injection pre-execution: the installed command spliced the invocation into the shell line, which mangled `$ARGUMENTS` and dropped stderr on the user's machine (both traces on the second machine) — the agent never saw the request intact nor the failures. The template now has the agent run `masora $ARGUMENTS` itself and capture BOTH stdout and stderr, state whether the operation succeeded or failed, explain any `E-*`/`W-*` diagnostic code with the concrete fix (applying the masora skill's rules), and correct a malformed invocation at most once — never loop. (`masora/skills/masora/COMMAND.md`.)
+
+
 ## 0.6.1 — 2026-10-01
 
 ### Fixed

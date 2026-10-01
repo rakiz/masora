@@ -8,6 +8,43 @@
 
 ## Current phase
 
+**Running now:** 0.6.2 — (a) the COMMAND.md template no longer pre-executes
+via `!`-injection (it mangled $ARGUMENTS in the shell line and dropped
+stderr on the user's machine — both traces on the second machine): the agent
+runs `masora $ARGUMENTS` itself, captures stderr, at most one corrective
+re-run; (b) DONE below — the optional base-dir positionals with
+configuration-based resolution. Remaining: the commit + release.
+
+**Done:** the optional base-dir positionals (0.6.2 item (b)) — `masora
+check`/`sync`/`gc`/`compact`/`index` take the base_dir positional optional
+(search already did): omitted, ONE shared pre-flight gate in the CLI dispatch
+(`_base_gate`) resolves the base from the checkout's masora configuration
+(`write.auto_base`: mappings on the normalized origin remote, then
+default_base — the same chain the MCP write tools and the E-NOT-A-BASE hint
+use) and the command proceeds with the resolved directory; a failed
+resolution refuses with the EXISTING `E-NOT-A-BASE` (no new code) and a
+remedy stating both fixes (pass the base directory explicitly, or
+`masora setup --base <url>` in this checkout — `_unresolved_base_message`
+keeps the cause-specific wording, origin detection shared with facts); a
+passed root keeps today's refusal, remedy and hint, and an explicit base
+always wins. sync resolves/refuses in the same gate BEFORE any diff or
+mutation (a refused sync dispatches to nothing — no git spawn, no file
+change). search's own omitted-case refusal (`E-SEARCH-NO-BASE`) is
+superseded by the shared gate and retired (owner ruling, follow-up: removed
+from diagnostics.py + its TROUBLESHOOTING row). Owner follow-up (same
+phase): the gate keeps the old `.` default — the hinted directory itself
+(cwd for check/sync/gc/compact, `--repo` for index/search/explain) is the
+base when it holds `base.toml`, checked BEFORE the configuration chain
+(explicit positional still wins); 3 new tests in test_base_gate.py. Tests: 5 new in test_base_gate.py (mapping
+resolution, default_base resolution, refusal naming setup, explicit-wins,
+gc/compact/index resolution), 2 new in test_sync.py (resolution to an empty
+base; refusal with `masora.cli.run_sync` patched + the checkout untouched),
+1 updated in test_index.py (search's unmapped-repo refusal → `E-NOT-A-BASE`
+on stdout, the shared gate's stream). Docs: README quick-start clause,
+ARCHITECTURE (checker's gate item, Sync's gate-order sentence, index/search
+CLI bullet), TROUBLESHOOTING's `E-NOT-A-BASE` row (the remedy covers the
+omitted-positional case). Suite green; ruff clean.
+
 **Done:** the four owner directives — (1) `STATEMENT_MAX` 900 → 1024 (owner
 calibration, power of two; tests/test_sync.py's literal 1000-char fixtures
 now derive from the constant); (2) the verify discipline gains the

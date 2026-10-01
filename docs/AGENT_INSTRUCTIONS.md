@@ -29,6 +29,10 @@ The `masora` MCP server (`masora mcp`) exposes eight tools:
 
 ## Search before investigating
 
+- A "what happens when X" question is a knowledge question, not a
+  code-navigation task: search the base before answering, even when code
+  pointers are requested — the recorded claims carry verified consequences
+  (ordering guarantees, edge cases) that a fresh code read under-weights.
 - Before re-deriving how an area behaves, `search` the base for that area:
   what you are about to spend tool calls establishing may already be
   recorded.

@@ -8,6 +8,21 @@
 
 ## Current phase
 
+**Done:** the skill trigger fixed (TODO.md, ticked) — the live-rollout
+diagnosis (the shard-key question answered without masora; two verified
+claims missed) lands as: the frontmatter description names the question type
+("repository-specific behavior — including 'what happens when X' questions —
+architecture, …"; the exclusion stays), the "Search before investigating"
+section opens with the TRIAGE rule (a "what happens when X" question is a
+knowledge question, not code-navigation — search the base even when code
+pointers are requested; the claims carry verified consequences a fresh code
+read under-weights), the skill's canonical tail mirrors it (byte-identical),
+and the guards assert the new frontmatter + triage substrings. Tests:
+`test_skill_frontmatter_triggers_on_project_knowledge_only` (updated) +
+`test_standing_orders_before_memory_and_before_compacting_in_both_docs`
+(extended with the triage fragment). 576 tests green; ruff clean. Next
+task: the first rollout (TODO.md).
+
 **Done:** the owner-validated batch (TODO.md, five items ticked) — (1) the
 `keywords` field: claim-only/optional/1–10 alternate-vocabulary strings,
 `E-KEYWORDS`, the secret scan over the items, `note` pass-through (maxItems

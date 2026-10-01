@@ -6,6 +6,12 @@
       the current state only (release-notes style); the history of how the
       project got there lives between released versions. -->
 
+## 0.5.1 — 2026-09-30
+
+### Changed
+
+- **The masora skill's trigger names behavior questions** (live-rollout diagnosis: a "what happens when one updates the shard key" question was triaged as code-navigation and answered WITHOUT masora — the categorical description plus the "not for general programming tasks" exclusion pushed behavior questions out of the trigger, and nothing named "what happens when X" — the base's core content; the two verified claims it missed: delete/insert ordering not guaranteed, updateLookup inapplicable). The frontmatter description now reads: "Use when answering or investigating repository-specific behavior — including 'what happens when X' questions — architecture, product semantics, past decisions, trade-offs, or non-obvious conventions in a repository that may be served by a Masora base. Not for general programming tasks." (the exclusion stays — behavior questions are not general programming, and the description now says why they belong). The "Search before investigating" section gains the TRIAGE rule, first bullet: a "what happens when X" question is a knowledge question, not a code-navigation task — search the base before answering, even when code pointers are requested; the recorded claims carry verified consequences (ordering guarantees, edge cases) that a fresh code read under-weights. The skill's canonical tail mirrors it (byte-identical); the frontmatter and substance guards assert the new substrings. (`masora/skills/masora/SKILL.md`, `docs/AGENT_INSTRUCTIONS.md`, `tests/test_docs.py`.)
+
 ## 0.5.0 — 2026-09-30
 
 ### Added

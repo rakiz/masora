@@ -249,6 +249,22 @@ Tasks:
   ≤ 60-token guidance stands). MASORA_DESIGN §12 gains the OPEN
   cross-analysis tests×code idea (item 11). →
   docs/CPPGRAPH_INTEGRATION.md, MASORA_DESIGN.md §12.
+- [x] The skill trigger fixed (live-rollout diagnosis: a "what happens when
+  one updates the shard key" question was triaged as code-navigation and
+  answered WITHOUT masora — the description's categorical list + the "not
+  for general programming tasks" exclusion pushed behavior questions out,
+  and nothing named "what happens when X" — the base's core content; two
+  verified claims it missed: delete/insert ordering not guaranteed,
+  updateLookup inapplicable). The frontmatter description now names the
+  question type: "repository-specific behavior — including 'what happens
+  when X' questions — architecture, product semantics, past decisions,
+  trade-offs, or non-obvious conventions" (the exclusion stays). The
+  "Search before investigating" section gains the TRIAGE rule (a "what
+  happens when X" question is a knowledge question, not code navigation —
+  search the base even when code pointers are requested; the recorded
+  claims carry verified consequences a fresh code read under-weights).
+  → masora/skills/masora/SKILL.md, docs/AGENT_INSTRUCTIONS.md,
+  tests/test_docs.py.
 - [ ] First rollout: create the base on the author's `employees/` dir + Confluence install page (install, `masora setup --base <url>`, usage); migration to a dedicated repo if adopted.
 - [ ] Agent-graded evaluation of the phase objective — the protocol is
   WRITTEN (docs/EVALUATION.md, pre-registered: paired A/B over ~20 tasks —

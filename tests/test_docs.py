@@ -95,8 +95,9 @@ def test_skill_frontmatter_triggers_on_project_knowledge_only() -> None:
     text = skill_text()
     assert text.startswith("---\nname: masora\n")
     assert (
-        "repository-specific behavior, architecture, product semantics, past decisions,"
-        " trade-offs, or non-obvious conventions" in text
+        'repository-specific behavior — including "what happens when X" questions —'
+        " architecture, product semantics, past decisions, trade-offs, or non-obvious"
+        " conventions" in text
     )
     assert "Not for general programming tasks" in text
 
@@ -157,6 +158,12 @@ def test_standing_orders_before_memory_and_before_compacting_in_both_docs() -> N
         " or from external docs, `search` the base first: it may already hold the answer —"
         " or contradict it. Web and doc confirmation remain the fallback, not the default."
     )
+    triage = (
+        'A "what happens when X" question is a knowledge question, not a code-navigation'
+        " task: search the base before answering, even when code pointers are requested —"
+        " the recorded claims carry verified consequences (ordering guarantees, edge cases)"
+        " that a fresh code read under-weights."
+    )
     before_compacting = (
         "FIRST write a terminal verify per lineage whose evidence is self-contained (report"
         " the replayable bullets) — compact keeps the live state, not the archives."
@@ -164,7 +171,7 @@ def test_standing_orders_before_memory_and_before_compacting_in_both_docs() -> N
 
     canonical = flat(AGENT_INSTRUCTIONS.read_text(encoding="utf-8"))
     skill = flat(skill_text())
-    for fragment in (standing_orders, before_memory, before_compacting):
+    for fragment in (standing_orders, before_memory, triage, before_compacting):
         assert fragment in canonical
         assert fragment in skill
 

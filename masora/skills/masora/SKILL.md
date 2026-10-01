@@ -1,6 +1,6 @@
 ---
 name: masora
-description: Use when answering or investigating repository-specific behavior, architecture, product semantics, past decisions, trade-offs, or non-obvious conventions in a repository that may be served by a Masora base. Not for general programming tasks.
+description: Use when answering or investigating repository-specific behavior — including "what happens when X" questions — architecture, product semantics, past decisions, trade-offs, or non-obvious conventions in a repository that may be served by a Masora base. Not for general programming tasks.
 ---
 
 # Masora — knowledge-base rules
@@ -47,6 +47,10 @@ The `masora` MCP server (`masora mcp`) exposes eight tools:
 
 ## Search before investigating
 
+- A "what happens when X" question is a knowledge question, not a
+  code-navigation task: search the base before answering, even when code
+  pointers are requested — the recorded claims carry verified consequences
+  (ordering guarantees, edge cases) that a fresh code read under-weights.
 - Before re-deriving how an area behaves, `search` the base for that area:
   what you are about to spend tool calls establishing may already be
   recorded.

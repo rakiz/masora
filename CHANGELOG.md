@@ -6,7 +6,7 @@
       the current state only (release-notes style); the history of how the
       project got there lives between released versions. -->
 
-## [Unreleased]
+## 0.5.0 — 2026-09-30
 
 ### Added
 

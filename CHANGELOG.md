@@ -6,6 +6,12 @@
       the current state only (release-notes style); the history of how the
       project got there lives between released versions. -->
 
+## 0.6.3 — 2026-10-01
+
+### Fixed
+
+- **The /masora correction rule names the search case precisely** — the 0.6.2 template's "correct it once" clause let an agent believe `masora search` always resolves the base from the configuration, when the CLI resolves it only when the base positional is OMITTED (`masora search shard key` correctly refused "shard" as a nonexistent base; the agent then corrected to the explicit-base form instead of the intended one-argument form). The template now states the exact case and fix: a first positional that does not exist as a base directory was user content, not a path — omit it (the configuration resolves the base), quote the remaining words together as the single `search` query (`masora search 'shard key'`), and drop the bad positional for the query-less subcommands. (`masora/skills/masora/COMMAND.md`.)
+
 ## 0.6.2 — 2026-10-01
 
 ### Added

@@ -8,6 +8,16 @@ AI coding agents re-derive the same project knowledge every session, forget corr
 
 Settled 2026-09-25 with the design owner — decisions recorded in MASORA_DESIGN.md §12 and reflected in SPEC.md: items 1–5 and 7. Items 6 (`same-as`) and 8 (co-change mining) remain postponed. Non-blocking refinements from the design review are listed at the end of MASORA_DESIGN.md §12.
 
+### Phase 2.5: sync selection (ordered 2026-10-02)
+
+- [ ] `masora sync --only <id…>` / `--exclude <id…>` — publish a SUBSET of the
+  pending set: both flags take a LIST of event ULIDs (unique-prefix matching,
+  ambiguous prefix refused with the candidates), are mutually exclusive, and
+  refuse a selector matching nothing (a typo must neither publish everything
+  nor exclude in silence). They filter the pending EVENT ADDITIONS; deletions
+  already decided by gc (tombstones + removed files) always ride. Plan mode
+  shows the filtered set, the counts and what was excluded.
+
 ## Bug tickets (live-rollout reports)
 
 - [ ] **sync: deletion detection is merge-base-relative** (live-rollout report,

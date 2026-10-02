@@ -927,7 +927,15 @@ SPEC.md). Items 6 and 8 remain postponed.
     stale); the displayed version under an `unknown` shadow is the known
     match (acknowledged change from today's newest-active display); the
     negative envelope keeps its ULID-newest rule explicitly (independent
-    of sel). (o) Round-9 ruling: the SQUASH off-version twin is ACCEPTED
+    of sel). (p) Migration ruling (beta, no real users): NO in-place data
+    migration. Indexes are derived caches — rebuild freely after any schema
+    bump. Event files without the `lines` stamp stay valid forever (absence
+    IS the unknown value, never backfilled — only new writes stamp).
+    Obsolete fiches may be purged via `masora gc`. The facts contract flips
+    to v2 without a dual-version window: cppgraph (same owner, same
+    release train) learns v2 first, then Masora flips
+    CONTRACT_VERSION=2 and retires v1 in the same change.
+    (o) Round-9 ruling: the SQUASH off-version twin is ACCEPTED
     and documented (§6.2 Properties — a squash-landed note renamed later
     on its own line fires off-version; undecidable from git; the note
     keeps displaying with its context and only leaves the re-verification

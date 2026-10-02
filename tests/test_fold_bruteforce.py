@@ -7,7 +7,15 @@ import random
 
 import pytest
 
-from masora.fold import Event, FoldCycleError, apply_precedence, fold_lineage, resolve_activity
+from masora.fold import (
+    Event,
+    FoldCycleError,
+    VersionContext,
+    apply_precedence,
+    fold_lineage,
+    resolve_activity,
+    sel,
+)
 
 KINDS = ("claim", "verify", "doubt", "undoubt", "refute", "unrefute")
 ALLOWED_TARGET_KINDS = {
@@ -338,29 +346,38 @@ def test_all_refuted_resolves_none_and_restored_flag():
     assert fold.resolution == "none"
 
 
-def test_resolution_with_fingerprint_matcher_current_stale_restored():
+def test_resolution_with_structured_outcomes_current_stale_restored():
     c1 = Event(id="01J8Z3K0000000000000000001", kind="claim", lineage="01J8Z3K0000000000000000001")
     c2 = Event(id="01J8Z3K0000000000000000002", kind="claim", lineage=c1.lineage)
     activity = resolve_activity([c1, c2])
     fold = fold_lineage(
-        c1.lineage, [c1, c2], activity, [c1.id, c2.id], fingerprint_matcher=lambda v: False
+        c1.lineage,
+        [c1, c2],
+        activity,
+        [c1.id, c2.id],
+        outcomes={c1.id: "mismatch", c2.id: "mismatch"},
     )
     assert fold.displayed == c2.id
     assert fold.resolution == "stale"
+    assert fold.off_version is False
     fold = fold_lineage(
-        c1.lineage, [c1, c2], activity, [c1.id, c2.id], fingerprint_matcher=lambda v: v == c1.id
+        c1.lineage, [c1, c2], activity, [c1.id, c2.id], outcomes={c1.id: "match", c2.id: "mismatch"}
     )
     assert fold.displayed == c1.id
     assert fold.resolution == "current"
     fold = fold_lineage(
-        c1.lineage, [c1, c2], activity, [c1.id, c2.id], fingerprint_matcher=lambda v: v == c2.id
+        c1.lineage, [c1, c2], activity, [c1.id, c2.id], outcomes={c1.id: "mismatch", c2.id: "match"}
     )
     assert fold.displayed == c2.id
     assert fold.resolution == "current"
     r2 = Event(id="01J8Z3K0000000000000000004", kind="refute", lineage=c1.lineage, targets=c2.id)
     activity = resolve_activity([c1, c2, r2])
     fold = fold_lineage(
-        c1.lineage, [c1, c2, r2], activity, [c1.id, c2.id], fingerprint_matcher=lambda v: v == c1.id
+        c1.lineage,
+        [c1, c2, r2],
+        activity,
+        [c1.id, c2.id],
+        outcomes={c1.id: "match", c2.id: "mismatch"},
     )
     assert fold.displayed == c1.id
     assert fold.resolution == "restored"
@@ -371,10 +388,118 @@ def test_resolution_with_fingerprint_matcher_current_stale_restored():
         [c1, c2, r1, r2],
         activity,
         [c1.id, c2.id],
-        fingerprint_matcher=lambda v: v == c1.id,
+        outcomes={c1.id: "match", c2.id: "mismatch"},
     )
     assert fold.displayed is None
     assert fold.resolution == "none"
+
+
+def test_not_found_fallback_with_provable_out_of_line_flags_off_version():
+    c1 = Event(id="01J8Z3K0000000000000000001", kind="claim", lineage="01J8Z3K0000000000000000001")
+    c2 = Event(id="01J8Z3K0000000000000000002", kind="claim", lineage=c1.lineage)
+    activity = resolve_activity([c1, c2])
+    outcomes = {c1.id: "mismatch", c2.id: "not_found"}
+    # An unprovable relation never grants the flag, whatever the outcome; the
+    # fallback is the sel-winner c2 (higher ULID).
+    for relation in ("in_line", "ahead", "out_of_line", "relation_unknown", None):
+        contexts = {v: VersionContext(v, relation) for v in (c1.id, c2.id)}
+        fold = fold_lineage(
+            c1.lineage, [c1, c2], activity, [c1.id, c2.id], outcomes=outcomes, contexts=contexts
+        )
+        assert fold.displayed == c2.id
+        assert fold.resolution == "stale"
+        assert fold.off_version is (relation == "out_of_line")
+    # A match in play suppresses the flag entirely: it belongs to the
+    # no-match fallback only.
+    matched = {c1.id: "match", c2.id: "not_found"}
+    contexts = {v: VersionContext(v, "out_of_line") for v in (c1.id, c2.id)}
+    fold = fold_lineage(
+        c1.lineage, [c1, c2], activity, [c1.id, c2.id], outcomes=matched, contexts=contexts
+    )
+    assert fold.displayed == c1.id
+    assert fold.resolution == "current"
+    assert fold.off_version is False
+    # An unavailable rival shadows the would-be off-version fallback: the
+    # lineage is not provably inapplicable while it might match.
+    shadowed = {c1.id: "unavailable", c2.id: "not_found"}
+    fold = fold_lineage(
+        c1.lineage, [c1, c2], activity, [c1.id, c2.id], outcomes=shadowed, contexts=contexts
+    )
+    assert fold.resolution is None
+    assert fold.off_version is False
+
+
+def test_unavailable_version_shadows_only_when_it_would_win_sel():
+    c1 = Event(id="01J8Z3K0000000000000000001", kind="claim", lineage="01J8Z3K0000000000000000001")
+    c2 = Event(id="01J8Z3K0000000000000000002", kind="claim", lineage=c1.lineage)
+    activity = resolve_activity([c1, c2])
+    outcomes = {c1.id: "match", c2.id: "unavailable"}
+    # c2 outranks c1 by ULID (tier 2, unprovable contexts): it would win sel,
+    # so it shadows — and the displayed version stays the known match. At the
+    # fold level the shadow is a None resolution; precedence maps it to
+    # `unknown` upstream.
+    fold = fold_lineage(c1.lineage, [c1, c2], activity, [c1.id, c2.id], outcomes=outcomes)
+    assert fold.resolution is None
+    assert fold.displayed == c1.id
+    # With c2 provably ahead it still wins tier 1 and still shadows.
+    contexts = {
+        c1.id: VersionContext(c1.id, "in_line"),
+        c2.id: VersionContext(c2.id, "ahead"),
+    }
+    fold = fold_lineage(
+        c1.lineage, [c1, c2], activity, [c1.id, c2.id], outcomes=outcomes, contexts=contexts
+    )
+    assert fold.resolution is None
+    assert fold.displayed == c1.id
+    # With c1 ahead of c2, the unavailable c2 can no longer win sel: no
+    # shadow, plain current.
+    contexts = {
+        c1.id: VersionContext(c1.id, "ahead"),
+        c2.id: VersionContext(c2.id, "in_line"),
+    }
+    fold = fold_lineage(
+        c1.lineage, [c1, c2], activity, [c1.id, c2.id], outcomes=outcomes, contexts=contexts
+    )
+    assert fold.resolution == "current"
+    assert fold.displayed == c1.id
+
+
+def test_restored_is_counterfactual_over_sel_whatever_the_refuted_outcome():
+    c1 = Event(id="01J8Z3K0000000000000000001", kind="claim", lineage="01J8Z3K0000000000000000001")
+    c2 = Event(id="01J8Z3K0000000000000000002", kind="claim", lineage=c1.lineage)
+    r2 = Event(id="01J8Z3K0000000000000000004", kind="refute", lineage=c1.lineage, targets=c2.id)
+    activity = resolve_activity([c1, c2, r2])
+    contexts = {
+        c1.id: VersionContext(c1.id, "in_line"),
+        c2.id: VersionContext(c2.id, "ahead"),
+    }
+    # The refuted c2 would win sel (tier 1 ahead over in_line) even though
+    # its own anchors are unevaluable: restored fires on the uncertainty of
+    # its rank, not its fingerprints.
+    fold = fold_lineage(
+        c1.lineage,
+        [c1, c2, r2],
+        activity,
+        [c1.id, c2.id],
+        outcomes={c1.id: "match", c2.id: "unavailable"},
+        contexts=contexts,
+    )
+    assert fold.restored is True
+    # A refutation that never outranks the displayed match triggers nothing.
+    contexts = {
+        c1.id: VersionContext(c1.id, "ahead"),
+        c2.id: VersionContext(c2.id, "in_line"),
+    }
+    fold = fold_lineage(
+        c1.lineage,
+        [c1, c2, r2],
+        activity,
+        [c1.id, c2.id],
+        outcomes={c1.id: "match", c2.id: "mismatch"},
+        contexts=contexts,
+    )
+    assert fold.restored is False
+    assert fold.resolution == "current"
 
 
 def test_exhaustive_envelope_invariants():
@@ -425,3 +550,303 @@ def test_precedence_none_over_unknown_over_current_restored_over_stale():
     assert apply_precedence("restored", unknown=False) == "restored"
     assert apply_precedence("stale", unknown=False) == "stale"
     assert apply_precedence(None, unknown=False) is None
+
+
+# --- §6.2 structured outcomes: sel and the counterfactual rules ------------
+#
+# The oracle below re-derives the §6.2 contract from the design text,
+# independently of masora/fold.py: the two-tier selection sel(S, B) and the
+# display / restored / no-match / shadow / off-version rules over composed
+# per-version outcomes. Every case asserts the implementation agrees with
+# the oracle and that the structural invariants hold.
+
+RELATION_VALUES = ("in_line", "ahead", "out_of_line", "relation_unknown", None)
+OUTCOME_VALUES = ("match", "mismatch", "not_found", "unavailable")
+# Lexicographic ULID order deliberately differs from index order.
+VERSION_IDS = (
+    "01J8Z3K0000000000000000M0",
+    "01J8Z3K0000000000000000A1",
+    "01J8Z3K0000000000000000Z2",
+    "01J8Z3K0000000000000000B3",
+)
+
+
+def oracle_sel(candidates, contexts):
+    """sel(S, B) from the §6.2 text: tier 1 = provably on the asking line
+    (`ahead` outranks `in_line`; within one relation kind, maxima under
+    proper ancestry, then descending ULID); tier 2 = everything else,
+    descending ULID; empty S selects nothing."""
+    if not candidates:
+        return None
+    tier1 = [v for v in candidates if contexts[v].relation in ("in_line", "ahead")]
+    if not tier1:
+        return max(candidates)
+    group = [v for v in tier1 if contexts[v].relation == "ahead"] or tier1
+    maxima = [v for v in group if not any(v in contexts[w].ancestors for w in group if w != v)]
+    return max(maxima or group)
+
+
+def oracle_fold(versions, activity, outcomes, contexts):
+    """§6.2 rules 3–8 re-derived over structured outcomes."""
+    versions = sorted(set(versions), reverse=True)
+    active = [v for v in versions if activity.get(v, False)]
+    refuted = [v for v in versions if not activity.get(v, False)]
+    matches = {v for v in active if outcomes[v] == "match"}
+    displayed = oracle_sel(matches, contexts) if matches else oracle_sel(active, contexts)
+    shadow = any(
+        oracle_sel(matches | {u}, contexts) == u for u in active if outcomes[u] == "unavailable"
+    )
+    restored = bool(matches) and any(oracle_sel(matches | {r}, contexts) == r for r in refuted)
+    if not versions:
+        resolution = None
+    elif not active:
+        resolution = "none"
+    elif shadow:
+        resolution = None
+    else:
+        resolution = ("restored" if restored else "current") if matches else "stale"
+    fallback = None if matches else displayed
+    off_version = bool(
+        fallback is not None
+        and not shadow
+        and outcomes[fallback] == "not_found"
+        and contexts[fallback].relation == "out_of_line"
+    )
+    return displayed, restored, resolution, off_version
+
+
+def assert_fold_matches_oracle(events, activity, versions, outcomes, contexts):
+    fold = fold_lineage(
+        IDS[0], list(events), activity, list(versions), outcomes=outcomes, contexts=contexts
+    )
+    displayed, restored, resolution, off_version = oracle_fold(
+        versions, activity, outcomes, contexts
+    )
+    assert (fold.displayed, fold.restored, fold.resolution, fold.off_version) == (
+        displayed,
+        restored,
+        resolution,
+        off_version,
+    ), (outcomes, contexts)
+    # Exactly one answer, and it is a live version or nothing.
+    assert fold.displayed is None or activity.get(fold.displayed)
+    matches = {v for v in versions if activity.get(v, False) and outcomes[v] == "match"}
+    # A non-match can never display over a match: the fallback only fires
+    # when the match set is empty.
+    if matches:
+        assert fold.displayed in matches
+    # restored / shadow / off-version are well-defined on every input.
+    if fold.restored:
+        assert matches
+        assert any(
+            oracle_sel(matches | {v}, contexts) == v for v in versions if not activity.get(v, False)
+        )
+        assert fold.resolution in ("restored", None)
+    if fold.resolution == "unknown" and fold.active_versions:
+        assert any(
+            oracle_sel(matches | {u}, contexts) == u
+            for u in fold.active_versions
+            if outcomes[u] == "unavailable"
+        )
+    if fold.off_version:
+        assert fold.resolution == "stale"
+        assert outcomes[fold.displayed] == "not_found"
+        assert contexts[fold.displayed].relation == "out_of_line"
+    # Determinism: folding the same input again gives the same answer.
+    again = fold_lineage(
+        IDS[0], list(events), activity, list(versions), outcomes=outcomes, contexts=contexts
+    )
+    assert again == fold
+    return fold
+
+
+def _ancestry_configurations(ids):
+    """Every ancestry assignment over `ids` (including cyclic ones — the fold
+    must stay total on injected data)."""
+    pairs = [(v, w) for v in ids for w in ids if w != v]
+    for bits in itertools.product((False, True), repeat=len(pairs)):
+        ancestors = {v: frozenset(w for (v, w), keep in zip(pairs, bits) if keep) for v in ids}
+        yield {v: VersionContext(v, None, ancestors[v]) for v in ids}
+
+
+def test_sel_unit_tier_semantics():
+    a, b, c = VERSION_IDS[0], VERSION_IDS[1], VERSION_IDS[2]
+    assert sel([], {}) is None
+    assert sel({a}, {}) == a
+    # Tier 2 (all unprovable): descending ULID.
+    assert sel([a, b, c], {}) == c  # ...Z2 sorts last
+    # Tier 1 beats tier 2 regardless of ULID; ahead beats in_line.
+    contexts = {
+        a: VersionContext(a, "in_line"),
+        b: VersionContext(b, "ahead"),
+        c: VersionContext(c, None),
+    }
+    assert sel([a, b, c], contexts) == b
+    contexts = {
+        a: VersionContext(a, "in_line"),
+        b: VersionContext(b, "relation_unknown"),
+        c: VersionContext(c, "out_of_line"),
+    }
+    assert sel([a, b, c], contexts) == a
+    # Within one relation kind, a proper descendant beats its ancestors —
+    # even an ancestor with a higher ULID; incomparable maxima tie-break by
+    # descending ULID.
+    mid, low, high = VERSION_IDS[0], VERSION_IDS[1], VERSION_IDS[2]
+    contexts = {
+        mid: VersionContext(mid, "in_line", frozenset({high})),  # mid descends from high
+        high: VersionContext(high, "in_line"),
+        low: VersionContext(low, "in_line"),
+    }
+    assert sel([mid, high, low], contexts) == mid
+    contexts = {
+        mid: VersionContext(mid, "in_line"),
+        high: VersionContext(high, "in_line"),
+        low: VersionContext(low, "in_line"),
+    }
+    assert sel([mid, high, low], contexts) == high
+
+
+def test_sel_is_order_independent_and_total():
+    rng = random.Random(1234)
+    checked = 0
+    for _ in range(5000):
+        k = rng.randint(0, len(VERSION_IDS))
+        ids = rng.sample(VERSION_IDS, k)
+        # Ancestors only from earlier in a random permutation: acyclic by
+        # construction, not necessarily transitive.
+        order = ids[:]
+        rng.shuffle(order)
+        contexts = {
+            v: VersionContext(
+                v,
+                rng.choice(RELATION_VALUES),
+                frozenset(w for w in order[:i] if rng.random() < 0.4),
+            )
+            for i, v in enumerate(order)
+        }
+        expected = oracle_sel(set(ids), contexts)
+        assert expected is None or expected in set(ids)
+        for _round in range(3):
+            shuffled = ids[:]
+            rng.shuffle(shuffled)
+            assert sel(shuffled, contexts) == expected
+        checked += 1
+    assert checked == 5000
+
+
+def test_exhaustive_two_version_structured_fold_matches_oracle():
+    ids = VERSION_IDS[:2]
+    checked = 0
+    for activity_bits in itertools.product((True, False), repeat=len(ids)):
+        activity = dict(zip(ids, activity_bits))
+        for outcomes_tuple in itertools.product(OUTCOME_VALUES, repeat=len(ids)):
+            outcomes = dict(zip(ids, outcomes_tuple))
+            for relations in itertools.product(RELATION_VALUES, repeat=len(ids)):
+                for contexts in _ancestry_configurations(ids):
+                    for v, relation in zip(ids, relations):
+                        contexts[v] = VersionContext(v, relation, contexts[v].ancestors)
+                    assert_fold_matches_oracle((), activity, ids, outcomes, contexts)
+                    checked += 1
+    assert checked == 2**2 * 4**2 * 5**2 * 2**2
+
+
+def test_random_structured_folds_match_oracle():
+    rng = random.Random(77)
+    checked = 0
+    for _ in range(20000):
+        k = rng.randint(1, len(VERSION_IDS))
+        ids = list(VERSION_IDS[:k])
+        activity = {v: rng.random() < 0.6 for v in ids}
+        outcomes = {v: rng.choice(OUTCOME_VALUES) for v in ids}
+        order = ids[:]
+        rng.shuffle(order)
+        contexts = {
+            v: VersionContext(
+                v,
+                rng.choice(RELATION_VALUES),
+                frozenset(w for w in order[:i] if rng.random() < 0.3),
+            )
+            for i, v in enumerate(order)
+        }
+        assert_fold_matches_oracle((), activity, ids, outcomes, contexts)
+        checked += 1
+    assert checked == 20000
+
+
+def test_structured_fold_over_event_graphs_matches_oracle():
+    """Ties the structured-outcome fold to REAL event DAGs: refuted and
+    active versions mixed by the activity fixed point, not by hand."""
+    rng = random.Random(99)
+    checked = 0
+    for events in enumerate_graphs(3):
+        if has_cycle(list(events)):
+            continue
+        activity = resolve_activity(list(events))
+        claims = [e.id for e in events if e.kind == "claim"]
+        if not claims:
+            continue
+        for _ in range(3):
+            order = claims[:]
+            rng.shuffle(order)
+            outcomes = {v: rng.choice(OUTCOME_VALUES) for v in claims}
+            contexts = {
+                v: VersionContext(
+                    v,
+                    rng.choice(RELATION_VALUES),
+                    frozenset(w for w in order[:i] if rng.random() < 0.3),
+                )
+                for i, v in enumerate(order)
+            }
+            assert_fold_matches_oracle(events, activity, claims, outcomes, contexts)
+            checked += 1
+    assert checked > 700
+
+
+@pytest.mark.parametrize("n", EXHAUSTIVE_SIZES)
+def test_unprovable_contexts_reduce_to_the_legacy_walk(n):
+    """The regression guarantee: with every version's context unprovable, sel
+    ranks by descending ULID and the fold reproduces the legacy walk exactly
+    (first match in descending-ULID order displays; a refuted version newer
+    than the displayed one flagged restored)."""
+    checked = 0
+    for events in enumerate_graphs(n):
+        if has_cycle(list(events)):
+            continue
+        activity = resolve_activity(list(events))
+        claims = [e.id for e in events if e.kind == "claim"]
+        if not claims:
+            continue
+        for bits in itertools.product((True, False), repeat=len(claims)):
+            matcher = dict(zip(claims, bits))
+            outcomes = {v: ("match" if m else "mismatch") for v, m in matcher.items()}
+            new = fold_lineage(
+                IDS[0], list(events), activity, claims, outcomes=outcomes, contexts={}
+            )
+            versions = sorted(set(claims), reverse=True)
+            active = [v for v in versions if activity.get(v, False)]
+            refuted = [v for v in versions if not activity.get(v, False)]
+            matched = [v for v in active if matcher[v]]
+            legacy_displayed = matched[0] if matched else (active[0] if active else None)
+            legacy_restored = legacy_displayed is not None and any(
+                v > legacy_displayed for v in refuted
+            )
+            if not versions:
+                legacy_resolution = None
+            elif not active:
+                legacy_resolution = "none"
+            elif not matched:
+                legacy_resolution = "stale"
+            else:
+                legacy_resolution = "restored" if legacy_restored else "current"
+            assert new.displayed == legacy_displayed, (events, matcher)
+            assert new.resolution == legacy_resolution, (events, matcher)
+            if matched:
+                # On the matched path the counterfactual reduces to the
+                # legacy ULID comparison exactly; on the no-match path the
+                # design retires the flag (§6.2 rule 4 — only a displayed
+                # match can be restored).
+                assert new.restored == legacy_restored, (events, matcher)
+            else:
+                assert new.restored is False
+            checked += 1
+    assert checked > 0

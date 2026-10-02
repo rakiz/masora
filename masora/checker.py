@@ -146,9 +146,7 @@ def check_base(base_dir: Path) -> CheckResult:
                             r.path,
                         )
                     )
-            fold = fold_lineage(
-                lineage, lineage_events, activity, eligible, provider_available=False
-            )
+            fold = fold_lineage(lineage, lineage_events, activity, eligible)
             envelopes.append(_envelope(fold, versions))
     diags.sort(key=lambda d: (d.severity != "error", d.code, d.path or "", d.message))
     return CheckResult(

@@ -19,7 +19,7 @@ from .fold import Event, fold_lineage, resolve_activity
 from .frontmatter import load_frontmatter
 from .index import file_fingerprint_provider
 from .providers import cppgraph_registry
-from .resolve import AnchorData, VersionData, _matcher, resolve_lineage
+from .resolve import AnchorData, VersionData, compose_outcomes, resolve_lineage
 from .schema import EventRecord
 
 
@@ -67,13 +67,15 @@ def explain_lineage(base_dir: Path, lineage_id: str, repo: Path | None = None) -
         lineage_id, version_data, fold_events, fingerprints, edge_snapshots=edge_snapshots
     )
     activity = resolve_activity(fold_events)
+    # The same composed outcomes the status used, so the fold's displayed
+    # version (the known match under an unknown shadow, else the fallback)
+    # always agrees with the status tuple above.
     fold = fold_lineage(
         lineage_id,
         fold_events,
         activity,
         eligible,
-        fingerprint_matcher=_matcher({v.id: v for v in version_data}, fingerprints),
-        provider_available=not status.unknown,
+        outcomes=compose_outcomes(version_data, fingerprints),
     )
     return _render(base_dir, records, by_id, activity, fold, status, fingerprints)
 

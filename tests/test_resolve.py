@@ -16,7 +16,7 @@ from helpers import (
     ULID_V2A,
 )
 
-from masora.fold import Event
+from masora.fold import Event, VersionContext
 from masora.resolve import AnchorData, VersionData, resolve_lineage
 
 L = ULID_L1
@@ -59,10 +59,16 @@ def registry(mode: str, fp_map: dict, edge_map: dict | None = None):
     return {"code": fn}, {"code": lambda kind, identity: edge_map.get(identity)}
 
 
-def resolve(versions, events, providers, pending_ids=frozenset()):
+def resolve(versions, events, providers, pending_ids=frozenset(), contexts=None):
     fingerprints, edge_snapshots = providers if isinstance(providers, tuple) else (providers, {})
     return resolve_lineage(
-        L, versions, events, fingerprints, edge_snapshots=edge_snapshots, pending_ids=pending_ids
+        L,
+        versions,
+        events,
+        fingerprints,
+        edge_snapshots=edge_snapshots,
+        pending_ids=pending_ids,
+        contexts=contexts,
     )
 
 
@@ -398,3 +404,73 @@ def test_unavailable_provider_before_first_match_shadows():
     status = resolve(versions, events_for(F, V2), providers)
     assert status.resolution == "unknown"
     assert status.unknown is True
+    # Under the shadow the displayed version is the known match sel picked,
+    # not the newest active version (MASORA_DESIGN.md §6.2 rule 6).
+    assert status.displayed == F
+
+
+def test_unavailable_version_that_cannot_win_sel_does_not_shadow():
+    # HIGH (higher ULID) matches; LOW is active but unavailable with a lower
+    # ULID: under unprovable contexts it cannot win sel over the matches, so
+    # the conditional shadow (§12.16(c)) does not fire.
+    high = "01J8Z3K0000000000000000009"
+    low = "01J8Z3K0000000000000000001"
+    versions = (
+        vrow(F, provider="file"),
+        vrow(high, provider="file"),
+        vrow(low, provider="code"),
+    )
+    providers = ({"file": lambda kind, identity: FP}, {})
+    status = resolve(versions, events_for(F, high, low), providers)
+    assert status.resolution == "current"
+    assert status.unknown is False
+    assert status.displayed == high
+
+
+def test_refuted_unavailable_version_restores_but_never_shadows():
+    versions = (vrow(F, provider="file"), vrow(V2, provider="code"))
+    # The registry answers F's file anchor so F matches; V2 is unavailable
+    # and refuted. V2 outranks F by ULID, so the counterfactual restored
+    # fires whatever V2's own outcome (§6.2 rule 4) — but a refuted version
+    # is never a shadow candidate (rule 6: active versions only).
+    events = [*events_for(F, V2), Event(id=REF, kind="refute", lineage=L, targets=V2)]
+    providers = ({"file": lambda kind, identity: FP}, {})
+    status = resolve(versions, events, providers)
+    assert status.resolution == "restored"
+    assert status.unknown is False
+    assert status.displayed == F
+
+
+def test_injected_contexts_rank_tier1_over_ulid_and_grant_off_version():
+    providers = ({"code": lambda kind, identity: FP}, {})
+    # Both versions match: the older founder is provably in_line, the newer
+    # version provably out_of_line — tier 1 outranks the descending-ULID
+    # order, so the founder displays where the all-unprovable posture (the
+    # contexts parameter omitted) would show the newer version.
+    contexts = {F: VersionContext(F, "in_line"), V2: VersionContext(V2, "out_of_line")}
+    status = resolve((vrow(F), vrow(V2)), events_for(F, V2), providers, contexts=contexts)
+    assert status.displayed == F
+    assert status.resolution == "current"
+    assert status.off_version is False
+    baseline = resolve((vrow(F), vrow(V2)), events_for(F, V2), providers)
+    assert baseline.displayed == V2
+    assert baseline.resolution == "current"
+    # No match anywhere (every identity definitively absent): the fallback is
+    # the same sel. The not_found outcome grants off-version ONLY when the
+    # fallback's relation is provably out_of_line — the omitted-context
+    # posture reports the same stale lineage with the flag down.
+    absent = registry("code", {})
+    stale_versions = (vrow(F, fingerprint=FP2), vrow(V2, fingerprint=FP2))
+    plain = resolve(stale_versions, events_for(F, V2), absent)
+    assert plain.displayed == V2
+    assert plain.resolution == "stale"
+    assert plain.off_version is False
+    flagged = resolve(
+        stale_versions,
+        events_for(F, V2),
+        absent,
+        contexts={v: VersionContext(v, "out_of_line") for v in (F, V2)},
+    )
+    assert flagged.displayed == V2
+    assert flagged.resolution == "stale"
+    assert flagged.off_version is True

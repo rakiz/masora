@@ -61,9 +61,20 @@ FTS (`index`, searched by `search`).
   `checker.py` rejects cycles (`E-CYCLE`, topological, clock-free) before
   folding, so the fold only ever runs on the acyclic domain.
 - `fold_lineage()` runs **per lineage**: eligible versions are the founder
-  (`id == lineage`) and versions whose founder resolves; `displayed` is the
-  newest active eligible version (fingerprint matching when a provider is
-  available — never in standalone check); non-active versions are refuted.
+  (`id == lineage`) and versions whose founder resolves; non-active versions
+  are refuted. Every eligible version carries a composed anchor outcome
+  (`match`/`mismatch`/`not_found`/`unavailable`, §6.2 step 1 — omitted
+  outcomes are the no-provider posture: every version unevaluable) and an
+  injected git context (`fold.VersionContext`, unprovable until the
+  context-stamping stage injects relations). The two-tier selection `sel`
+  (MASORA_DESIGN.md §6.2) picks the displayed version: `sel(active matches)`
+  when any match exists, else the fallback `sel(active versions)`. The
+  counterfactuals ride the same `sel`: an active `unavailable` version
+  shadows (the resolution becomes `unknown`) iff it would win sel over the
+  matches, and a refuted version triggers `restored` iff it would win sel —
+  only when a match displays. `off_version` is a flag: the fallback's own
+  outcome is `not_found` AND its relation is provably `out_of_line`,
+  suppressed while the shadow covers the lineage.
   Verification shown = newest active verify targeting `displayed` (the
   `source`s of all active verifies are kept); `doubted` = some active doubt
   targets an active verify of `displayed`.
@@ -334,18 +345,23 @@ and adds FTS5 search. Section references are to MASORA_DESIGN.md.
   refused (the check's own diagnostics are reported); warnings ride along.
 - **Resolution** (`masora/resolve.py`, pure): per lineage it reuses
   `fold.resolve_activity` (fixed point before folding) and `fold.fold_lineage`
-  (refute/unrefute/doubt rules, founder-absent exclusion, newest-match-wins)
-  and assembles the tuple: `resolution` via `apply_precedence`
+  (refute/unrefute/doubt rules, founder-absent exclusion, the §6.2 selection
+  `sel` over composed per-version anchor outcomes — `match`/`mismatch`/
+  `not_found`/`unavailable` — from `compose_outcomes`) and assembles the
+  tuple: `resolution` via `apply_precedence`
   (`none` > `unknown` > `current`/`restored` > `stale`), `verification` as
   `verified(<source>)`/`unverified`, flags `suspect`/`doubted`/`pending`/
-  `unknown`/`unanchored`. A founderless-only lineage maps to `unknown` (no
-  eligible version to display). Unanchored claims skip fingerprint resolution:
-  always surfaced, `current`, flagged `unanchored`.
+  `unknown`/`unanchored`/`off_version`. A founderless-only lineage maps to
+  `unknown` (no eligible version to display). Unanchored claims skip
+  fingerprint resolution: always surfaced, `current`, flagged `unanchored`.
 - **Provider registry** (injectable): `Mapping[kind -> callable | None]`; the
   callable is `(kind, identity) -> fingerprint | None` where a missing/None
-  registry entry means the provider is **unavailable** (→ `unknown` shadows)
-  and a callable returning None means the anchor is **not_found** (it simply
-  fails to match → the version is skipped, older versions still match).
+  registry entry means the provider is **unavailable** (the anchor cannot be
+  evaluated) and a callable returning None means the anchor is **not_found**
+  (definitive absence — it fails to match, older versions still candidates).
+  The per-version composed outcome decides: an `unavailable` version shadows
+  (`unknown`) only when it would win sel over the matches (§6.2 rule 6), a
+  `not_found` fallback can grant `off-version` (rule 5).
   Edge snapshots are a second registry `(kind, identity) -> {edges,
   neighbours} | None` used by `suspect`.
 - **Suspect** (§12.4): the displayed version's newest observation (the newest

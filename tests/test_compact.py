@@ -116,12 +116,12 @@ def _assert_witness_preserves(events: list[Event]) -> None:
     founder_present = any(e.id == lineage for e in claims)
     eligible = [e.id for e in claims if e.id == lineage or founder_present]
     activity = resolve_activity(list(events))
-    fold_full = fold_lineage(lineage, list(events), activity, eligible, provider_available=False)
+    fold_full = fold_lineage(lineage, list(events), activity, eligible)
     kept = select_witness(lineage, list(events), eligible, activity)
     witness = [e for e in events if e.id in kept]
     wit_activity = resolve_activity(witness)
     wit_eligible = [v for v in eligible if v in kept]
-    fold_wit = fold_lineage(lineage, witness, wit_activity, wit_eligible, provider_available=False)
+    fold_wit = fold_lineage(lineage, witness, wit_activity, wit_eligible)
     kept_versions = [v for v in eligible if v in kept]
     assert observable_state(fold_full, activity, kept_versions) == observable_state(
         fold_wit, wit_activity, kept_versions
@@ -254,8 +254,13 @@ def test_compact_restored_keeps_only_the_newest_refutation(repo, capsys):
     write_event(base, C3_REL, make_claim(ULID_C3, lineage=ULID_L1, reason="v3 after code change"))
     write_event(base, R3_REL, make_doubt(ULID_R3, ULID_L1, ULID_C3, kind="refute"))
     seed(base)
+    # Standalone check wires no provider: no match can display, so the
+    # counterfactual restored cannot fire (§6.2 rule 4) and the unknown
+    # shadow covers the lineage. The witness rule below still keeps the
+    # newest refutation, which a provider-backed recall-time restored
+    # counterfactual would depend on.
     envelope = next(env for env in check_base(base).envelopes if env["lineage"] == ULID_L1)
-    assert envelope["restored"] is True
+    assert envelope["restored"] is False
 
     code = compact_run(base, yes=True)
 

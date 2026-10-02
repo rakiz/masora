@@ -292,12 +292,12 @@ def _plan_lineage(
     has_founder = founder is not None and founder.kind == "claim"
     eligible = [record.id for record in claims if record.id == lineage or has_founder]
     activity = resolve_activity(events)
-    fold_full = fold_lineage(lineage, events, activity, eligible, provider_available=False)
+    fold_full = fold_lineage(lineage, events, activity, eligible)
     kept = select_witness(lineage, events, eligible, activity)
     witness = [e for e in events if e.id in kept]
     wit_activity = resolve_activity(witness)
     wit_eligible = [v for v in eligible if v in kept]
-    fold_wit = fold_lineage(lineage, witness, wit_activity, wit_eligible, provider_available=False)
+    fold_wit = fold_lineage(lineage, witness, wit_activity, wit_eligible)
     kept_versions = [v for v in eligible if v in kept]
     diverged = []
     if observable_state(fold_full, activity, kept_versions) != observable_state(

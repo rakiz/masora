@@ -39,7 +39,10 @@ def test_valid_fixture_envelope():
     envelope = next(e for e in result.envelopes if e["lineage"] == ULID_L1)
     assert envelope["displayed"] == ULID_L1
     assert envelope["status"] == "unknown"
-    assert envelope["restored"] is True
+    # Standalone check wires no provider: no match can display, so the
+    # counterfactual restored (§6.2 rule 4) cannot fire — the unknown shadow
+    # covers the lineage instead.
+    assert envelope["restored"] is False
     assert envelope["versions"] == [
         {"id": ULID_V2A, "refuted": True},
         {"id": ULID_L1, "refuted": False},

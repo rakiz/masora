@@ -9,7 +9,7 @@ from importlib import metadata
 from pathlib import Path
 
 import pytest
-from helpers import ULID_L1, make_claim, write_event
+from helpers import ULID_L1, ULID_V2A, make_claim, write_event
 
 from masora import status
 from masora.cli import main
@@ -62,7 +62,7 @@ def test_status_prints_tool_versions_and_exits_zero(masora_home, capsys):
     assert "masora status" in out
     assert "format_version: 1" in out
     assert "facts contract_version: 1" in out
-    assert "index schema_version: 4" in out
+    assert "index schema_version: 5" in out
     assert "update check unavailable (offline)" in out
 
 
@@ -157,6 +157,30 @@ def test_status_reports_index_staleness_reason(masora_home, configured_base, cap
     assert code == 0
     out = capsys.readouterr().out
     assert f"{db.name}: repo {repo} — events written since the index build" in out
+
+
+def test_status_repeats_the_degraded_context_ordering(masora_home, configured_base, capsys):
+    from masora.index import build_index, index_db_path
+
+    repo = configured_base.parent.parent / "code-checkout"
+    repo.mkdir()
+    db = index_db_path(configured_base, repo)
+    # a second version in the lineage: both establishing SHAs exist in no repo
+    # (the helpers' constant against a non-git checkout) — the build degrades
+    write_event(
+        configured_base,
+        "2026-09/x/01J8Z3K0000000000000000005.claim.md",
+        make_claim(ULID_V2A, ULID_L1, reason="code changed", summary="Second version summary"),
+    )
+    build_index(configured_base, repo, no_cppgraph=True)
+
+    code = status.run(fetcher=lambda: None)
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert f"{db.name}: repo {repo}" in out
+    assert "context ordering: degraded in 1 lineage(s)" in out
+    assert "rebuild the index from a full clone" in out
 
 
 def test_status_no_index_line(masora_home, configured_base, capsys):

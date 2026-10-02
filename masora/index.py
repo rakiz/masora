@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
 
-from . import config, resolve
+from . import config, fold, gitctx, resolve
 from .checker import FILENAME_RE, check_base, discover_event_files
 from .diagnostics import (
     E_IDX_CORRUPT,
@@ -27,6 +27,7 @@ from .diagnostics import (
     E_IDX_REPO,
     E_IDX_WRITE,
     E_YAML,
+    W_CTX_DEGRADED,
     W_IDX_CORRUPT,
     W_IDX_GRAPH,
     CheckFailure,
@@ -38,7 +39,7 @@ from .schema import EventRecord, validate_event
 from .sync import SyncError, _tombstone_pairs, git_env
 from .ulid import is_ulid
 
-SCHEMA_VERSION = "4"
+SCHEMA_VERSION = "5"
 
 DDL = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -51,7 +52,9 @@ CREATE TABLE lineages (
     doubted INTEGER NOT NULL,
     pending INTEGER NOT NULL,
     unknown INTEGER NOT NULL,
-    unanchored INTEGER NOT NULL
+    unanchored INTEGER NOT NULL,
+    off_version INTEGER NOT NULL,
+    context_ordering TEXT NOT NULL
 );
 CREATE TABLE versions (
     version TEXT PRIMARY KEY,
@@ -61,7 +64,8 @@ CREATE TABLE versions (
     statement TEXT NOT NULL,
     source TEXT NOT NULL,
     name TEXT,
-    effort TEXT
+    effort TEXT,
+    relation TEXT
 );
 CREATE INDEX versions_by_lineage ON versions (lineage);
 CREATE TABLE anchors (
@@ -391,13 +395,32 @@ def build_index(
         if registry.reason is not None and _has_code_anchors(parsed):
             diags.append(Diag("warning", W_IDX_GRAPH, registry.reason))
     try:
+        line = gitctx.asking_line(repo)
+        prober = gitctx.RelationProber(repo, line)
         entries = _resolve_all(
-            parsed, tombstoned, fingerprints, edge_snapshots or {}, _pending_ids(parsed, base_dir)
+            parsed,
+            tombstoned,
+            fingerprints,
+            edge_snapshots or {},
+            _pending_ids(parsed, base_dir),
+            prober,
         )
     finally:
         if registry is not None:
             registry.close()
-    version_count = sum(len(claims) for _, claims in entries)
+    version_count = sum(len(entry.claims) for entry in entries)
+    degraded = [entry for entry in entries if entry.ordering == "degraded"]
+    if degraded:
+        diags.append(
+            Diag(
+                "warning",
+                W_CTX_DEGRADED,
+                f"{len(degraded)} lineage(s) resolve with a degraded context ordering — a"
+                " version's git context is unprovable (shallow clone, missing object or the"
+                " probe budget) and the displayed selection could change if it were provable;"
+                " rebuild the index from a full clone (or raise the probe budget)",
+            )
+        )
     head = _base_head(base_dir)
     try:
         _write_db(db, entries, head, repo_head(repo), base_dir, repo, graph_commit, graph_db)
@@ -407,7 +430,7 @@ def build_index(
         ) from exc
     return IndexResult(
         db_path=db,
-        statuses=tuple(status for status, _ in entries),
+        statuses=tuple(entry.status for entry in entries),
         version_count=version_count,
         diags=diags,
         base_head=head,
@@ -684,19 +707,39 @@ def _base_head(base_dir: Path) -> str | None:
     return proc.stdout.strip() if proc.returncode == 0 else None
 
 
+@dataclass
+class LineageEntry:
+    """One lineage's resolved status plus the git context the build stamped.
+
+    `relations` maps every claim version to its computed relation
+    (`in_line`/`ahead`/`out_of_line`/`relation_unknown`, or None when
+    unprovable); `ordering` is the lineage's counterfactual
+    `context_ordering` (`exact` | `degraded`, MASORA_DESIGN.md §6.2).
+    """
+
+    status: resolve.LineageStatus
+    claims: list[ParsedEvent]
+    relations: dict[str, str | None]
+    ordering: str
+
+
 def _resolve_all(
     parsed: list[ParsedEvent],
     tombstoned: set[str],
     fingerprints: Mapping[str, resolve.FingerprintFn | None],
     edge_snapshots: Mapping[str, resolve.EdgeSnapshotFn | None],
     pending_ids: frozenset[str],
-) -> tuple[tuple[resolve.LineageStatus, list[ParsedEvent]], ...]:
+    prober: gitctx.RelationProber,
+) -> tuple[LineageEntry, ...]:
     by_lineage: dict[str, list[ParsedEvent]] = {}
     for pe in parsed:
         if pe.record.id in tombstoned or pe.record.lineage in tombstoned:
             continue
         by_lineage.setdefault(pe.record.lineage, []).append(pe)
     results = []
+    # The adapter runs ONCE per build: the prober carries the shared probe
+    # memo and budget across lineages, and the ascending-lineage-id loop order
+    # below makes the budget consumption deterministic (§6.2).
     for lineage in sorted(by_lineage):
         events = by_lineage[lineage]
         claims = [pe for pe in events if pe.record.kind == "claim"]
@@ -708,15 +751,37 @@ def _resolve_all(
             )
             for pe in claims
         )
+        fold_events = [_fold_event(pe) for pe in events]
+        relations = prober.lineage_contexts(
+            {pe.record.id: pe.record.timestamp_commit for pe in claims}
+        )
+        # The degraded counterfactual needs the fold's exact inputs; they are
+        # recomputed here (pure, cheap) over the same events/claims the
+        # resolution below folds — keep the derivations identical.
+        activity = fold.resolve_activity(fold_events)
+        outcomes = resolve.compose_outcomes(list(versions), fingerprints)
+        founder = any(v.id == lineage for v in versions)
+        eligible = [v.id for v in versions if v.id == lineage or founder]
+        ordering = gitctx.context_ordering(
+            lineage, fold_events, activity, eligible, outcomes, relations
+        )
         status = resolve.resolve_lineage(
             lineage,
             versions,
-            [_fold_event(pe) for pe in events],
+            fold_events,
             fingerprints,
             edge_snapshots=edge_snapshots,
             pending_ids=pending_ids,
+            contexts=relations,
         )
-        results.append((status, claims))
+        results.append(
+            LineageEntry(
+                status=status,
+                claims=claims,
+                relations={v: c.relation for v, c in relations.items()},
+                ordering=ordering,
+            )
+        )
     return tuple(results)
 
 
@@ -737,7 +802,7 @@ def _fold_event(pe: ParsedEvent) -> Event:
 
 def _write_db(
     db: Path,
-    entries: tuple[tuple[resolve.LineageStatus, list[ParsedEvent]], ...],
+    entries: tuple[LineageEntry, ...],
     head: str | None,
     repo_head: str | None,
     base_dir: Path,
@@ -753,9 +818,10 @@ def _write_db(
     try:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(DDL)
-        for status, claims in entries:
+        for entry in entries:
+            status = entry.status
             conn.execute(
-                "INSERT INTO lineages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO lineages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     status.lineage,
                     status.displayed,
@@ -766,12 +832,14 @@ def _write_db(
                     int(status.pending),
                     int(status.unknown),
                     int(status.unanchored),
+                    int(status.off_version),
+                    entry.ordering,
                 ),
             )
-            for claim in claims:
+            for claim in entry.claims:
                 refuted = claim.record.id in status.refuted
                 conn.execute(
-                    "INSERT INTO versions VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO versions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         claim.record.id,
                         status.lineage,
@@ -781,6 +849,7 @@ def _write_db(
                         claim.record.source or "",
                         claim.record.name,
                         claim.record.effort,
+                        entry.relations.get(claim.record.id),
                     ),
                 )
                 for a in claim.anchors:

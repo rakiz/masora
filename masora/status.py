@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 import subprocess
 import tomllib
 import urllib.request
@@ -20,6 +21,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from importlib import metadata
 from pathlib import Path
+from urllib.parse import quote
 
 from . import config
 from .facts import CONTRACT_VERSION
@@ -163,6 +165,28 @@ def _print_indexes(base_dir: Path) -> None:
         else:
             state = "the clone is missing — rebuild the index after re-running masora setup"
         print(f"      {db.name}: repo {repo_path} — {state}")
+        degraded = _degraded_lineages(db)
+        if degraded:
+            print(
+                f"        context ordering: degraded in {degraded} lineage(s) — rebuild the"
+                " index from a full clone (W-CTX-DEGRADED)"
+            )
+
+
+def _degraded_lineages(db: Path) -> int:
+    """The count of `context_ordering: degraded` lineage rows; 0 when the index
+    predates the column or is unreadable (the index is a derived cache)."""
+    try:
+        conn = sqlite3.connect(f"file:{quote(str(db))}?mode=ro", uri=True)
+        try:
+            row = conn.execute(
+                "SELECT count(*) FROM lineages WHERE context_ordering = 'degraded'"
+            ).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return 0
+    return row[0] if row else 0
 
 
 def _print_update_check(force: bool, fetch: Callable[[], dict | None]) -> None:

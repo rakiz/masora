@@ -263,7 +263,10 @@ def test_base_head_change_detected(git_base, repo, home, capsys):
     code = main(["search", str(git_base), "shard", "--repo", str(repo)])
     assert code == 0
     assert "W-IDX-STALE" in capsys.readouterr().out
-    assert main(["index", str(git_base), "--repo", str(repo)]) == 0
+    # the rebuild exits 2: with the second version the lineage's git context
+    # is unprovable (the helpers' establishing SHA exists in no repo) and the
+    # degraded warning fires — orthogonal to the staleness under test
+    assert main(["index", str(git_base), "--repo", str(repo)]) == 2
     assert index_stale(db, git_base) is False
     assert [h.version for h in search_index(db, "Second")] == [ULID_V2A]
 
@@ -756,9 +759,12 @@ def test_uncommitted_write_fires_freshness_axis(git_base, repo, home, capsys):
     assert "events written since the index build" in out
 
     # the synthetic future mtime would out-date the NEXT build too — pull it
-    # back onto the build moment (a real file is never in the future)
+    # back onto the build moment (a real file is never in the future). The
+    # rebuild exits 2: with the second version the lineage's git context is
+    # unprovable (the helpers' establishing SHA exists in no repo) and the
+    # degraded warning fires — orthogonal to the staleness under test.
     os.utime(git_base / V2_REL, (built, built))
-    assert main(["index", str(git_base), "--repo", str(repo)]) == 0
+    assert main(["index", str(git_base), "--repo", str(repo)]) == 2
     assert index_stale(db, git_base, repo=None) is False
     main(["search", str(git_base), "shard", "--repo", str(repo)])
     assert "W-IDX-STALE" not in capsys.readouterr().out
@@ -957,7 +963,10 @@ def test_search_star_enumerates_every_lineage(base, repo, home):
     )
     write_event(base, L2_REL, make_claim(ULID_L2, summary="An unrelated second lineage"))
     result = build_index(base, repo)
-    assert result.exit_code() == 0
+    # L1 holds two versions whose establishing SHA exists in no repo: the
+    # unprovable context flags the lineage degraded (exit 2) — orthogonal to
+    # the enumeration under test
+    assert result.exit_code() == 2
     hits = search_index(result.db_path, "*")
     # one hit per lineage: the displayed version (the newest active one here)
     assert [(h.lineage, h.version) for h in hits] == [

@@ -116,12 +116,27 @@ FIXED since). Round 10 = the closure confirmation on this diff.
    today's ULID order — script-proven equivalence; brute-force oracle
    extended for sel + restored/shadow counterfactuals; check and the
    format know nothing).
-3. Git relation adapter + degraded-mode reporting (memoized per SHA pair,
-   budgeted, lineage-id order, no implicit fetch; real-repo tests:
-   ancestor, divergent, ahead-restricted, shallow, missing, cherry-pick,
-   criss-cross).
-4. Index schema bump (per-version context + verifications table + ordering
-   state), public output unchanged.
+3. ~~Git relation adapter + degraded-mode reporting~~ DONE
+   (`masora/gitctx.py` + its .md companion: `asking_line` — HEAD/branch/
+   upstream/shallow resolved locally, never fetched; memoized budgeted
+   `merge-base --is-ancestor` probes per ORDERED sha pair, ONE shared budget
+   (PROBE_BUDGET 1024), ascending lineage-id/ULID order; the exact relation
+   table in gitctx.md — in_line/ahead/out_of_line/relation_unknown/unprovable;
+   the counterfactual `context_ordering` via the pure fold: degraded iff an
+   unprovable context could change displayed/shadow/restored, `relation_unknown`
+   not counting; real-repo tests in tests/test_gitctx.py — 26: ancestor,
+   divergent, ahead-restricted, proper ahead, detached HEAD, shallow, missing
+   object, cherry-picked twin, criss-cross, budget exhaustion/determinism,
+   memoization, never-fetches, degraded firing only when the result could
+   change).
+4. ~~Index schema bump~~ DONE (SCHEMA_VERSION "5", rebuild-only per §12.16(p);
+   `lineages` gains `off_version` + `context_ordering`, `versions` gains
+   `relation`; one `W-CTX-DEGRADED` warning per degraded build (diagnostics.py
+   + TROUBLESHOOTING.md in the same change) driving exit 2; `masora status`
+   repeats the degraded count per index; public output otherwise unchanged —
+   facts v1 shape untouched, off_version only STORED (rendering is stage 8)).
+   The §12.16(k) "verifications table" is NOT in this stage — the task's
+   column list scoped stage 4 to relation/ordering/off_version.
 5. The `lines` fork-point stamp ships (CONTEXT only): schema acceptance
    (both shapes), canonical key order, tool-side capture in the write path
    (merge-base per known line ref, capped, deterministic), §5.1-§5.4

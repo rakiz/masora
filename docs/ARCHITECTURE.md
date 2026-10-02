@@ -324,7 +324,7 @@ diagnostic naming the lineage-ULID rule). Nothing is written, ever. This
 promotes `explain (evidence-chain trace)` out of the TODO's out-of-scope
 list — the remaining advanced tools are `unrefute`, `recheck` and `history`.
 
-## Index and resolution (`masora/index.py`, `masora/resolve.py`, MASORA_DESIGN.md §6.2, §5.4, §8)
+## Index and resolution (`masora/index.py`, `masora/gitctx.py`, `masora/resolve.py`, MASORA_DESIGN.md §6.2, §5.4, §8)
 
 The index turns the fold into the **computed status tuple** (`resolution`,
 `verification`, flags) that standalone `check` can only report as `unknown`,
@@ -343,6 +343,36 @@ and adds FTS5 search. Section references are to MASORA_DESIGN.md.
   without one is `E-IDX-NOINDEX`.
 - **Gate**: `build_index` runs `check_base()` first — a base with errors is
   refused (the check's own diagnostics are reported); warnings ride along.
+- **Git relation adapter** (`masora/gitctx.py`, §6.2): once per build, the
+  asking line is resolved from the `--repo` checkout with three LOCAL git
+  reads and no fetch (`asking_line`: HEAD, current branch, the branch's
+  upstream ref AS PRESENT LOCALLY, the shallow flag); then every claim
+  version's establishing commit (`recorded_at.commit`) gets its relation
+  against the asking HEAD — `in_line` (ancestor-or-equal, HEAD-equal
+  included), `ahead` (proper descendant ALSO ancestor-or-equal of the
+  upstream ref — detached HEAD or a missing upstream means no ahead is
+  provable), `out_of_line` (provably neither) or unprovable (`relation =
+  None`: no commit, shallow clone, missing object/failed probe, or the probe
+  budget; `relation_unknown` when a probe failed after not-in_line was
+  proven — the proven half is never demoted). Probes are
+  `git merge-base --is-ancestor` (exit 0/1; any other exit is a failure,
+  never a no), memoized per ORDERED sha pair, sharing ONE budget per build
+  (`PROBE_BUDGET`, 1024 spawns); lineages are processed in ascending
+  lineage-id order and versions in ascending ULID order, so the budget is
+  deterministic. Tier-1 candidates additionally get the `ancestors` maxima
+  input from pairwise probes among themselves (a blocked/failed pairwise
+  probe is INCOMPARABLE — it never demotes a proven relation). The contexts
+  flow into `resolve_lineage(contexts=…)` (the pure two-tier `sel`).
+- **`context_ordering`** (`gitctx.context_ordering`, §6.2): per lineage,
+  `degraded` iff some version's context is unprovable (`relation_unknown`
+  does NOT count) AND hypothetically promoting it to `in_line`/`ahead` or
+  demoting it to `out_of_line` (no ancestry edges — the strongest hypothesis)
+  would change the fold's observable result (displayed, shadow, restored);
+  `exact` otherwise. `off-version` is out of scope (its guard needs a
+  PROVABLE relation). A build with degraded lineages emits ONE
+  `W-CTX-DEGRADED` warning (exit 2) naming the count and the remedy (rebuild
+  from a full clone / raise the budget); `masora status` repeats it per
+  index.
 - **Resolution** (`masora/resolve.py`, pure): per lineage it reuses
   `fold.resolve_activity` (fixed point before folding) and `fold.fold_lineage`
   (refute/unrefute/doubt rules, founder-absent exclusion, the §6.2 selection
@@ -411,19 +441,21 @@ and adds FTS5 search. Section references are to MASORA_DESIGN.md.
   registry and the edge-snapshot registry, so `suspect` (§12.4) fires for real
   on call-neighbourhood drift.
 - **Schema**: `meta` (schema_version, base_path, repo_path, base_head,
-  graph_commit, graph_db, built_at), `lineages` (status-tuple columns),
-  `versions` (refuted flag +
-  summary/statement per claim version), `anchors` (provider/identity/
+  graph_commit, graph_db, built_at), `lineages` (status-tuple columns +
+  `off_version` + `context_ordering`), `versions` (refuted flag +
+  summary/statement per claim version + `relation` — the §6.2 git context
+  label, NULL when unprovable), `anchors` (provider/identity/
   fingerprint per version), FTS5 virtual table `search` (summary + statement;
   unicode61 tokenizer → case/accent-insensitive; lineage/version unindexed) and
   the per-question FTS5 table `questions` (question; version + question_ordinal
   unindexed) — one row per claim question (FORMAT.md §4), and the
   per-keyword FTS5 table `keywords` (keyword; version + keyword_ordinal
   unindexed) — one row per claim keyword (the alternate vocabulary, FORMAT.md
-  §4), so the matched question/keyword text can be surfaced. Schema version 4
+  §4), so the matched question/keyword text can be surfaced. Schema version 5
   (a foreign-version DB is
   refused with `E-IDX-CORRUPT` and `masora index` rebuilds — the index is
-  disposable; bases without questions/keywords rebuild cleanly).
+  disposable; §12.16(p): a schema bump needs no migration, rebuild the
+  index; bases without questions/keywords rebuild cleanly).
   Tombstoned lineages (and tombstoned event ids) are excluded.
 - **Search union**: `search_index` runs the content MATCH (summary +
   statement only — questions/keywords never dilute it) plus the questions

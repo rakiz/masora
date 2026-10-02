@@ -6,7 +6,7 @@
       the current state only (release-notes style); the history of how the
       project got there lives between released versions. -->
 
-## 0.8.0 — 2026-10-02
+## 0.7.0 — 2026-10-02
 
 ### Added
 
@@ -62,8 +62,6 @@
     per-lineage `off_version` + `context_ordering`; rebuild-only (the
     index is a derived cache; beta: no migration — old event files stay
     valid forever, absence IS the unknown value).
-
-## 0.7.0 — 2026-10-02
 
 ### Changed
 

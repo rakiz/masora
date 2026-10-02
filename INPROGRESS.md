@@ -9,10 +9,10 @@
 ## Current phase
 
 **Working now:** nothing — the branch/version context-stamping phase is
-COMPLETE and released as 0.8.0 (all 8 stages implemented, reviewed, committed;
+COMPLETE and released as 0.7.0 (all 8 stages implemented, reviewed, committed;
 the CHANGELOG carries the entry). Next task: the first rollout (TODO.md) —
 create the base on the author's `employees/` dir + Confluence install page;
-after installing 0.8.0, run `masora index <base> --repo <checkout>` to
+after installing 0.7.0, run `masora index <base> --repo <checkout>` to
 rebuild indexes at schema v6 (rebuild-only, no migration — beta ruling (p)),
 optionally `masora gc` to purge obsolete fiches, and update the cppgraph
 side to facts v2 (docs/CPPGRAPH_INTEGRATION.md is the contract it must
@@ -26,7 +26,7 @@ JSON / absent or boolean version). Sanctioned in
 docs/CPPGRAPH_INTEGRATION.md (zero-change bullet); Masora-side action:
 NONE — the advisory names the tool versions, not the facts content.
 
-**Done:** 0.8.0 — branch/version context stamping: the closed design (10
+**Done:** 0.7.0 (second batch) — branch/version context stamping: the closed design (10
 review rounds, 3.6M-case brute force) implemented across 8 committed stages
 (structured outcomes + two-tier sel; git relation adapter; index schema v6;
 the context-only `lines` stamp; the compact universal witness; the recall

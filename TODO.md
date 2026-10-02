@@ -387,7 +387,7 @@ is wanted, without cppgraph.
 
 - [ ] Symbol-addressed search fallback: exercise the base via CLI/MCP `search` by symbol on machines without cppgraph (the anchors table exists; the FTS covers summary + statement only).
 
-- [ ] Code branches and source versions: qualify statuses by the code state
+- [x] Code branches and source versions: qualify statuses by the code state
   they were established against — ONE shared base, usable across versions
   and branches (owner seed 2026-10-02, ruled IMPORTANT: "what happens when I
   travel back in time in my codebase? … one knowledge base served over

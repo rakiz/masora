@@ -6,6 +6,63 @@
       the current state only (release-notes style); the history of how the
       project got there lives between released versions. -->
 
+## 0.8.0 — 2026-10-02
+
+### Added
+
+- **Branch/version context stamping — statuses qualified by the code state a
+  claim was established against** (TODO.md phase 2; the design closed after a
+  10-round review loop whose final round brute-forced 3,629,724 cases with
+  zero semantic failures, mutation-checked; every ruling recorded in
+  MASORA_DESIGN.md §12 item 16 (a)-(p)):
+
+  - **Structured anchor outcomes** — per anchor `match`/`mismatch`/
+    `not_found`/`unavailable` (provider `ambiguous` maps to `unavailable`),
+    composed per version; replaces the boolean matcher and the
+    unavailable-walk heuristic. A version whose provider is unreadable now
+    resolves `unknown` (shadow) instead of a bare `stale` — visible change.
+  - **The two-tier selection function sel** — tier 1: provably on the asking
+    line (`in_line` ancestor-or-equal of HEAD, `ahead` a proper descendant
+    also ancestor-or-equal of the local upstream ref; ahead outranks
+    in_line; ancestry maxima; ULID ties), tier 2: everything else by ULID.
+    A non-match can never display over a match; the no-match fallback is
+    sel over all active versions (this line's drift is never masked by a
+    younger off-version), flagged `off-version` only on definitive absence
+    with a provably `out_of_line` relation. Counterfactual `restored` and
+    shadow: a refuted/unavailable version qualifies when sel would pick it.
+    With no provable git context the ranking reduces exactly to the
+    previous ULID walk (oracle-proven).
+  - **The git relation adapter** (`masora/gitctx.py`) — memoized, budgeted
+    merge-base probes (1024 per build), never fetches; the counterfactual
+    `degraded` test flags `context_ordering: degraded` when an unprovable
+    context could change what displays (`W-CTX-DEGRADED`).
+  - **The `lines` fork-point stamp** — `recorded_at`/`verified_at` accept an
+    optional `lines` map (line ref → merge-base at write time), captured by
+    the write tools from the checkout's branch refs (capped at 16, sorted,
+    failures omitted) — never an agent argument, never backfilled, read by
+    NOTHING in the resolution (context only). `format_version` stays 1;
+    both shapes valid.
+  - **Compact universal witness** — every eligible version's closure is
+    kept (active AND refuted: anchors, fingerprints, establishing commit),
+    the E-COMPACT-DIVERGE proof extended to context assignments
+    (standalone, all-in_line, per-refuted ahead promotion), git-free.
+  - **Recall surfaces** — `search --any-version` (all active versions with
+    their own relation; refuted excluded — a future history tool owns
+    archaeology), `list_stale` split into the re-check list and a separate
+    "not applicable here" list, `explain` re-deriving git context live
+    against the code checkout with `off-version`/`context:` labels.
+  - **Facts contract v2** — per-fact `established_relation`
+    (`in_line|ahead|out_of_line|unknown`), `established_commit` (short,
+    presentation-only), `off_version`, `context_ordering`; v1 retired in
+    the same release (beta ruling (p): no dual-version window).
+    docs/CPPGRAPH_INTEGRATION.md rewritten to the v2 contract: rendering
+    rule (fires on off_version, non-in_line relation or degraded; never as
+    validity), non-goals (cppgraph renders, never computes or ranks).
+  - **Index schema v6** — per-version relation + establishing commit,
+    per-lineage `off_version` + `context_ordering`; rebuild-only (the
+    index is a derived cache; beta: no migration — old event files stay
+    valid forever, absence IS the unknown value).
+
 ## 0.7.0 — 2026-10-02
 
 ### Changed

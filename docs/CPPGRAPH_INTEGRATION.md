@@ -238,9 +238,17 @@ command handles it.
   cppgraph never computes git state.** A fact's context label renders iff ANY
   of:
   - `off_version` is `true`;
-  - `established_relation` is anything but `in_line` — `ahead`, `out_of_line`,
-    `unknown`, or `null`;
+  - `established_relation` is a non-null value other than `in_line` —
+    `ahead`, `out_of_line`, `unknown`, or any value this reader does not
+    know (forward compatibility, below);
   - `context_ordering` is `degraded`.
+
+  ONE exception: a fact with `resolution: "none"` renders NO context label
+  from a null `established_relation` — nothing displays, so there is no
+  establishment to qualify; the `NOT:` envelope already carries the
+  negative knowledge. (`off_version` is always false and `degraded` cannot
+  fire on a `none` lineage, so such a fact carries no context label at
+  all.)
 
   When none fires (`in_line` + `exact` + `off_version: false` — the common
   case on merge-commit repos), no context label renders and the fact's token
@@ -252,6 +260,14 @@ command handles it.
   as "off-version" (the strongest of the qualifications: the claim is not
   applicable to this checkout). Never render a branch name — the contract
   carries none — and never present the stamps as validity.
+
+  Forward compatibility: the `established_relation` enum may gain values in
+  later Masora releases. A value this reader does not recognize is inert to
+  the parser (the document is accepted), still TRIGGERS the label (it is not
+  `in_line`), and renders VERBATIM in the neutral template
+  `context: established relation <value>` — never mapped onto a pinned
+  phrase, never guessed. Update cppgraph and re-render with the learned
+  phrasing.
 
   Worked example — an `off_version` fact (the second fact of §3's document):
 

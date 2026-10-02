@@ -133,7 +133,7 @@ def test_sync_clean_add_pushes_pending_branch_and_opens_pr(repo, fake_gh, github
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
     write_event(base, VERIFY_REL, make_verify(ULID_V1A, ULID_L1, ULID_L1))
 
-    code = sync_run(base)
+    code = sync_run(base, yes=True)
 
     assert code == 0
     out = capsys.readouterr().out
@@ -167,7 +167,7 @@ def test_sync_updates_existing_pr(repo, fake_gh, github_remote, monkeypatch, cap
         "FAKE_GH_LIST", '[{"number": 42, "url": "https://github.com/acme/base/pull/42"}]'
     )
 
-    code = sync_run(base)
+    code = sync_run(base, yes=True)
 
     assert code == 0
     calls = gh_calls(fake_gh)
@@ -180,11 +180,11 @@ def test_sync_updates_existing_pr(repo, fake_gh, github_remote, monkeypatch, cap
 def test_sync_idempotent_second_run(repo, fake_gh, github_remote, capsys):
     base, _origin = repo
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
-    assert sync_run(base) == 0
+    assert sync_run(base, yes=True) == 0
     capsys.readouterr()
     calls_after_first = gh_calls(fake_gh)
 
-    code = sync_run(base)
+    code = sync_run(base, yes=True)
 
     assert code == 0
     out = capsys.readouterr().out
@@ -196,7 +196,7 @@ def test_sync_squash_merged_content_is_not_tampering(repo, capsys):
     base, origin = repo
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
     write_event(base, VERIFY_REL, make_verify(ULID_V1A, ULID_L1, ULID_L1))
-    assert sync_run(base) == 0
+    assert sync_run(base, yes=True) == 0
     capsys.readouterr()
     main_before = git(origin, "rev-parse", "refs/heads/main")
     pending_tree = git(base, "rev-parse", "refs/heads/masora/pending^{tree}")
@@ -295,7 +295,7 @@ def test_sync_v2_claim_with_pending_founder_is_accepted(repo, capsys):
         make_claim(ULID_V2A, lineage=ULID_L1, reason="why"),
     )
 
-    code = sync_run(base)
+    code = sync_run(base, yes=True)
 
     assert code == 0
     out = capsys.readouterr().out
@@ -345,13 +345,13 @@ def test_sync_drop_deletes_local_branch_closes_pr_and_deletes_remote(
 ):
     base, origin = repo
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
-    assert sync_run(base) == 0
+    assert sync_run(base, yes=True) == 0
     capsys.readouterr()
     monkeypatch.setenv(
         "FAKE_GH_LIST", '[{"number": 42, "url": "https://github.com/acme/base/pull/42"}]'
     )
 
-    code = sync_run(base, drop=True)
+    code = sync_run(base, drop=True, yes=True)
 
     assert code == 0
     out = capsys.readouterr().out
@@ -366,11 +366,11 @@ def test_sync_drop_deletes_local_branch_closes_pr_and_deletes_remote(
 def test_sync_drop_without_forge_cli_still_deletes_remote_branch(repo, monkeypatch, capsys):
     base, origin = repo
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
-    assert sync_run(base) == 0
+    assert sync_run(base, yes=True) == 0
     capsys.readouterr()
     monkeypatch.setattr("masora.sync._gh_on_path", lambda: None)
 
-    code = sync_run(base, drop=True)
+    code = sync_run(base, drop=True, yes=True)
 
     assert code == 0
     out = capsys.readouterr().out
@@ -392,7 +392,7 @@ def test_sync_push_solo_pushes_main(repo, capsys):
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
     write_event(base, VERIFY_REL, make_verify(ULID_V1A, ULID_L1, ULID_L1))
 
-    code = sync_run(base, push=True)
+    code = sync_run(base, push=True, yes=True)
 
     assert code == 0
     out = capsys.readouterr().out
@@ -423,7 +423,7 @@ def test_sync_dangling_target_is_warning_only(repo, capsys):
         make_doubt(ULID_D1A, ULID_L1, DANGLING),
     )
 
-    code = sync_run(base)
+    code = sync_run(base, yes=True)
 
     assert code == 2
     out = capsys.readouterr().out
@@ -440,7 +440,7 @@ def test_sync_pr_body_unresolvable_target_falls_back_to_ulid(repo, fake_gh, gith
         make_doubt(ULID_D1A, ULID_L1, DANGLING),
     )
 
-    code = sync_run(base)
+    code = sync_run(base, yes=True)
 
     assert code == 2
     calls = gh_calls(fake_gh)
@@ -484,7 +484,7 @@ def test_sync_compare_url_fallback_without_gh(repo, monkeypatch, capsys):
     monkeypatch.setattr("masora.sync._gh_on_path", lambda: None)
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
 
-    code = sync_run(base)
+    code = sync_run(base, yes=True)
 
     assert code == 0
     out = capsys.readouterr().out
@@ -496,7 +496,7 @@ def test_sync_non_github_remote_prints_manual_instruction(repo, capsys):
     base, origin = repo
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
 
-    code = sync_run(base)
+    code = sync_run(base, yes=True)
 
     assert code == 0
     out = capsys.readouterr().out
@@ -518,7 +518,7 @@ def test_sync_collaborator_event_on_origin_is_not_tampering(repo, tmp_path, caps
     seed(worker, "collaborator claim")
 
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
-    code = sync_run(base)
+    code = sync_run(base, yes=True)
 
     assert code == 0
     out = capsys.readouterr().out
@@ -536,13 +536,13 @@ def test_sync_up_to_date_requires_matching_remote_tracking_ref(
 ):
     base, origin = repo
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
-    assert sync_run(base) == 0
+    assert sync_run(base, yes=True) == 0
     capsys.readouterr()
     calls_after_first = gh_calls(fake_gh)
     main_sha = git(origin, "rev-parse", "refs/heads/main")
     git(base, "push", "origin", f"{main_sha}:refs/heads/masora/pending", "--force")
 
-    code = sync_run(base)
+    code = sync_run(base, yes=True)
 
     assert code == 0
     out = capsys.readouterr().out
@@ -556,16 +556,16 @@ def test_sync_up_to_date_requires_matching_remote_tracking_ref(
 def test_sync_drop_is_idempotent(repo, fake_gh, github_remote, monkeypatch, capsys):
     base, origin = repo
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
-    assert sync_run(base) == 0
+    assert sync_run(base, yes=True) == 0
     capsys.readouterr()
     monkeypatch.setenv(
         "FAKE_GH_LIST", '[{"number": 42, "url": "https://github.com/acme/base/pull/42"}]'
     )
-    assert sync_run(base, drop=True) == 0
+    assert sync_run(base, drop=True, yes=True) == 0
     calls_after_drop = gh_calls(fake_gh)
     assert any(call["args"][:2] == ["pr", "close"] for call in calls_after_drop)
 
-    code = sync_run(base, drop=True)
+    code = sync_run(base, drop=True, yes=True)
 
     assert code == 0
     assert "nothing to drop" in capsys.readouterr().out
@@ -583,7 +583,7 @@ def test_sync_pending_commit_excludes_stray_files(repo, capsys):
     (base / ".venv/lib.py").write_text("junk\n", encoding="utf-8")
     (base / "base.toml").write_text('name = "edited"\n', encoding="utf-8")
 
-    code = sync_run(base)
+    code = sync_run(base, yes=True)
 
     assert code == 0
     files = git(base, "ls-tree", "-r", "--name-only", "refs/heads/masora/pending").splitlines()
@@ -659,7 +659,7 @@ def test_sync_pr_title_mirrors_pending_counts(repo, fake_gh, github_remote):
     )
     write_event(base, "2026-09/y/01J8Z3K0000000000000000006.claim.md", make_claim(ULID_L2))
 
-    assert sync_run(base) == 0
+    assert sync_run(base, yes=True) == 0
 
     calls = gh_calls(fake_gh)
     create = calls[1]
@@ -688,7 +688,7 @@ def test_sync_pr_body_lines_read_as_changelog(repo, fake_gh, github_remote):
         make_claim(ULID_L2, summary="Second claim about locking"),
     )
 
-    assert sync_run(base) == 0
+    assert sync_run(base, yes=True) == 0
 
     create = gh_calls(fake_gh)[1]
     body = create["stdin"]
@@ -707,7 +707,7 @@ def test_sync_pr_body_tombstone_additions_line(repo, fake_gh, github_remote):
         encoding="utf-8",
     )
 
-    assert sync_run(base) == 0
+    assert sync_run(base, yes=True) == 0
 
     create = gh_calls(fake_gh)[1]
     assert create["args"][create["args"].index("--title") + 1] == "masora sync: 3 tombstoned"
@@ -738,6 +738,8 @@ STACKED_STATEMENT = "x" * (STATEMENT_MAX + 1)
 
 
 def test_sync_stacked_claim_refuses_publication(repo, capsys):
+    # Plan mode (no --yes): the stacked refusal still fires at the audit gate —
+    # the preview reflects what publish would do, exit 1, nothing mutated.
     base, origin = repo
     main_before = git(origin, "rev-parse", "refs/heads/main")
     write_event(base, CLAIM_REL, make_claim(ULID_L1, statement=STACKED_STATEMENT))
@@ -761,7 +763,7 @@ def test_sync_allow_stacked_warns_and_publishes(repo, fake_gh, github_remote, ca
     base, origin = repo
     write_event(base, CLAIM_REL, make_claim(ULID_L1, statement=STACKED_STATEMENT))
 
-    code = sync_run(base, allow_stacked=True)
+    code = sync_run(base, allow_stacked=True, yes=True)
 
     assert code == 2
     out = capsys.readouterr().out
@@ -779,7 +781,7 @@ def test_sync_clean_claim_passes_the_stacking_audit(repo, capsys):
     base, _origin = repo
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
 
-    code = sync_run(base)
+    code = sync_run(base, yes=True)
 
     assert code == 0
     out = capsys.readouterr().out
@@ -795,7 +797,7 @@ def test_sync_stacking_audit_covers_only_added_claims(repo, capsys):
     seed(base)
     write_event(base, VERIFY_REL, make_verify(ULID_V1A, ULID_L1, ULID_L1))
 
-    code = sync_run(base)
+    code = sync_run(base, yes=True)
 
     assert code == 0
     out = capsys.readouterr().out
@@ -881,3 +883,92 @@ def test_sync_without_base_dir_refuses_and_mutates_nothing(tmp_path, monkeypatch
     )
     stray = [path for path in checkout.rglob("*") if path.is_file() and ".git" not in path.parts]
     assert stray == []
+
+
+def test_sync_plan_mode_prints_pending_set_and_writes_nothing(repo, fake_gh, github_remote, capsys):
+    """Without --yes sync is a PLAN: the full gate pipeline runs, the pending set
+    is printed in the PR body's rendering, and nothing is written — no branch,
+    no push, no PR, no local ref mutation."""
+    base, origin = repo
+    main_before = git(origin, "rev-parse", "refs/heads/main")
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    write_event(base, VERIFY_REL, make_verify(ULID_V1A, ULID_L1, ULID_L1))
+
+    code = sync_run(base)
+
+    assert code == 3
+    out = capsys.readouterr().out
+    assert "2 added, 0 unchanged, 0 rewritten, 0 deleted" in out
+    assert "masora sync: 1 claim, 1 verification" in out
+    assert '- one-line-summary: "One line summary" — llm' in out
+    assert '- verified "One line summary" — by llm — 1 evidence item' in out
+    assert "plan only: nothing written — re-run with --yes to publish" in out
+    assert git(origin, "rev-parse", "refs/heads/main") == main_before
+    assert not rev_ok(origin, "refs/heads/masora/pending")
+    assert not rev_ok(base, "refs/heads/masora/pending")
+    assert gh_calls(fake_gh) == []
+
+
+def test_sync_yes_publishes_the_planned_set(repo, fake_gh, github_remote, capsys):
+    """The publishing twin of the plan test: --yes executes today's publish path."""
+    base, origin = repo
+    main_before = git(origin, "rev-parse", "refs/heads/main")
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+
+    code = sync_run(base, yes=True)
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "1 added, 0 unchanged, 0 rewritten, 0 deleted" in out
+    assert "synced: 1 pending event(s)" in out
+    pending = git(base, "rev-parse", "refs/heads/masora/pending")
+    assert pending == git(origin, "rev-parse", "refs/heads/masora/pending")
+    assert git(base, "rev-parse", "masora/pending^") == main_before
+
+
+def test_sync_drop_plans_the_discard_without_yes(repo, fake_gh, github_remote, monkeypatch, capsys):
+    """--drop without --yes only plans: the pending set is listed, exit 3, the
+    branch and the PR are untouched."""
+    base, origin = repo
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    assert sync_run(base, yes=True) == 0
+    capsys.readouterr()
+    monkeypatch.setenv(
+        "FAKE_GH_LIST", '[{"number": 42, "url": "https://github.com/acme/base/pull/42"}]'
+    )
+    pending_before = git(base, "rev-parse", "refs/heads/masora/pending")
+
+    code = sync_run(base, drop=True)
+
+    assert code == 3
+    out = capsys.readouterr().out
+    assert f"dropped: {ULID_L1} claim: One line summary" in out
+    assert "would discard 1 pending event(s)" in out
+    assert "plan only: nothing written — re-run with --yes to discard" in out
+    assert git(base, "rev-parse", "refs/heads/masora/pending") == pending_before
+    assert rev_ok(origin, "refs/heads/masora/pending")
+    assert not any(call["args"][:2] == ["pr", "close"] for call in gh_calls(fake_gh))
+
+
+def test_sync_push_plans_without_yes(repo, capsys):
+    """--push is a mode selector, not a confirmation: without --yes the direct
+    push is only planned."""
+    base, origin = repo
+    main_before = git(origin, "rev-parse", "refs/heads/main")
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+
+    code = sync_run(base, push=True)
+
+    assert code == 3
+    out = capsys.readouterr().out
+    assert "plan only: nothing written — re-run with --yes to push to origin/main" in out
+    assert git(origin, "rev-parse", "refs/heads/main") == main_before
+    assert git(base, "rev-parse", "refs/heads/main") == main_before
+    assert not rev_ok(base, "refs/heads/masora/pending")
+
+
+def test_sync_no_pending_events_exits_zero_in_plan_mode(repo, capsys):
+    base, _origin = repo
+    code = sync_run(base)
+    assert code == 0
+    assert "no pending events: nothing to sync" in capsys.readouterr().out

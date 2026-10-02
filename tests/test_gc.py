@@ -303,7 +303,7 @@ def test_gc_then_sync_accepts_tombstoned_lineage(repo, capsys):
     seed(base)
 
     assert gc_run(base, [ULID_L1], yes=True) == 2
-    code = sync_run(base)
+    code = sync_run(base, yes=True)
 
     assert code == 0
     out = capsys.readouterr().out

@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from helpers import SHA, ULID_L1, make_claim, make_verify, write_event, write_graph_db
 
+from masora.audit import STATEMENT_MAX
 from masora.checker import check_base
 from masora.cli import main
 from masora.frontmatter import load_frontmatter
@@ -249,7 +250,9 @@ def test_note_schema_states_the_summary_statement_split(server):
     description = note["inputSchema"]["description"]
     assert (
         "summary is the injected one-liner (<= 120 characters, this is what cppgraph surfaces)"
-        ", statement is the full text (no length constraint, the detailed explanation)"
+        ", statement is the full text (no hard limit, but keep it atomic and tight — above"
+        f" {STATEMENT_MAX} characters the sync-time stacking audit refuses publication by"
+        " default, E-SYNC-STACKED)"
     ) in description
     assert "questions (optional, 1-5) are the reader queries this claim answers" in description
     assert (

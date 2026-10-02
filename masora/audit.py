@@ -8,11 +8,11 @@ pending claim events; `masora sync` owns the refusal and the override.
 
 from __future__ import annotations
 
-# WHY conservative: the thresholds separate the known block claims from atomic
-# notes on the real corpus (132 lineages, 7 known block claims) without
-# false-flagging; calibration against the real base happens at the next sync.
-# Tune them there, never silently here.
-STATEMENT_MAX = 1024
+# WHY conservative: the thresholds separate known block claims from atomic
+# notes on the real corpus — real-base atomic notes reach ~1560 characters,
+# so STATEMENT_MAX 2048 keeps headroom while still containing block claims.
+# Tune them on the real base, never silently here.
+STATEMENT_MAX = 2048
 ANCHORS_MAX = 8
 ANCHOR_FILES_MAX = 3
 

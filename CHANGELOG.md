@@ -6,6 +6,13 @@
       the current state only (release-notes style); the history of how the
       project got there lives between released versions. -->
 
+## 0.7.0 — 2026-10-02
+
+### Changed
+
+- **`masora sync` is plan-then-confirm** (owner ruling: the default must not act, it must show) — without `--yes`, sync runs the full gate pipeline (local check, fetch, diff vs `origin/main`, stacked audit, merged-result validation) and prints the readable pending set — the same one-line-per-event rendering the PR body carries, tombstone line and warnings included — then exits 3 with NOTHING written: no branch, no push, no PR, no local ref mutation. `--yes` is the single confirmation gate for every mutating mode: publish = `sync [--push] --yes`, discard = `sync --drop --yes`; `--push` stays a mode selector, not a confirmation (`--push` alone plans the push), and `--drop` without `--yes` plans the discard. `--allow-stacked` is unchanged: the stacked refusal still fires in plan mode (exit 1) — the preview reflects what publish would do. The "no pending events" path keeps exit 0 in plan mode. Exit codes: 3 plan printed (nothing written), 0 synced, 2 synced with warnings, 1 errors. (`masora/sync.py`, `masora/cli.py`, README.md, docs/ARCHITECTURE.md, tests/test_sync.py.)
+- **Stacking threshold recalibrated + write-time awareness** — `STATEMENT_MAX` 1024 → 2048 (owner calibration on real-corpus evidence: real-base atomic notes reach ~1560 characters and must not false-positive the stacking audit). The soft publication limit now surfaces at write time so note writers aim tight BEFORE sync: the `note` tool's `statement` descriptions (field + inputSchema, the number derived from the `STATEMENT_MAX` constant) and the skill's "How to note well" statement line (mirrored byte-identically in the agent instructions) state — no hard limit, but keep the statement atomic and tight: above 2048 characters the sync-time stacking audit refuses publication by default (E-SYNC-STACKED). (`masora/audit.py`, `masora/mcp.py`, `masora/skills/masora/SKILL.md`, docs/AGENT_INSTRUCTIONS.md, tests/test_mcp.py, tests/test_docs.py.)
+
 ## 0.6.3 — 2026-10-01
 
 ### Fixed

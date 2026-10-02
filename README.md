@@ -33,9 +33,10 @@ leaves the code untouched.
    references, cycles, tombstones, and the fold that computes each claim's
    status envelope. Exit 0 clean, 1 errors, 2 warnings only.
 3. **`masora sync`** — publication gate: re-runs the check, diffs the pending
-   set against `origin/main` by event id (append-only enforcement), validates
-   the merged result, then commits it on the `masora/pending` branch, pushes
-   and opens or updates the single PR.
+   set against `origin/main` by event id (append-only enforcement) and
+   validates the merged result; without `--yes` it stops there and prints the
+   pending set (plan, exit 3), with `--yes` it commits the pending set on the
+   `masora/pending` branch, pushes and opens or updates the single PR.
 4. **Merge** — a human reviews the PR (the recorded evidence is in the diff)
    and merges into `main`.
 5. **Recall** — later sessions query the base: `masora mcp` serves the write
@@ -56,20 +57,25 @@ masora init <base-dir> --name "<team>" [--code-remote <url>]...  # create a NEW 
 masora setup --base <url>[#<path>]  # clone a base + write ~/.config/masora/config.toml from its base.toml
 masora check <base-dir>  # validate a base (exit 0/1/2) — in a checkout registered with `masora setup`, the base directory may be omitted (every base-taking command resolves it from the configuration)
 masora compact <base-dir>  # drop pure history per lineage, fold-verified; --rehome migrates old directory layouts (plan exits 3; --yes executes)
-masora sync              # publish pending events: one branch + one PR
+masora sync              # plan the publication of pending events (exit 3); add --yes to publish: one branch + one PR
 masora explain <base-dir> <lineage-ulid>  # the complete story of ONE lineage, statuses included
 masora mcp               # run the MCP stdio server — register it in your MCP client's config
 masora skill install     # install the agent rules into your skills mechanism (Claude Code, opencode)
 masora status            # one screen: tool versions, your bases, index drift, update check
 ```
 
-`sync` variants:
+`sync` is plan-then-confirm: without `--yes` it runs the full gate pipeline
+(local check, diff vs `origin/main`, stacked audit, merged-result validation),
+prints the pending set and exits 3 — nothing is written.
 
-- `masora sync --push` — solo base: push the merged result directly to
-  `origin/main` instead of a pending branch and PR.
-- `masora sync --drop` — discard the pending set: close the PR (if `gh` is
-  available), delete the `masora/pending` branch locally and remotely; the
-  local `.md` files of dropped events are left in place for you to remove.
+- `masora sync --yes` — publish the pending set: one branch + one PR.
+- `masora sync --push --yes` — solo base: push the merged result directly to
+  `origin/main` instead of a pending branch and PR (`--push` alone only
+  plans the push).
+- `masora sync --drop --yes` — discard the pending set: close the PR (if
+  `gh` is available), delete the `masora/pending` branch locally and
+  remotely; the local `.md` files of dropped events are left in place for
+  you to remove (`--drop` without `--yes` only plans the discard).
 
 ## Status
 

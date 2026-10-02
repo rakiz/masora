@@ -660,6 +660,22 @@ SPEC.md). Items 6 and 8 remain postponed.
     block claim with `masora gc --lineage` (no tombstone — origin/main never
     saw it) and re-runs sync; a stacked note is never published by default.
 
+15. **Sync is plan-then-confirm; `STATEMENT_MAX` 2048** — *settled 2026-10-02
+    with the design owner*: sync's default must not act — like gc and compact,
+    a bare `masora sync` runs the full gate pipeline (local check, diff,
+    stacked audit, merged-result validation), prints the pending set in the
+    PR body's rendering and exits 3 with nothing written (no branch, no push,
+    no PR, no local ref mutation); `--yes` is the single confirmation gate for
+    every mutating mode — publish = `sync [--push] --yes`, discard =
+    `sync --drop --yes` — while `--push` stays a mode selector and
+    `--allow-stacked` is unchanged (the stacked refusal still fires in plan
+    mode). `STATEMENT_MAX` is 2048, calibrated on real-corpus evidence:
+    real-base atomic notes reach ~1560 characters and must pass the stacking
+    audit, so the write-time descriptions state the soft publication limit —
+    no hard limit, but above 2048 characters the sync-time audit refuses
+    publication by default (E-SYNC-STACKED) — so note writers aim tight
+    before sync.
+
 Non-blocking refinements recorded from the design review (not Phase 1 scope):
 computed-status presentation matrix (`current + suspect`, `stale + suspect`,
 `restored`, provider-`unknown`); canonical proof-query vocabulary with

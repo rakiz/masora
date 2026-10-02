@@ -352,7 +352,7 @@ def test_compact_then_sync_accepts_tombstoned_events(repo, capsys):
     seed(base)
 
     assert compact_run(base, yes=True) == 0
-    code = sync_run(base)
+    code = sync_run(base, yes=True)
 
     assert code == 0
     out = capsys.readouterr().out

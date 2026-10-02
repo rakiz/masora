@@ -115,8 +115,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     sync = sub.add_parser(
         "sync",
-        help="publish pending events as one branch and one PR (MASORA_DESIGN.md §8)",
-        description="Exit codes: 0 synced, 1 errors, 2 synced with warnings. Runs the local check gate, the append-only content diff against origin/main (FORMAT.md §7.9-§7.10) and merged-result validation, then commits the pending set on masora/pending, pushes it and opens or updates the single PR. --push pushes the merged result directly to origin/main (solo base). --drop discards the pending set.",
+        help="plan the publication of pending events; --yes executes (MASORA_DESIGN.md §8)",
+        description="Exit codes: 3 plan printed (nothing written), 0 synced, 2 synced with"
+        " warnings, 1 errors. Without --yes sync only PLANS: it runs the full gate pipeline"
+        " (local check, the append-only content diff against origin/main per FORMAT.md"
+        " §7.9-§7.10, the stacked audit, merged-result validation), prints the readable"
+        " pending set and exits 3 — no branch, no push, no PR, no local ref mutation."
+        " --yes publishes: commits the pending set on masora/pending, pushes it and opens or"
+        " updates the single PR. --push is a mode selector, not a confirmation:"
+        " --push --yes pushes the merged result directly to origin/main (solo base), while"
+        " --push without --yes plans that push. --drop --yes discards the pending set;"
+        " --drop without --yes plans the discard.",
     )
     sync.add_argument(
         "base_dir",
@@ -129,17 +138,25 @@ def main(argv: list[str] | None = None) -> int:
     sync.add_argument(
         "--drop",
         action="store_true",
-        help="discard the pending set: reset masora/pending to origin/main and delete the remote branch",
+        help="discard the pending set: close the PR, delete masora/pending locally and"
+        " remotely; destructive, so without --yes the discard is only planned (exit 3)",
     )
     sync.add_argument(
         "--push",
         action="store_true",
-        help="solo-base mode: push the merged result directly to origin/main instead of a pending branch and PR",
+        help="solo-base mode: push the merged result directly to origin/main instead of a"
+        " pending branch and PR (a mode selector — still needs --yes to act)",
     )
     sync.add_argument(
         "--allow-stacked",
         action="store_true",
         help="publish flagged block claims anyway, per-lineage warning",
+    )
+    sync.add_argument(
+        "--yes",
+        action="store_true",
+        help="execute the planned action (publish, push or discard); without it sync prints"
+        " the plan only and exits 3",
     )
     init = sub.add_parser(
         "init",
@@ -411,7 +428,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.drop and args.push:
             sync.error("--drop and --push are mutually exclusive")
         return run_sync(
-            args.base_dir, drop=args.drop, push=args.push, allow_stacked=args.allow_stacked
+            args.base_dir,
+            drop=args.drop,
+            push=args.push,
+            allow_stacked=args.allow_stacked,
+            yes=args.yes,
         )
     if args.command == "setup":
         return run_setup(args.base)

@@ -8,12 +8,46 @@
 
 ## Current phase
 
-**Running now:** 0.6.2 — (a) the COMMAND.md template no longer pre-executes
-via `!`-injection (it mangled $ARGUMENTS in the shell line and dropped
-stderr on the user's machine — both traces on the second machine): the agent
-runs `masora $ARGUMENTS` itself, captures stderr, at most one corrective
-re-run; (b) DONE below — the optional base-dir positionals with
-configuration-based resolution. Remaining: the commit + release.
+**Working now:** nothing — the 0.7.0 phase is complete (entry in
+CHANGELOG.md, pyproject bump at release); next task per the owner: the
+branch/version context-stamping phase (TODO.md phase 2 — ruled IMPORTANT:
+release-train branches several release trains, a large distributed team, recall
+mostly off the establishing branch); the first rollout stays pending
+(TODO.md).
+
+**Done:** 0.7.0 — sync becomes plan-then-confirm + the stacking recalibration
+(owner ruling: the default must not act, it must show) — `masora sync` without
+`--yes` runs the full gate pipeline (local check, fetch, diff vs origin/main,
+stacked audit, merged-result validation) and prints the readable pending set
+(the `_pr_title`/`_pr_body` rendering, warnings included), then exits 3 with
+NOTHING written (no branch, no push, no PR, no local ref mutation; "no
+pending events" keeps exit 0); `--yes` publishes (the previous default);
+`--push` stays a mode selector, not a confirmation (`sync --push` plans, `sync
+--push --yes` pushes straight to origin/main); `--drop` without `--yes` plans
+the discard (same pending-set listing, exit 3), `--drop --yes` discards;
+`--allow-stacked` unchanged (the stacked refusal still fires in plan mode —
+exit 1). Exit codes: 3 plan printed (nothing written), 0 synced, 2 synced
+with warnings, 1 errors. `STATEMENT_MAX` 1024 → 2048 (owner calibration:
+real-base atomic notes reach ~1560 chars; audit.py's WHY comment states the
+new basis) and the limit surfaces at write time: the `note` `statement`
+descriptions (field + inputSchema, the number derived from the
+`STATEMENT_MAX` constant) and the skill's "How to note well" statement line
+(byte-identical mirror in AGENT_INSTRUCTIONS) state the soft publication
+limit — no hard limit, but above 2048 characters the sync-time stacking audit
+refuses publication by default (E-SYNC-STACKED). CLI help rewritten
+(plan-then-confirm wording, exit codes, the `--yes` gate); README (lifecycle,
+quick start, sync variants), ARCHITECTURE's Sync section (the plan paragraph
++ exit codes), MASORA_DESIGN §12 item 15, CHANGELOG 0.7.0. COMMAND.md
+references no sync behavior — untouched; FORMAT.md §7.9 untouched (no
+contract change); TROUBLESHOOTING's E-SYNC-STACKED row pins no number —
+untouched. Tests: 5 new in tests/test_sync.py (plan writes nothing, the
+`--yes` twin, drop plan, push plan, no-pending plan), 1 new docs guard
+(`test_statement_soft_limit_in_both_docs`); the 0.6.x publishing tests pass
+`--yes` now (30 call sites in test_sync.py + 1 each in test_gc.py/
+test_compact.py), error-path tests unchanged (exit 1 either way — the
+stacked-refusal test now runs in plan mode by default); test_mcp.py's pinned
+schema string updated (derives `STATEMENT_MAX`); test_docs.py's
+stacked-reflex fragment gains the `--yes` step. 655 tests green; ruff clean.
 
 **Done:** the optional base-dir positionals (0.6.2 item (b)) — `masora
 check`/`sync`/`gc`/`compact`/`index` take the base_dir positional optional

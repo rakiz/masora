@@ -41,6 +41,7 @@ REMOTE = "origin"
 MAIN_BRANCH = "main"
 PR_TITLE = "masora sync"
 COMMIT_MESSAGE = "masora sync"
+PLAN_EXIT = 3
 
 REPO_LOCATION_ENV_VARS = (
     "GIT_DIR",
@@ -82,17 +83,23 @@ class EventFile:
     evidence_count: int = 0
 
 
-def run(base_dir: Path, drop: bool = False, push: bool = False, allow_stacked: bool = False) -> int:
+def run(
+    base_dir: Path,
+    drop: bool = False,
+    push: bool = False,
+    allow_stacked: bool = False,
+    yes: bool = False,
+) -> int:
     print(f"masora sync {base_dir}")
     if not base_dir.is_dir():
         print(f"masora sync: base directory does not exist: {base_dir}", file=sys.stderr)
         return 1
     if drop:
-        return _run_drop(base_dir)
-    return _run_publish(base_dir, push, allow_stacked)
+        return _run_drop(base_dir, yes)
+    return _run_publish(base_dir, push, allow_stacked, yes)
 
 
-def _run_publish(base_dir: Path, push: bool, allow_stacked: bool = False) -> int:
+def _run_publish(base_dir: Path, push: bool, allow_stacked: bool = False, yes: bool = False) -> int:
     local = check_base(base_dir)
     print(
         f"local check: scanned {local.file_count} event file(s), {local.lineage_count} lineage(s)"
@@ -289,6 +296,14 @@ def _run_publish(base_dir: Path, push: bool, allow_stacked: bool = False) -> int
                 print("synced: 0 pending event(s)")
                 return 0
 
+            pending = [local_events[event_id] for event_id in added_ids]
+            removed = len(pairs_local - pairs_base) + len(de_local - de_base)
+            if not yes:
+                print(_pr_body(pending, warnings, local_events, removed), end="")
+                action = "push to origin/main" if push else "publish (one branch and one PR)"
+                print(f"plan only: nothing written — re-run with --yes to {action}")
+                return PLAN_EXIT
+
             commit, tree = _commit_tree(base_dir, merged_dir, origin_main)
             if push:
                 _git(base_dir, "push", REMOTE, f"{commit}:refs/heads/{MAIN_BRANCH}")
@@ -321,13 +336,7 @@ def _run_publish(base_dir: Path, push: bool, allow_stacked: bool = False) -> int
                         f"{PENDING_BRANCH}:{PENDING_BRANCH}",
                     )
                     print(f"pushed branch {PENDING_BRANCH} ({commit[:12]})")
-                    _publish_pr(
-                        base_dir,
-                        [local_events[event_id] for event_id in added_ids],
-                        warnings,
-                        local_events,
-                        len(pairs_local - pairs_base) + len(de_local - de_base),
-                    )
+                    _publish_pr(base_dir, pending, warnings, local_events, removed)
     except SyncError as exc:
         print(f"  {exc.diag.render()}")
         print("FAILED: 1 error(s)")
@@ -343,7 +352,7 @@ def _run_publish(base_dir: Path, push: bool, allow_stacked: bool = False) -> int
     return 0
 
 
-def _run_drop(base_dir: Path) -> int:
+def _run_drop(base_dir: Path, yes: bool = False) -> int:
     try:
         _git(base_dir, "rev-parse", "--git-dir")
         _remote_url(base_dir)
@@ -373,6 +382,12 @@ def _run_drop(base_dir: Path) -> int:
     for event in dropped:
         summary = event.summary if isinstance(event.summary, str) and event.summary else event.path
         print(f"  dropped: {event.id} {event.kind or 'event'}: {summary}")
+    if not yes:
+        # Plan mode: the discard is destructive, so it waits for --yes like
+        # publish does — the listing above is the plan, nothing is touched.
+        print(f"would discard {len(dropped)} pending event(s)")
+        print("plan only: nothing written — re-run with --yes to discard")
+        return PLAN_EXIT
     print(f"dropped {len(dropped)} pending event(s)")
     _close_pr(base_dir)
     if remote_pending is not None:

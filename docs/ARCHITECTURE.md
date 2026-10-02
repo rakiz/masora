@@ -167,11 +167,23 @@ fact, remove the unpublished block claim with `masora gc --lineage <id>`
 per-lineage `W-SYNC-STACKED` warning riding the PR body and the flow
 continues.
 
+Without `--yes` the run is a PLAN: the pipeline executes through merged-result
+validation (no step writes anything) and the pending set is printed in the PR
+body's rendering — one line per event, the tombstone line, the warnings — then
+sync exits 3: no branch, no push, no PR, no local ref mutation. `--yes`
+publishes; it is the single confirmation gate of every mutating mode, like
+gc's and compact's.
+
 - `--push` (solo base): pushes the merged commit straight to `origin/main`
-  and advances the local `main`.
-- `--drop`: closes the PR (`gh` when available), deletes `masora/pending`
-  locally and remotely; the local `.md` files of dropped events stay on disk.
-- Exit codes: 0 synced, 1 errors, 2 synced with warnings.
+  and advances the local `main` — a mode selector, not a confirmation:
+  `--push --yes` publishes, `--push` alone plans the push.
+- `--drop --yes`: closes the PR (`gh` when available), deletes
+  `masora/pending` locally and remotely; the local `.md` files of dropped
+  events stay on disk. `--drop` without `--yes` only plans the discard
+  (exit 3, nothing touched).
+- Exit codes: 3 plan printed (nothing written), 0 synced (the "no pending
+  events" path keeps exit 0 in plan mode too), 1 errors, 2 synced with
+  warnings.
 
 ## GC (`masora/gc.py`, §7.9–§7.10, SPEC.md Goals)
 

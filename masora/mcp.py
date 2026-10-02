@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 from . import providers, schema
+from .audit import STATEMENT_MAX
 from .diagnostics import (
     E_MCP_ANCHOR,
     E_MCP_ARGS,
@@ -651,7 +652,9 @@ TOOLS = [
         "inputSchema": _schema(
             {
                 "statement": _str(
-                    description="the full text: no length constraint, the detailed explanation"
+                    description="the full text: no hard limit, but keep it atomic and tight —"
+                    f" above {STATEMENT_MAX} characters the sync-time stacking audit refuses"
+                    " publication by default (E-SYNC-STACKED)"
                 ),
                 "summary": _str(
                     description="the injected one-liner: <= 120 characters, this is what cppgraph"
@@ -715,8 +718,9 @@ TOOLS = [
             ["statement", "summary", "repo_root"],
             description=(
                 "summary is the injected one-liner (<= 120 characters, this is what cppgraph"
-                " surfaces), statement is the full text (no length constraint, the detailed"
-                " explanation), questions (optional, 1-5) are the reader queries this claim"
+                " surfaces), statement is the full text (no hard limit, but keep it atomic and"
+                f" tight — above {STATEMENT_MAX} characters the sync-time stacking audit refuses"
+                " publication by default, E-SYNC-STACKED), questions (optional, 1-5) are the reader queries this claim"
                 " answers and keywords (optional, 1-10) are the alternate vocabulary a query"
                 " might use; content is written in English (base event files are pushed"
                 " content). Prefer atomic claims — split multi-part knowledge into several"

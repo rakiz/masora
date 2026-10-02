@@ -137,13 +137,29 @@ FIXED since). Round 10 = the closure confirmation on this diff.
    facts v1 shape untouched, off_version only STORED (rendering is stage 8)).
    The §12.16(k) "verifications table" is NOT in this stage — the task's
    column list scoped stage 4 to relation/ordering/off_version.
-5. The `lines` fork-point stamp ships (CONTEXT only): schema acceptance
-   (both shapes), canonical key order, tool-side capture in the write path
-   (merge-base per known line ref, capped, deterministic), §5.1-§5.4
-   templates, check's two-way guards, the mixed-version minimum-reader
-   note, docs/CPPGRAPH_INTEGRATION.md + docs/ARCHITECTURE.md + the new
-   degraded diagnostic (diagnostics.py + TROUBLESHOOTING in the same
-   change) — BEFORE any writer emits the field.
+5. ~~The `lines` fork-point stamp ships (CONTEXT only)~~ DONE (schema
+   acceptance both shapes in `schema._validate_timestamp` — optional `lines`
+   mapping of line ref → full 40-hex SHA, keys non-empty strings in
+   lexicographic (canonical) order, unknown siblings inside the stamp
+   rejected, E-TIMESTAMP reused; `frontmatter.py` treats `lines` as an
+   identity-keyed map (quoted keys + quoted SHA values); the canonical
+   emitter sorts nothing — the capture inserts sorted and check rejects any
+   other order, so re-serialization is byte-stable for the §7.9 diff; check's
+   guards are STRUCTURAL only — check is git-free, it never verifies the
+   recorded merge-bases; write-path capture `write.capture_lines()` — the
+   CODE checkout's branch refs (refs/heads + refs/remotes, `…/HEAD`
+   excluded), deduplicated, sorted, capped `LINES_CAP` 16, one
+   `git merge-base <establishing commit> <ref>` per ref, per-ref failures
+   omitted silently, all failures → omit `lines` entirely, never raises;
+   wired into note/verify/doubt/undoubt/refute — NO CLI flag, NO agent-facing
+   argument (pinned by test); §5.1-§5.4 templates + the §4 canonical-order
+   and minimum-reader notes; ARCHITECTURE's schema + write-path sections.
+   Tests: 13 schema, 3 frontmatter, 7 write-path (real throwaway git repos:
+   sorted merge-bases, remote-tracking refs + symbolic skip, unrelated-history
+   omission, the cap, all-failures → None, non-git → None, tool-write +
+   check green), 3 mcp (stamp on a branched checkout, no-lines-argument
+   guard, pinned shapes updated). NOTHING in fold/resolve/index/gitctx reads
+   `lines` — grep-verified).
 6. Compact universal witness (every eligible version's closure — active
    AND refuted; observable_state per version; the equivalence proof stays
    git-free by keeping claim events verbatim; measure compression on the

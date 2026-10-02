@@ -113,7 +113,15 @@ each line and survives it — it is the mechanical, never-guessed record of
 by the TOOL (never an agent argument, never backfilled post-hoc — absence IS
 the unknown value, visibly qualified at recall); unknown line refs at write
 time simply have no entry. `format_version` stays 1: the field is additive
-and optional; `check` accepts both shapes. The map is CONTEXT (rendering,
+and optional; `check` accepts both shapes. The canonical form orders the
+`lines` keys lexicographically and quotes both the keys and the fork-point
+SHAs; `check` rejects any other order, so re-serialization is byte-stable for
+the append-only diff (§7.9). Minimum-reader rule for a mixed corpus (old
+unstamped files beside new stamped ones): a reader consuming only
+`commit`/`graph_commit` is complete — it must accept both the presence and
+the absence of `lines` (`format_version` stays 1, so there is no version to
+branch on), must not require the field, and must treat its absence as
+exactly the unknown value. The map is CONTEXT (rendering,
 cross-line labelling, the off-version guard's evidence) — the resolution
 resolution ranking is defined in MASORA_DESIGN.md §6.2 and never reads it;
 absent `lines` changes nothing in the resolution; a corpus with NO provable
@@ -200,6 +208,9 @@ anchors:                       # >=1, unless unanchored
 recorded_at:
   commit: "<40hex>"
   graph_commit: "<40hex>"
+  lines:                     # optional, TOOL-captured fork-point stamp (§4):
+    "8.0": "<40hex>"         #   per known line ref, merge-base(commit, ref) at
+    "master": "<40hex>"      #   write time; never an agent argument, omit when unknown
 unanchored: false
 unanchored_reason: null        # must be null or omitted when unanchored: false;
                                #   a non-empty string when unanchored: true
@@ -234,7 +245,10 @@ non-empty single-line strings with no exact duplicates (`E-QUESTIONS`) —
 additive-optional like `name`/`effort`, `format_version` stays 1, and the list
 has no fold, anchor or lineage-identity semantics; `keywords` is the same
 mechanics with 1–10 items (`E-KEYWORDS`) — the alternate vocabulary a query
-might use.
+might use. The `lines` stamp, when present, is TOOL-captured context only
+(never a ranking input — MASORA_DESIGN.md §6.2), validated structurally by
+`check` (shape, quoted keys/values, lexicographic key order); `check` never
+runs git and cannot confirm the recorded merge-bases.
 
 ### 5.2 `.verify`
 
@@ -250,6 +264,9 @@ effort: medium                 # optional, ONLY when source is llm
 verified_at:
   commit: "<40hex>"
   graph_commit: "<40hex>"
+  lines:                     # optional, TOOL-captured fork-point stamp (§4):
+    "8.0": "<40hex>"         #   per known line ref, merge-base(commit, ref) at
+    "master": "<40hex>"      #   write time; never an agent argument, omit when unknown
 evidence:                      # mandatory, non-empty; for a structural target, includes the recorded proof replay
   - "cppgraph .calls 01J… replay: 3 edges, expected 3"
   - "tests: mongo/resume_token_test.cpp::shard_key_change"
@@ -277,6 +294,8 @@ name: "Sebastien"              # optional: the git user.name when human
 recorded_at:
   commit: "<40hex>"
   graph_commit: "<40hex>"
+  lines:                     # optional, TOOL-captured fork-point stamp (§4):
+    "master": "<40hex>"      #   per known line ref, merge-base(commit, ref); omit when unknown
 reason: "I ran the case X=0; the summary overstates it."
 ```
 
@@ -296,6 +315,8 @@ name: "glm-5p3-flash"          # optional
 recorded_at:
   commit: "<40hex>"
   graph_commit: "<40hex>"
+  lines:                     # optional, TOOL-captured fork-point stamp (§4):
+    "master": "<40hex>"      #   per known line ref, merge-base(commit, ref); omit when unknown
 reason: "Contradicted by replay: the callee list changed in abc123."
 evidence:
   - "cppgraph .calls replay: 0 of 3 edges"

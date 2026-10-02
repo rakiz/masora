@@ -39,7 +39,10 @@ FTS (`index`, searched by `search`).
   cross-field rules (§4 "Fields per kind", §5): `format_version` must equal 1
   (`E-VERSION`), `unanchored`/`anchors`/`proof_query`/`contradicts`/`reason`
   coupling, summary ≤ 120 single-line chars (`E-SUMMARY`), timestamp shape
-  `{commit, graph_commit}` with full 40-hex SHAs (`E-TIMESTAMP`), anchor and
+  `{commit, graph_commit, lines?}` with full 40-hex SHAs (`E-TIMESTAMP`) —
+  the optional `lines` fork-point stamp accepting a mapping of line ref →
+  40-hex SHA in lexicographic key order, validated structurally only (`check`
+  is git-free and never confirms the recorded merge-bases) — anchor and
   snapshot shapes (`E-ANCHOR`), proof-query shape `{tool, args, expect,
   provider_version}` with the `cppgraph.` tool prefix (`E-PROOFQUERY`), and
   the unified provenance rules — `source` (`human`/`llm`/`graph`) on every
@@ -599,7 +602,16 @@ cause: an omitted `repo_root` is told to pass the repo (the base resolves from
 that repo's origin remote), an unmapped repo is told to run
 `masora setup --base <url>` in the checkout or pass an explicit `base` (§9: it
 never guesses); ULIDs come from
-`ulid.new_ulid()` (monotonic in-process); the event dict is pre-validated with
+`ulid.new_ulid()` (monotonic in-process); every event write tool-captures the
+optional `lines` fork-point stamp (FORMAT.md §4, `write.capture_lines()`):
+per known line ref of the CODE checkout — the clone's branch refs (local
+heads + remote-tracking branches, symbolic `…/HEAD` excluded), deduplicated,
+sorted, capped at `write.LINES_CAP` (16) — `git merge-base <establishing
+commit> <ref>`; a ref whose merge-base fails is omitted silently, no success
+at all omits `lines` entirely (absence IS the unknown value). The stamp is
+never an agent-facing argument (no write tool accepts one), and CONTEXT only:
+nothing in the fold, the index or gitctx reads it; the event dict is
+pre-validated with
 `schema.validate_event` and secret-scanned — high-confidence credential shapes
 in `summary`/`statement`/`reason`/`evidence` are refused with
 `E-WRITE-SECRET`, nothing written (discussing passwords passes: naming

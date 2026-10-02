@@ -38,12 +38,13 @@ _QUOTED_VALUE_KEYS = frozenset(
         "edges",
         "commit",
         "graph_commit",
+        "lines",
         "provider_version",
         "identity",
         "neighbours",
     }
 )
-_IDENTITY_KEYED_MAPS = frozenset({"snapshots", "neighbours"})
+_IDENTITY_KEYED_MAPS = frozenset({"snapshots", "neighbours", "lines"})
 
 
 class _CanonicalLoader(yaml.SafeLoader):
@@ -145,7 +146,10 @@ def _walk_node(node, where: str, path: str, parent_key: str | None, opaque: bool
                 _fail(path, E_CANON_DUPKEY, f"duplicate key {key!r}", where)
             seen.add(key)
             child_where = f"{where}.{key}" if where else key
-            child_parent_key = "neighbours" if parent_key == "neighbours" else key
+            # Identity-keyed maps (lines, neighbours) keep their own name as
+            # the children's parent key so their scalar values stay
+            # quote-checked under _QUOTED_VALUE_KEYS despite variable keys.
+            child_parent_key = parent_key if parent_key in ("neighbours", "lines") else key
             _walk_node(
                 value_node,
                 child_where,

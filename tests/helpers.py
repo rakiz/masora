@@ -41,7 +41,7 @@ def scalar(value: object) -> str:
 def emit(value: object, indent: int = 0, parent_key: str | None = None) -> str:
     pad = "  " * indent
     if isinstance(value, dict):
-        identity_keys = parent_key in ("neighbours", "snapshots")
+        identity_keys = parent_key in ("neighbours", "snapshots", "lines")
         lines = []
         for key, item in value.items():
             key_text = scalar(key) if identity_keys else str(key)

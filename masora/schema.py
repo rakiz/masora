@@ -830,16 +830,16 @@ def _validate_timestamp(
             Diag(
                 "error",
                 E_TIMESTAMP,
-                f"{where} must be a mapping {{commit, graph_commit}}, got {type(timestamp).__name__}",
+                f"{where} must be a mapping {{commit, graph_commit, lines?}}, got {type(timestamp).__name__}",
                 path,
             )
         )
-    if set(timestamp) - {"commit", "graph_commit"}:
+    if set(timestamp) - {"commit", "graph_commit", "lines"}:
         raise CheckFailure(
             Diag(
                 "error",
                 E_TIMESTAMP,
-                f"{where} has unknown fields {sorted(set(timestamp) - {'commit', 'graph_commit'})}",
+                f"{where} has unknown fields {sorted(set(timestamp) - {'commit', 'graph_commit', 'lines'})}",
                 path,
             )
         )
@@ -868,7 +868,54 @@ def _validate_timestamp(
                 path,
             )
         )
+    _validate_lines(timestamp.get("lines"), where, path)
     return commit, graph_commit
+
+
+def _validate_lines(lines: object, where: str, path: str) -> None:
+    """The optional `lines` fork-point stamp (FORMAT.md §4): a mapping of line
+    ref → full 40-hex SHA, captured by the TOOL at write time (never an agent
+    argument, never backfilled — absence IS the unknown value). Structural
+    validation only: `check` is git-free and never verifies the merge-base
+    claims against git. The canonical form orders the keys lexicographically —
+    the tool emits them sorted, and any other document order is rejected so
+    re-serialization stays byte-stable (the append-only rewrite guard)."""
+    if lines is None:
+        return
+    if not isinstance(lines, dict):
+        raise CheckFailure(
+            Diag(
+                "error",
+                E_TIMESTAMP,
+                f"{where}.lines must be a mapping of line ref to full 40-hex SHA,"
+                f" got {type(lines).__name__}",
+                path,
+            )
+        )
+    refs = list(lines)
+    if refs != sorted(refs):
+        raise CheckFailure(
+            Diag(
+                "error",
+                E_TIMESTAMP,
+                f"{where}.lines keys must be in sorted (canonical) order, got {refs}",
+                path,
+            )
+        )
+    for ref, sha in lines.items():
+        if not isinstance(ref, str) or not ref:
+            raise CheckFailure(
+                Diag("error", E_TIMESTAMP, f"{where}.lines keys must be non-empty line refs", path)
+            )
+        if not isinstance(sha, str) or not SHA_RE.match(sha):
+            raise CheckFailure(
+                Diag(
+                    "error",
+                    E_TIMESTAMP,
+                    f"{where}.lines[{ref!r}] must be a full 40-hex SHA",
+                    path,
+                )
+            )
 
 
 def _validate_proof_query(proof_query: object, path: str) -> None:

@@ -1,10 +1,13 @@
-"""Tests for the shared write path's lineage directories (FORMAT.md §1 layout)."""
+"""Tests for the shared write path's lineage directories (FORMAT.md §1 layout)
+and the tool-captured `lines` fork-point stamp (FORMAT.md §4)."""
 
 from __future__ import annotations
 
 import shutil
+import subprocess
 from datetime import UTC, datetime
 
+import pytest
 from helpers import (
     ULID_D1A,
     ULID_L1,
@@ -16,7 +19,9 @@ from helpers import (
 )
 
 from masora.checker import check_base
-from masora.write import slugify_summary, write_and_check
+from masora.frontmatter import load_frontmatter
+from masora.sync import git_env
+from masora.write import LINES_CAP, capture_lines, slugify_summary, write_and_check
 
 MONTH = datetime.now(UTC).strftime("%Y-%m")
 
@@ -143,3 +148,134 @@ def test_checker_stays_path_indifferent_to_moved_lineage_directories(base):
 
     assert result.errors == []
     assert (moved / f"{ULID_L1}.claim.md").is_file()
+
+
+# --- the tool-captured `lines` fork-point stamp (FORMAT.md §4) ---------------
+
+
+def git(repo, *args):
+    proc = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=git_env(),
+    )
+    if proc.returncode != 0:
+        raise AssertionError(f"git {' '.join(args)} failed: {proc.stderr}")
+    return proc.stdout.strip()
+
+
+@pytest.fixture
+def code_repo(tmp_path):
+    repo = tmp_path / "code"
+    repo.mkdir()
+    git(repo, "init", "-b", "main")
+    git(repo, "config", "user.name", "Masora Test")
+    git(repo, "config", "user.email", "masora@example.invalid")
+    return repo
+
+
+def commit_file(repo, name, content="change\n"):
+    (repo / name).write_text(content, encoding="utf-8")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-m", name)
+    return git(repo, "rev-parse", "HEAD")
+
+
+def merge_base(repo, a, ref):
+    return git(repo, "merge-base", a, ref)
+
+
+def test_capture_lines_returns_sorted_merge_bases(code_repo):
+    first = commit_file(code_repo, "a.txt")
+    git(code_repo, "branch", "8.0", first)
+    second = commit_file(code_repo, "b.txt")
+    git(code_repo, "branch", "master", second)
+    head = commit_file(code_repo, "c.txt")
+
+    lines = capture_lines(code_repo, head)
+
+    assert list(lines) == ["8.0", "main", "master"]
+    assert lines["8.0"] == merge_base(code_repo, head, "8.0") == first
+    assert lines["master"] == second
+    assert lines["main"] == head
+
+
+def test_capture_lines_includes_remote_tracking_refs_and_skips_symbolic_head(code_repo):
+    head = commit_file(code_repo, "a.txt")
+    git(code_repo, "update-ref", "refs/remotes/origin/9.0", head)
+    git(code_repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/9.0")
+
+    lines = capture_lines(code_repo, head)
+
+    assert lines == {"main": head, "origin/9.0": head}
+
+
+def test_capture_lines_omits_unrelated_history(code_repo):
+    head = commit_file(code_repo, "a.txt")
+    git(code_repo, "checkout", "--orphan", "isolated")
+    commit_file(code_repo, "b.txt")
+    git(code_repo, "checkout", "main")
+
+    lines = capture_lines(code_repo, head)
+
+    # The orphan branch has no merge-base with HEAD — omitted silently.
+    proc = subprocess.run(
+        ["git", "-C", str(code_repo), "merge-base", head, "isolated"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=git_env(),
+    )
+    assert proc.returncode != 0
+    assert lines == {"main": head}
+
+
+def test_capture_lines_capped_at_lines_cap(code_repo):
+    head = commit_file(code_repo, "a.txt")
+    for i in range(LINES_CAP + 3):
+        git(code_repo, "branch", f"train-{i:02d}", head)
+
+    lines = capture_lines(code_repo, head)
+
+    assert len(lines) == LINES_CAP
+    assert (
+        list(lines)
+        == sorted(["main", *(f"train-{i:02d}" for i in range(LINES_CAP + 3))])[:LINES_CAP]
+    )
+    assert set(lines.values()) == {head}
+
+
+def test_capture_lines_all_failures_omit_the_stamp(code_repo):
+    """A detached HEAD on an unrelated root commit with no other prober ref →
+    no successful merge-base at all → None (the caller omits `lines`)."""
+    commit_file(code_repo, "a.txt")
+    git(code_repo, "checkout", "--orphan", "isolated")
+    orphan = commit_file(code_repo, "b.txt")
+    git(code_repo, "checkout", "--detach", orphan)
+    git(code_repo, "branch", "-D", "isolated")
+
+    assert capture_lines(code_repo, orphan) is None
+
+
+def test_capture_lines_none_on_non_git_directory(tmp_path):
+    assert capture_lines(tmp_path, "0" * 40) is None
+
+
+def test_tool_write_stamps_lines_and_check_stays_green(code_repo, base):
+    head = commit_file(code_repo, "a.txt")
+    git(code_repo, "branch", "8.0", head)
+    commit_file(code_repo, "b.txt")
+
+    # The composition the MCP write tools perform (no agent-facing argument):
+    # the establishing commit is the code checkout's HEAD at capture time.
+    data = make_claim(ULID_L1)
+    data["recorded_at"]["lines"] = capture_lines(code_repo, head)
+    rel, _warnings = write_and_check(base, data)
+
+    written = load_frontmatter((base / rel).read_text(encoding="utf-8"), rel)
+    assert written["recorded_at"]["lines"] == {"8.0": head, "main": head}
+    raw = (base / rel).read_text(encoding="utf-8")
+    assert raw.index('"8.0":') < raw.index('"main":')
+    assert check_base(base).errors == []

@@ -334,7 +334,7 @@ def test_note_happy_path_writes_canonical_event(server, code_repo, base):
     data = load_frontmatter(raw, rel)
     assert data["class"] == "semantic" and data["source"] == "llm"
     assert data["summary"] == "Bring-up order: start before stop"
-    assert data["recorded_at"] == {"commit": head, "graph_commit": head}
+    assert data["recorded_at"] == {"commit": head, "graph_commit": head, "lines": {"main": head}}
     assert data["unanchored"] is False
     assert [anchor["identity"] for anchor in data["anchors"]] == [SYM_A, SYM_C]
     first = data["anchors"][0]
@@ -345,6 +345,32 @@ def test_note_happy_path_writes_canonical_event(server, code_repo, base):
         SYM_C: digest(""),
     }
     assert check_base(base).errors == []
+
+
+def test_note_stamps_lines_fork_points_from_the_code_checkout(server, code_repo, base):
+    repo, head = code_repo
+    git(repo, "branch", "8.0", head)
+    server.ready()
+    text, is_error = server.tool("note", note_args(repo, base))
+    assert is_error is False
+    rel = text.splitlines()[0].removeprefix("wrote ")
+    raw = (base / rel).read_text(encoding="utf-8")
+    data = load_frontmatter(raw, rel)
+    # Tool-captured (FORMAT.md §4): per known line ref, merge-base with the
+    # establishing commit, keys in canonical sorted order, quoted.
+    assert data["recorded_at"]["lines"] == {"8.0": head, "main": head}
+    assert raw.index('"8.0":') < raw.index('"main":')
+    assert check_base(base).errors == []
+
+
+def test_write_tools_expose_no_lines_argument(server):
+    """The stamp is captured by the TOOL — there is no agent-facing argument
+    for it on any write tool (MASORA_DESIGN.md §12.16(m))."""
+    server.ready()
+    listing = server.request("tools/list")
+    schemas = {tool["name"]: tool["inputSchema"] for tool in listing["result"]["tools"]}
+    for name in ("note", "verify", "doubt", "undoubt", "refute"):
+        assert "lines" not in schemas[name].get("properties", {})
 
 
 def test_note_human_name_from_base_git_config(server, code_repo, base):
@@ -793,7 +819,7 @@ def test_verify_round_trip_moves_index_status(server, code_repo, base):
     data = load_frontmatter((base / rel).read_text(encoding="utf-8"), rel)
     assert data["targets"] == uid
     assert data["source"] == "llm"
-    assert data["verified_at"] == {"commit": head, "graph_commit": head}
+    assert data["verified_at"] == {"commit": head, "graph_commit": head, "lines": {"main": head}}
     assert sorted(data["snapshots"]) == sorted([SYM_A, SYM_C])
     assert data["snapshots"][SYM_A]["edges"] == digest("\n".join(sorted([SYM_B, SYM_C])))
     result = build_index(base, repo)

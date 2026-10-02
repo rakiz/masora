@@ -24,7 +24,7 @@ from . import config
 from .checker import check_base
 from .diagnostics import E_MCP_NO_BASE, E_WRITE_SECRET, CheckFailure, Diag
 from .index import ParsedEvent, _parse_events
-from .schema import validate_event
+from .schema import SHA_RE, validate_event
 from .sync import git_env
 
 
@@ -102,6 +102,68 @@ def human_name(base_dir: Path) -> str | None:
     )
     value = proc.stdout.strip()
     return value if proc.returncode == 0 and value else None
+
+
+# Cap on the `lines` fork-point stamp (FORMAT.md §4): a branch-heavy clone
+# (hundreds of stale remote-tracking refs) must not blow the event up, so
+# only the first LINES_CAP refs in sort order are probed. The cap keeps the
+# stamp deterministic — same refs, same map.
+LINES_CAP = 16
+
+
+def capture_lines(repo_root: Path, head: str) -> dict[str, str] | None:
+    """Tool-captured fork-point stamp (FORMAT.md §4): per known line ref of the
+    CODE checkout, `git merge-base <head> <ref>` — the squash-proof record of
+    where this event's state diverged from each line.
+
+    There is deliberately NO agent-facing argument for this: the write path
+    calls it itself (MASORA_DESIGN.md §12.16(m) — never an agent argument,
+    never backfilled; absence IS the unknown value). Line refs are the clone's
+    branch refs — local heads and remote-tracking branches (symbolic
+    `…/HEAD` excluded), deduplicated by short name, sorted, capped at
+    LINES_CAP. A ref whose merge-base fails (missing ref, unrelated history,
+    any git error) is omitted silently; no successful merge-base at all →
+    None, and the caller omits `lines` entirely. Never raises: a stamp is
+    captured context, and a failed capture must not block a write.
+    """
+    proc = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo_root),
+            "for-each-ref",
+            "--format=%(refname)",
+            "refs/heads/",
+            "refs/remotes/",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=git_env(),
+    )
+    if proc.returncode != 0:
+        return None
+    refs: set[str] = set()
+    for refname in proc.stdout.splitlines():
+        refname = refname.strip()
+        if not refname or refname.endswith("/HEAD"):
+            continue
+        short = refname.removeprefix("refs/heads/").removeprefix("refs/remotes/")
+        if short:
+            refs.add(short)
+    lines: dict[str, str] = {}
+    for ref in sorted(refs)[:LINES_CAP]:
+        merge = subprocess.run(
+            ["git", "-C", str(repo_root), "merge-base", head, ref],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=git_env(),
+        )
+        sha = merge.stdout.strip()
+        if merge.returncode == 0 and SHA_RE.match(sha):
+            lines[ref] = sha
+    return lines or None
 
 
 def base_dir_for_name(data: dict, name: str) -> Path | None:
@@ -269,9 +331,9 @@ def _scalar(value: object) -> str:
 
 def emit_event(data: dict, indent: int = 0, parent_key: str | None = None) -> str:
     """Canonical block-style YAML (FORMAT.md §4): plain keys, quoted values,
-    quoted identity keys under `snapshots`/`neighbours`."""
+    quoted identity keys under `snapshots`/`neighbours`/`lines`."""
     pad = "  " * indent
-    identity_keys = parent_key in ("neighbours", "snapshots")
+    identity_keys = parent_key in ("neighbours", "snapshots", "lines")
     lines = []
     for key, item in data.items():
         key_text = _scalar(key) if identity_keys else str(key)

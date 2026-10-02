@@ -814,3 +814,142 @@ def test_keywords_forbidden_on_targeted_kinds():
         {"keywords": ["k"]},
     )
     expect_error(doubt, "doubt", E_SCHEMA)
+
+
+# --- the optional `lines` fork-point stamp (FORMAT.md §4) -------------------
+
+
+LINES = {"8.0": SHA, "master": SHA}
+
+
+def test_lines_stamp_absent_is_valid_everywhere():
+    validate(make_claim("01J8Z3K0000000000000000000"), "claim")
+    validate(make_verify("01J8Z3K0000000000000000001", ULID_L1, ULID_L1), "verify")
+
+
+def test_lines_stamp_accepted_on_both_timestamp_fields():
+    claim = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"),
+        {"recorded_at": {"commit": SHA, "graph_commit": SHA, "lines": LINES}},
+    )
+    validate(claim, "claim")
+    verify = apply_overrides(
+        make_verify("01J8Z3K0000000000000000001", ULID_L1, ULID_L1),
+        {"verified_at": {"commit": SHA, "graph_commit": SHA, "lines": LINES}},
+    )
+    validate(verify, "verify")
+
+
+@pytest.mark.parametrize("kind", ["doubt", "undoubt", "refute", "unrefute"])
+def test_lines_stamp_accepted_on_targeted_kinds(kind):
+    data = apply_overrides(
+        make_doubt("01J8Z3K0000000000000000002", ULID_L1, "01J8Z3K0000000000000000001", kind=kind),
+        {"recorded_at": {"commit": SHA, "graph_commit": None, "lines": LINES}},
+    )
+    validate(data, kind)
+
+
+def test_lines_stamp_null_and_empty_accepted():
+    null = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"),
+        {"recorded_at": {"commit": SHA, "graph_commit": SHA, "lines": None}},
+    )
+    validate(null, "claim")
+    empty = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"),
+        {"recorded_at": {"commit": SHA, "graph_commit": SHA, "lines": {}}},
+    )
+    validate(empty, "claim")
+
+
+@pytest.mark.parametrize(
+    "sha",
+    [
+        "0123456789abcdef0123456789abcdef0123456",  # 39 hex
+        "0123456789ABCDEF0123456789ABCDEF01234567",  # uppercase
+        "nothex",  # not hex
+        "0123456789abcdef0123456789abcdef012345678",  # 41 hex
+        123,  # not a string
+        True,  # not a string
+    ],
+)
+def test_lines_stamp_bad_sha_rejected(sha):
+    data = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"),
+        {"recorded_at": {"commit": SHA, "graph_commit": SHA, "lines": {"master": sha}}},
+    )
+    expect_error(data, "claim", E_TIMESTAMP)
+
+
+@pytest.mark.parametrize("ref", ["", 42, True])
+def test_lines_stamp_bad_key_rejected(ref):
+    data = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"),
+        {"recorded_at": {"commit": SHA, "graph_commit": SHA, "lines": {ref: SHA}}},
+    )
+    expect_error(data, "claim", E_TIMESTAMP)
+
+
+@pytest.mark.parametrize("lines", [["master"], "master", 42])
+def test_lines_stamp_not_a_mapping_rejected(lines):
+    data = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"),
+        {"recorded_at": {"commit": SHA, "graph_commit": SHA, "lines": lines}},
+    )
+    expect_error(data, "claim", E_TIMESTAMP)
+
+
+def test_lines_stamp_unsorted_keys_rejected():
+    data = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"),
+        {
+            "recorded_at": {
+                "commit": SHA,
+                "graph_commit": SHA,
+                "lines": {"master": SHA, "8.0": SHA},
+            }
+        },
+    )
+    expect_error(data, "claim", E_TIMESTAMP)
+
+
+def test_lines_stamp_unknown_sibling_field_rejected():
+    data = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"),
+        {
+            "recorded_at": {
+                "commit": SHA,
+                "graph_commit": SHA,
+                "lines": LINES,
+                "fork": SHA,
+            }
+        },
+    )
+    expect_error(data, "claim", E_TIMESTAMP)
+
+
+def test_lines_top_level_field_is_unknown():
+    data = apply_overrides(make_claim("01J8Z3K0000000000000000000"), {"lines": LINES})
+    expect_error(data, "claim", E_SCHEMA)
+
+
+def test_lines_stamp_canonical_reserialization_is_stable():
+    """The rewrite guard: a stamped event re-emitted from its parsed form is
+    byte-identical — the append-only diff (FORMAT.md §7.9) can never see a
+    tool-written stamp churn."""
+    from masora.frontmatter import load_frontmatter
+    from masora.write import render_event
+
+    data = apply_overrides(
+        make_claim("01J8Z3K0000000000000000000"),
+        {
+            "recorded_at": {
+                "commit": SHA,
+                "graph_commit": SHA,
+                "lines": {"8.0": SHA, "master": SHA},
+            }
+        },
+    )
+    text = render_event(data)
+    reparsed = load_frontmatter(text, "test.md")
+    assert render_event(reparsed) == text

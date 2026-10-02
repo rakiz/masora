@@ -174,3 +174,33 @@ def test_emitter_output_is_what_pyyaml_roundtrips():
         "01J8Z3K0000000000000000001", "01J8Z3K0000000000000000000", "01J8Z3K0000000000000000000"
     )
     assert yaml.safe_load(emit(data)) == data
+
+
+def test_lines_stamp_quoted_keys_and_values_accepted():
+    data = make_claim("01J8Z3K0000000000000000000")
+    data["recorded_at"]["lines"] = {"8.0": FP, "master": FP}
+    text = "---\n" + emit(data) + "\n---\n"
+    assert parse(text) == data
+
+
+def test_lines_stamp_unquoted_sha_value_rejected():
+    data = make_claim("01J8Z3K0000000000000000000")
+    data["recorded_at"]["lines"] = {"master": FP}
+    raw = "---\n" + emit(data) + "\n---\n"
+    raw = raw.replace(f'"master": "{FP}"', f'"master": {FP}', 1)
+    assert f'"master": {FP}' in raw
+    with pytest.raises(CheckFailure) as exc:
+        parse(raw)
+    assert exc.value.diag.code == E_CANON_QUOTE
+
+
+def test_lines_stamp_unquoted_numeric_branch_key_rejected():
+    """A release-train name like 8.0 would resolve to a float key — the
+    canonical form quotes line-ref keys, so the bare form is rejected."""
+    data = make_claim("01J8Z3K0000000000000000000")
+    data["recorded_at"]["lines"] = {"8.0": FP}
+    raw = "---\n" + emit(data) + "\n---\n"
+    raw = raw.replace('"8.0":', "8.0:", 1)
+    with pytest.raises(CheckFailure) as exc:
+        parse(raw)
+    assert exc.value.diag.code == E_CANON_KEY

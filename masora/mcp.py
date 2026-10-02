@@ -39,7 +39,15 @@ from .index import (
     search_index,
 )
 from .ulid import new_ulid
-from .write import WriteError, envelopes, human_name, records, resolve_base, write_and_check
+from .write import (
+    WriteError,
+    capture_lines,
+    envelopes,
+    human_name,
+    records,
+    resolve_base,
+    write_and_check,
+)
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "masora"
@@ -340,6 +348,9 @@ def _tool_note(args: dict) -> str:
     data["statement"] = statement
     data["anchors"] = anchors
     data["recorded_at"] = {"commit": head, "graph_commit": graph_commit}
+    lines = capture_lines(repo_root, head)
+    if lines:
+        data["recorded_at"]["lines"] = lines
     data["unanchored"] = unanchored
     if unanchored:
         data["unanchored_reason"] = unanchored_reason
@@ -433,6 +444,9 @@ def _tool_verify(args: dict) -> str:
     }
     _apply_provenance(data, base_dir, source, name, args.get("effort"))
     data["verified_at"] = {"commit": head, "graph_commit": graph_commit}
+    lines = capture_lines(repo_root, head)
+    if lines:
+        data["verified_at"]["lines"] = lines
     data["evidence"] = evidence
     data["snapshots"] = snapshots
 
@@ -482,6 +496,9 @@ def _tool_targeted(kind: str, args: dict) -> str:
     }
     _apply_provenance(data, base_dir, source, name, args.get("effort"))
     data["recorded_at"] = {"commit": head, "graph_commit": graph_commit}
+    lines = capture_lines(repo_root, head)
+    if lines:
+        data["recorded_at"]["lines"] = lines
     if evidence:
         data["evidence"] = evidence
 

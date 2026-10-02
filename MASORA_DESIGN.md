@@ -169,22 +169,102 @@ current version — or whose newest version is refuted — injects a distinct
   old *errors* too.)
 - **Append-only.** Nothing is ever rewritten; new versions and events are added.
 - Each piece of knowledge has a **lineage**; each version has a **ULID**:
-  generated without coordination, time-sortable. The ULID *is* the
-  ordering — no separate timestamp field that could contradict it (a human-readable
+  generated without coordination, time-sortable. The ULID orders events,
+  breaks selection ties at every tier, and is the whole ordering of tier 2 —
+  no separate timestamp field that could contradict it (a human-readable
   created_at may be derived for display).
-- **Fingerprints, not timestamps, decide applicability to code.** Timestamps only
-  order knowledge versions among themselves. (Comparing knowledge dates to code
-  commit dates is wrong: branches, rebases, cherry-picks.)
+- **Fingerprints, not timestamps, decide applicability to code.** Among
+  matching versions, provable git relation to the asking line ranks first,
+  ULID second (§6.2's sel) — provenance preference among content-true
+  facts, never a validity judge. (Comparing knowledge dates to code commit
+  dates is wrong: branches, rebases, cherry-picks.)
 
 ### 6.2 Resolution algorithm (at index time)
 
-For each lineage:
+Inputs, evaluated for EVERY eligible version — active AND refuted (the
+counterfactual `restored` rule and the negative envelope need both):
 
-1. sort versions by ULID, newest first;
-2. skip versions that are refuted (and not un-refuted);
-3. the first version whose anchor fingerprints match the current checkout →
-   **current**;
-4. if none match → show the newest as **stale** ("changed since verification").
+1. structured outcome of the version's anchors — `match` (all anchors match) |
+   `mismatch` (none absent, none unavailable, at least one fingerprint
+   differs) | `not_found` (at least one anchor definitively absent, none
+   unavailable) | `unavailable` (any anchor cannot be evaluated); the provider
+   outcome contract of SPEC.md (§ Constraints) is implemented at this layer,
+   never guessed from a bare `None`;
+2. the version's establishment context: the `recorded_at.lines` fork-point
+   map (FORMAT.md §4 — per known line ref, the merge-base with that line at
+   write time) plus the relation of its `recorded_at.commit` to the asking
+   checkout's HEAD — `in_line` (provable ancestor OR equal — a freshly
+   written fact is in its own line) | `ahead` (provable proper descendant
+   that is also an ancestor-or-equal of the asking branch's upstream ref —
+   this line's newer history, never colleagues' unmerged features) |
+   `out_of_line` (provable, neither) | `relation_unknown` (missing object,
+   shallow clone, probe budget exhausted). The relations are DESCRIPTIVE labels; the ranking is the
+   TIERS below.
+
+**The selection function `sel(S, B)`** — S is a set of versions, B the
+asking branch; sel returns exactly one version (when S ≠ ∅), nothing to
+transitivize (rounds 6-8 PROVED every richer scheme fails a real case:
+pairwise ancestry+ULID is cyclic; branch-NAME stamps cannot name the landing
+line; bare merge-base recency shadows this line under newer trains;
+fork-point ranking lets a 9.0-only note shadow master's squash-landed note;
+unrestricted `ahead` lets colleagues' unmerged features win). The final
+ranking is DELIBERATELY simple — and sound because the stakes are honest:
+among MATCHING versions every displayed fact is content-true for this
+checkout (fingerprints decide), so the ranking is a provenance preference,
+and a NON-matching version can never hide a matching one (the fallback only
+fires when nothing matches):
+
+1. TIER 1 — provably on the asking line: the establishing commit is an
+   ancestor of, or equal to, the asking HEAD (`in_line`), or a proper
+   descendant that is ALSO an ancestor-or-equal of the asking branch's
+   UPSTREAM REF as present locally (never fetched — `origin/<branch>`;
+   the ref's own commit counts as an ancestor). Detached HEAD or a missing
+   upstream means NO `ahead` is provable — colleagues' unmerged features
+   and other trains' commits are excluded. Rank within: `ahead` outranks
+   `in_line` (the line's newest known history beats an older state of it);
+   among themselves, maxima under proper ancestry, then descending ULID;
+2. TIER 2 — everything else: descending ULID.
+
+sel(S, B) = the highest non-empty tier, ranked as stated. Always exists for
+S ≠ ∅ (founderless/empty eligible sets resolve to `unknown` upstream);
+unique; no pairwise order is claimed. The `lines` fork-point map is CONTEXT,
+never a ranking input.
+
+The rules (all over `sel`, uniformly):
+
+3. **Display**: `sel(active matches, B)` — resolution `current`;
+4. **`restored`** (counterfactual): ONLY when a version is displayed (rule 3
+   fired) — some REFUTED eligible version R satisfies
+   `sel(active matches ∪ {R}, B) = R`, whatever R's own outcome (the
+   uncertainty is R's fingerprints, not its rank). It would have won the
+   line had it not been refuted; a refutation that never outranks anything
+   triggers nothing;
+5. **No match**: the fallback is `sel(active versions, B)` — the SAME
+   function, so this line's drifted fact can never be masked by a younger
+   off-version; resolution `stale`; `off-version` is set iff the FALLBACK
+   VERSION's own composed outcome is definitive absence (`not_found`, none
+   `unavailable`) AND the fallback's relation is PROVABLY `out_of_line`
+   (a `relation_unknown` fallback stays plain `stale` — conservative, on
+   the re-verification list; an in-line or ahead fallback is this line's
+   own drift and stays plain `stale` too); another version's `mismatch`
+   neither grants nor removes the flag;
+6. **Shadow (counterfactual, uniform, ACTIVE versions only)**: an
+   `unavailable` version U sets `unknown` on the result iff
+   `sel(active matches ∪ {U}, B) = U` — it would display in place of the
+   selection. One reading only; the same function on both paths; the
+   DISPLAYED version under an `unknown` shadow is the known match that sel
+   picked — or, on the no-match path, the rule-5 fallback (an acknowledged
+   change from today's newest-active display);
+7. **Self-unavailable**: when the displayed/fallback version's own outcome is
+   `unavailable`, `unknown` shadows it — a provider-down lineage is never a
+   bare `stale` (the one-version lineage included);
+8. **`off-version` and `unknown` together**: when `unknown` shadows,
+   `off-version` is suppressed — the lineage is not provably inapplicable
+   while an unevaluable version might match; it reports `unknown` and stays
+   on the re-verification list (conservative).
+
+Resolution stays the closed enum `current | stale | restored | none` (plus
+the `unknown` shadow); `off-version` is a FLAG, never a resolution value.
 
 Properties:
 
@@ -192,41 +272,119 @@ Properties:
   code, **and** gets error corrections (refutations apply everywhere);
 - a code revert makes the matching fingerprint valid again → the old claim comes
   back by itself;
-- if two versions match the same fingerprint, the newest wins (written with more
-  understanding).
+- among MATCHES the display is always content-true for this checkout, so
+  the ranking is provenance preference, never validity; squash-landed notes
+  are tier 2 and ranked by ULID — a fact written today on an old release
+  train CAN display over a squash-landed note of the asking line (both tier
+  2), an accepted provenance preference documented beside the cherry-pick
+  blind spot; a fact whose fingerprints do NOT match can never hide a
+  matching one (the fallback only fires when nothing matches);
+- under squash merges the establishing commit dies on landing: applicability
+  survives (fingerprints decide — the content landed), the relation label
+  degrades honestly (out_of_line or relation_unknown, surfaced), and the
+  note is tier 2 (its ULID ranks it);
+- cherry-picks are a known, accepted blind spot: a cherry-picked establishing
+  commit is a DIFFERENT SHA — the matching version still displays
+  (fingerprints decide applicability) but is labelled out-of-line ("not
+  proven in this checkout's ancestry", never "not on this branch");
+  patch-equivalence detection is deliberately out of scope;
+- the SQUASH twin of that blind spot (owner-ruled): a squash-landed note is
+  provably out_of_line, so when THIS line later renames its symbol the
+  fallback fires `off-version` although the note is this line's own — git
+  cannot distinguish "landed here by squash" from "belongs to another
+  line"; accepted: the note keeps displaying with its context in
+  search/explain and only leaves the re-verification list;
+
+**Degradation is visible and deterministic**: `context_ordering: exact |
+degraded` is a PER-LINEAGE state (surfaced per fact in facts v2),
+counterfactually defined — `degraded` iff some version's UNPROVABLE context
+(missing object, probe budget exhaustion) could change sel's result — what
+displays, the shadow decision or the restored decision (making it provable
+changes one of them; the same counterfactual machinery as the shadow rule,
+applied to the tier membership and the ancestry maxima; `off-version` is
+OUT of scope — its guard requires a PROVABLE relation, an unprovable one
+never grants the flag). Probes
+(`git merge-base --is-ancestor` both directions for the tier-1 relations and
+their maxima — all probes share the same build budget) are memoized per SHA
+pair, and lineages are processed in ascending lineage-id order — adding an
+unrelated lineage never changes an earlier lineage's result within the
+budget; a version whose needed probe cannot run demotes to
+`relation_unknown` — an input to the COUNTERFACTUAL `degraded` test above
+(visible, never silent); a failed pairwise
+probe among tier-1 candidates is read as INCOMPARABLE (never domination) and
+never demotes a proven relation. `explain` re-resolves live with a fresh
+budget: its (possibly better) ordering is authoritative for its own output
+and both states are surfaced — an index served `degraded` after a later
+`git fetch` stays degraded until a rebuild (the staleness axes gained the
+object-store blindness knowingly; the degraded label covers it).
+
+**Branch courtesy labels are never persisted as history**: the write-time
+`lines` fork-point map is the TOOL's mechanical record (never an agent
+argument, never backfilled by rewriting events — absence IS the unknown
+value); `git branch --contains` at recall time is a CURRENT-refs courtesy
+(merges move it; rebases erase the original); the commit is the
+authoritative surface, labels are best-effort, capped, fail-open to
+commit-only.
 
 **Computed status lives only in the SQLite index, never in the .md files.** The
 next indexer does the same computation; files are never touched for status.
+Per-version context (establishing commit, verifying commits per claim version)
+is persisted per version row, not per lineage — a lineage-level "establishing
+commit" is ambiguous when several active versions live on several release
+trains.
 
 **Computed status is a tuple**, rendered in every envelope:
 
-- `resolution`: `current` (first version matching — **all** anchors must resolve
-  and match fingerprints) | `stale` (no version matches; the newest is shown) |
-  `restored` (current because a newer version of the lineage was refuted) |
-  `none` (every version of the lineage is refuted);
+- `resolution`: `current` | `stale` (no version matches; `sel(active
+  versions)` is shown) | `restored` (a refuted version would win sel —
+  counterfactual, rule 4) | `none` (every version of the lineage is refuted);
 - `verification`: `verified(<source>)` | `unverified` — folded from `.verify`
-  events;
+  events per DISPLAYED version (each release line keeps its own verification);
 - flags: `suspect` (§12 item 4), `doubted` (iff some active doubt targets an
   active verify of the displayed version), `pending` (events not yet merged —
-  §8), `unknown` (an anchor provider was `unavailable`; shadows the resolution
-  instead of guessing). An anchor that is `not_found` simply fails to match.
-- Status precedence is `none` > `unknown` (shadowing) > `current`/`restored` >
-  `stale`; `restored` applies only when the chosen version is older than some
-  refuted version. Event folding follows FORMAT.md's active-event rule (which
-  verifies, refutes, doubts and undoubts are active); activity is evaluated
-  backwards in descending ULID order to a fixed point before folding, and
-  resolution requires the founding claim — a v2+ version whose founder
-  (`id == lineage`) is absent is excluded.
+  §8), `unknown` (conditional shadow or self-unavailable — rules 6-7 above;
+  shadows the resolution instead of guessing), `off-version` (the fallback's
+  own outcome is definitive absence AND it is provably not of the asking
+  line — suppressed while `unknown` shadows; excluded from re-verification
+  lists, reported in a separate "not applicable here" list). An anchor that
+  is `not_found` fails to match AND is distinguished from `unavailable`
+  throughout status, explanation and facts.
+- Status precedence is `none` > `unknown` (conditional shadowing) >
+  `current`/`restored` > `stale`. Event folding follows FORMAT.md's
+  active-event rule (which verifies, refutes, doubts and undoubts are active);
+  activity is evaluated backwards in descending ULID order to a fixed point
+  before folding, and resolution requires the founding claim — a v2+ version
+  whose founder (`id == lineage`) is absent is excluded. The commit-order
+  relation and the structured outcomes are INJECTED at recall (the fold stays
+  pure; `check` and the format know nothing of git or providers).
 - A later `.verify` never clears a doubt; only `.undoubt` does.
 - An explicitly `unanchored` claim has no fingerprint resolution: it is always
   surfaced, and its `unanchored` flag is the validity signal (the §2 guard-rail
-  makes it rare and loud).
+  makes it rare and loud); it can never be `off-version`.
 
-Optional later qualification of a mismatch using `git merge-base --is-ancestor`
-between verified_at.commit and HEAD: `stale` (verified commit is an ancestor),
-`ahead` (HEAD is an ancestor — not yet true on this code), `divergent` (other
-branch). Fingerprint stays the judge; git only qualifies. Falls back to plain
-current/not-current if the commit is unavailable (shallow clone).
+Recall filtering: the FTS matches every version (unchanged); the DEFAULT
+result filter keeps hits on the DISPLAYED version — and on the NEWEST version
+for `none` lineages (displayed is null; negative knowledge stays findable,
+matching the facts behavior). The explicit any-version mode queries ALL active
+eligible versions (never refuted ones — refuted archaeology belongs to a
+future `history` tool with refutation-first rendering); a hit on a
+non-displayed version renders the HIT version's identity and its own context
+(never borrows the displayed version's), with the lineage's status tuple
+alongside. Legacy events predating the commit-stamp era (none expected —
+stamps shipped with the format) would carry `absent` context: excluded from
+context filters, ULID-only ordering, visibly qualified.
+
+The cppgraph injection contract (v2) carries Masora-EVALUATED relations per
+fact — `established_commit`, `verified_commit` (short, presentation-only),
+`established_relation` (`in_line | ahead | out_of_line | unknown`),
+`off_version`, `context_ordering` (the lineage's selection state) — so
+cppgraph renders context without computing ancestry itself. The rendering
+rule fires when it matters: `off_version`, OR `established_relation` other
+than `in_line` (the cherry-picked current fact is labelled out-of-line, the
+ahead fact is labelled ahead), OR `context_ordering: degraded` — on
+merge-commit repos the common case keeps today's token cost; on SQUASH
+repos most landed facts are out_of_line, so the context line renders on
+most facts (accepted: the label is one short token cluster).
 
 ### 6.3 Two kinds of "correction"
 
@@ -675,6 +833,105 @@ SPEC.md). Items 6 and 8 remain postponed.
     no hard limit, but above 2048 characters the sync-time audit refuses
     publication by default (E-SYNC-STACKED) — so note writers aim tight
     before sync.
+
+16. **One base over release trains: version-qualified recall** — *settled
+    2026-10-02 with the design owner* (owner context: release-train branches
+    several release trains, a large distributed team, recall mostly OFF the
+    establishing branch; two design-review rounds, the second STOP until the
+    semantic contract was finished). Rulings: (a) NO format change — the
+    `recorded_at`/`verified_at` `{commit, graph_commit}` stamps already
+    carry the code state; the fold already selects the displayed version per
+    checkout and attaches verification per version. (b) The selection among
+    MATCHING versions couples with commit order per branch (owner: "ULID
+    chronology has no value") — in-line matches (establishing commit an
+    ancestor of the asking HEAD) outrank out-of-line ones; maxima under
+    ancestry, descending ULID tie-break (incomparable ancestors are real in
+    merge DAGs); out-of-line displays only when no in-line version matches;
+    the fold stays PURE (relation injected at recall; check/format know
+    nothing). (c) Structured per-anchor outcomes (match / mismatch /
+    not_found / unavailable — SPEC's outcome contract, previously conflated
+    behind None) composed per version; an unavailable version shadows only
+    when it could outrank the selected match (conditional shadow — owner
+    ruling). (d) Shallow/missing-object degradation is VISIBLE
+    (`context_ordering: exact | degraded` + a distinct warning class) — the
+    silent ULID fallback would reintroduce the shadowing bug the ordering
+    exists to kill (owner ruling). (e) Cherry-picks are a documented blind
+    spot: ancestry is the conservative relation, out-of-line is descriptive
+    ("not proven in this ancestry"), never "not on this branch"; no
+    patch-equivalence detection. (f) `off-version` is a narrow flag
+    (definitive anchor absence explaining a no-match fallback), leaves
+    `list_stale` for a separate "not applicable here" list (owner ruling).
+    (g) Compact preserves EVERY active version's witness — universal
+    preservation, each release line keeps its verification (owner ruling;
+    accepted cost: less compression on long-lived trains). (h) Recall
+    filters: displayed version by default, explicit any-version mode over
+    ACTIVE versions only — refuted archaeology waits for a future `history`
+    tool (owner ruling). (i) Facts contract v2 ships in coordination with
+    cppgraph (owner owns both sides and releases them together — "the BEST
+    solution, not the least costly"): Masora EVALUATES the relation
+    (`established_relation: enum superseded by §6.2 — in_line | ahead | out_of_line | unknown` +
+    short commits + `off_version` + `context_ordering`), cppgraph only
+    renders it (it cannot derive ancestry from short SHAs), showing context
+    only when it matters; branch names never enter the contract. (j) Branch
+    labels are lookup-time courtesies (`git branch --contains`, memoized per
+    SHA, capped, fail-open to commit-only), never persisted, never labelled
+    "establishing branches". (k) Per-version context is persisted per
+    VERSION row (plus a verifications table), not per lineage. Legacy
+    un-stamped events (none expected) would carry `absent` context:
+    ULID-only selection, excluded from context filters, visibly qualified.
+    (l) Round-5 deep-audit rulings: the selection ranks EVERY eligible
+    version — active AND refuted — and drives display, the no-match
+    fallback, `restored` and the shadow test alike.     (m) Rounds 6-7 rulings — the RANKING part superseded by (n) (tiers-2/3,
+    line-stamped ranking and the tier-3 off-version guard retired; the
+    counterfactual restored, HEAD-equal in_line, off-version suppression,
+    compact's refuted closures and the probe budget survive) — deep audits
+    #2 and #3; round 7 SCRIPT-ENCODED
+    sel and demonstrated that both a branch-NAME stamp and bare merge-base
+    recency fail a real case — the stamp cannot name the landing line and
+    merge-base recency shadows this line under newer trains): the owner
+    ABROGATES the no-format-change premise ("test phase, no real users —
+    we will migrate and fill what is missing") and ADOPTS the FORK-POINT
+    MAP — `recorded_at.lines`/`verified_at.lines`: `{branch: fork-point}`
+    for every line ref known at write time (`merge-base(HEAD, <line
+    ref>)`, tool-captured, never an agent argument; absence IS the unknown
+    value — events are never rewritten to backfill) — the fork point lives
+    ON each line, so it survives squash merges; and the TIERED selection
+    `sel(S, B)`: tier 1 = provably on the asking line (in_line/ahead;
+    ahead outranks in-line, then ancestry maxima, then ULID), tier 2 =
+    stamped for the asking line (fork-point maxima, then ULID), tier 3 =
+    the rest (ULID) — resolving the ruling-5 (in-line first) vs squash
+    (fork recency) tension by construction; `restored` is counterfactual
+    via sel (some refuted R: sel(matches ∪ {R}) = R, guarded to fire only
+    when a version displays, whatever R's own outcome); `in_line` includes
+    HEAD-equal commits; `off-version` requires the fallback to be tier 3
+    (provably not of the asking line — an in-line or line-stamped fallback
+    is this line's own drift and stays stale); compact keeps the closure
+    of REFUTED versions too (the counterfactual restored depends on them);
+    all probes share the build budget with a
+    demote-to-unknown-on-exhaustion rule; a dedicated plan stage ships the
+    stamp (schema acceptance, canonical key order, tool-side capture,
+    templates) BEFORE any writer emits it. (n) Round-8 rulings (deep audit
+    #4, script-reproduced): the fork-point map is DEMOTED to context —
+    never a ranking input (a fork point recorded at write time cannot know
+    where the work lands; bare recency shadowed the asking line); the
+    final sel is TWO-TIER — tier 1: provably on the asking line (in_line
+    ancestor-or-equal, or ahead RESTRICTED to a proper descendant that is
+    also an ancestor-or-equal of the asking branch's UPSTREAM ref
+    as present locally (never fetched; detached HEAD or missing upstream =
+    no ahead) — colleagues'
+    unmerged features excluded), ahead outranks in-line, then ancestry
+    maxima, then ULID; tier 2: everything else by ULID; the ranking among
+    MATCHES is provenance preference among content-true facts (never
+    validity) and a non-match can never hide a match; `off-version`
+    requires a PROVABLE out_of_line relation (relation_unknown stays
+    stale); the displayed version under an `unknown` shadow is the known
+    match (acknowledged change from today's newest-active display); the
+    negative envelope keeps its ULID-newest rule explicitly (independent
+    of sel). (o) Round-9 ruling: the SQUASH off-version twin is ACCEPTED
+    and documented (§6.2 Properties — a squash-landed note renamed later
+    on its own line fires off-version; undecidable from git; the note
+    keeps displaying with its context and only leaves the re-verification
+    list).
 
 Non-blocking refinements recorded from the design review (not Phase 1 scope):
 computed-status presentation matrix (`current + suspect`, `stale + suspect`,

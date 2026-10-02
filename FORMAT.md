@@ -101,10 +101,24 @@ A claim is v1 iff `id == lineage` (the lineage ULID is the first version's
 ULID); v2+ means `id != lineage`.
 
 Timestamps: events carry `recorded_at` / `verified_at` as block mappings
-`{commit, graph_commit}`. `commit` is the full 40-hex code SHA; `graph_commit`
-is the cppgraph-indexed commit (40-hex): mandatory when code anchors or snapshots
-are present, optional when other event kinds record graph context, and `null`
-when no graph was available.
+`{commit, graph_commit, lines?}`. `commit` is the full 40-hex code SHA;
+`graph_commit` is the cppgraph-indexed commit (40-hex): mandatory when code
+anchors or snapshots are present, optional when other event kinds record graph
+context, and `null` when no graph was available. `lines` is the OPTIONAL
+fork-point map: `{branch-name: fork-point SHA}` — for EVERY line ref the tool
+knows at write/verify time, `merge-base(HEAD, <line ref>)` (40-hex). Squash
+merges destroy the establishing commit's reachability; the fork point lives ON
+each line and survives it — it is the mechanical, never-guessed record of
+"which lines this note's state connects to, and where it diverged". Captured
+by the TOOL (never an agent argument, never backfilled post-hoc — absence IS
+the unknown value, visibly qualified at recall); unknown line refs at write
+time simply have no entry. `format_version` stays 1: the field is additive
+and optional; `check` accepts both shapes. The map is CONTEXT (rendering,
+cross-line labelling, the off-version guard's evidence) — the resolution
+resolution ranking is defined in MASORA_DESIGN.md §6.2 and never reads it;
+absent `lines` changes nothing in the resolution; a corpus with NO provable
+git relation recalls exactly as the pre-qualification behavior, except for
+the acknowledged displayed-version change under an `unknown` shadow.
 
 - `fingerprint`, `edges` and neighbour-hash values are non-empty quoted
   lowercase-hex strings (length is provider-defined).

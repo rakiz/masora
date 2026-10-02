@@ -8,12 +8,145 @@
 
 ## Current phase
 
-**Working now:** nothing — the 0.7.0 phase is complete (entry in
-CHANGELOG.md, pyproject bump at release); next task per the owner: the
-branch/version context-stamping phase (TODO.md phase 2 — ruled IMPORTANT:
-release-train branches several release trains, a large distributed team, recall
-mostly off the establishing branch); the first rollout stays pending
-(TODO.md).
+**Working now:** the branch/version context-stamping phase (TODO.md phase 2,
+owner-ruled IMPORTANT) — DESIGN CLOSED (round 10). Objective: statuses
+qualified by the code state a claim was established against, ONE shared
+base served over the release-train branches,
+~a large distributed team — recall mostly happens OFF the establishing branch;
+the upstream repo squashes PR commits — the establishing commit dies on landing).
+
+**THE FINAL DESIGN (as written in the contracts — SPEC.md:11/16/17/44/46,
+MASORA_DESIGN.md §6.1-§6.2 + §12 item 16 (a)-(n), FORMAT.md §4 `lines`):**
+- Structured per-anchor outcomes (match/mismatch/not_found/unavailable;
+  provider `ambiguous` → unavailable) composed per version — closes
+  SPEC's outcome-contract violation (None conflated everything).
+- The selection function sel(S, B), TWO tiers: tier 1 = provably on the
+  asking line (in_line ancestor-or-equal of HEAD, or ahead = proper
+  descendant ALSO ancestor-or-equal of the branch's UPSTREAM ref as present
+  locally, never fetched; ahead outranks in_line; then maxima under proper
+  ancestry; then ULID), tier 2 = everything else (ULID). Among MATCHES the
+  ranking is provenance preference among content-true facts — never
+  validity; a non-match can never hide a match (the fallback only fires
+  when nothing matches). SCRIPT-PROVEN total: 513,728 brute-force cases,
+  0 selection failures; 0 resolution differences vs today's fold when no
+  git context is provable.
+- `restored` counterfactual via sel (some refuted R: sel(matches ∪ {R}) = R),
+  only when something displays, whatever R's own outcome.
+- No-match fallback = sel(active versions) — this line's drift never masked
+  by a younger off-version; `off-version` flag iff the fallback's own
+  outcome is definitive absence AND its relation is PROVABLY out_of_line
+  (relation_unknown/in_line/ahead stay stale); suppressed while `unknown`
+  shadows.
+- Shadow counterfactual and uniform (U shadows iff sel(matches ∪ {U}) = U,
+  active only); self-unavailable displayed/fallback = always unknown; the
+  displayed version under a shadow is the known match (acknowledged change).
+- `context_ordering: exact | degraded` per lineage, counterfactual (an
+  unprovable context could change display/shadow/restored); off-version out
+  of its scope (its guard needs a PROVABLE relation). Probes memoized per
+  SHA pair, one shared build budget, lineage-id order; pairwise failures =
+  incomparable, never demoting a proven relation.
+- FORMAT.md §4: `recorded_at`/`verified_at` gain the OPTIONAL `lines`
+  fork-point map (per known line ref, merge-base at write time — the
+  squash-proof context record); tool-captured, never an agent argument,
+  never backfilled (absence IS unknown); format_version stays 1, check
+  accepts both shapes; CONTEXT ONLY — never a ranking input (rounds 7-8
+  proved branch-name stamps and fork-point/merge-base ranking each fail a
+  real case).
+- Recall: FTS matches all versions; default result filter = displayed hits
+  (newest-by-ULID for none lineages); any-version mode = active versions
+  with their own context; the negative envelope keeps its
+  ULID-newest rule EXPLICITLY (independent of sel); list_stale splits into
+  the re-check list and a separate "not applicable here" list.
+- Compact keeps EVERY eligible version's closure — active AND refuted
+  (the counterfactual restored depends on refuted context).
+- Facts contract v2 (Masora-evaluated established_relation
+  in_line|ahead|out_of_line|unknown, short presentation-only commits,
+  off_version, context_ordering; cppgraph renders, never computes
+  ancestry); the rendering rule fires on off_version, non-in_line
+  relation or degraded — on squash repos most facts render it (accepted).
+- Documented blind spots (owner-ruled): cherry-picks (different SHA,
+  provenance only) and the squash twin (a squash-landed note renamed later
+  on its own line fires off-version — undecidable from git).
+
+**ROUND 10 — CLOSED.** The bounded deep audit re-encoded sel from the
+final §6.2 text and brute-forced **3,629,424 cases** (exhaustive DAGs ≤ 3
+commits × versions × HEADs/upstreams incl. detached; 3-commit/3-version
+exhaustive; 300k random 4-5-commit DAGs with 10% failed probes + 8%
+exhausted budgets; criss-cross): ZERO semantic failures — exactly one
+answer per input, a non-match never displays over a match,
+restored/shadow/off-version defined everywhere, order-independent, and the
+no-git-context reduction matches today's fold exactly. Mutation checks
+confirm the harness can fail (4,956 / 16,520 violations when broken). The
+audit's 4 wording leftovers (the §12(n) upstream-ref wording, the demote
+sentence's unconditional `degraded`, the §12(m)/(i) supersession markers,
+the §12(o) F1 record, the FORMAT typo) are applied and grep-verified. The
+implementation-phase residual risks (recorded for the stage briefs): the
+counterfactual `degraded` needs a defined, under-flagging-averse decision
+procedure over unseen objects; legacy `absent` context has no facts-v2
+enum value yet (decide at stage 8); the displayed-version change under
+`unknown` is COMMON (171k cases) — CHANGELOG + oracle tests at stage 2;
+rule 7 is subsumed by rule 6 (merge them, keep a pinning test); the
+cross-lineage budget/order/memoization effects are unverified (single-
+lineage model); real-git behaviors (upstream resolution, shallow, fetch
+staleness) are adapter-stage tests.
+
+**REVIEW LOOP (rounds 1-9):** 1-2 design-review STOP (malformed flag,
+structured outcomes, compact not checkout-dependent); 3 NOT CLOSED (2
+wording contradictions); 4 cross-vendor NOT CLOSED (3 MAJOR: mixed
+relations, no-match shadow hole, compact/rollout stage hazard); 5 deep NOT
+CLOSED (11 MAJOR — ranking quantities defined too narrowly); 6 deep NOT
+CLOSED (7 MAJOR — script-proven cyclic order + the squash revelation); 7
+deep NOT CLOSED (7 MAJOR — script-encoded sel: branch-name stamp hides
+corrections on master, merge-base recency shadows under newer trains, the
+plan never shipped the stamp); 8 deep NOT CLOSED (7 MAJOR — fork-point
+ranking lets a 9.0 note shadow master's landed note, unrestricted ahead,
+off-version on relation_unknown, FORMAT/§6.1 contradictions) → the owner's
+final simplification ruling; 9 deep BOUNDED NOT CLOSED (6 MAJOR: F1 squash
+off-version blind spot — owner-ruled accepted; F2-F6 consistency — ALL
+FIXED since). Round 10 = the closure confirmation on this diff.
+
+**Staged implementation (each stage leaves the suite green):**
+0. ~~Contract amendments~~ DONE (SPEC.md, MASORA_DESIGN.md §6.2 + §12 item
+   16, FORMAT.md §4 `lines`).
+1. Structured provider outcomes without changing selection (fixes the
+   SPEC outcome-contract violation; the stale→unknown change for
+   unreadable sources is a visible status change — CHANGELOG +
+   stage brief acknowledge it; needs the raw-case→outcome mapping table).
+2. Pure ranked selection in the fold (sel injected; no git context =
+   today's ULID order — script-proven equivalence; brute-force oracle
+   extended for sel + restored/shadow counterfactuals; check and the
+   format know nothing).
+3. Git relation adapter + degraded-mode reporting (memoized per SHA pair,
+   budgeted, lineage-id order, no implicit fetch; real-repo tests:
+   ancestor, divergent, ahead-restricted, shallow, missing, cherry-pick,
+   criss-cross).
+4. Index schema bump (per-version context + verifications table + ordering
+   state), public output unchanged.
+5. The `lines` fork-point stamp ships (CONTEXT only): schema acceptance
+   (both shapes), canonical key order, tool-side capture in the write path
+   (merge-base per known line ref, capped, deterministic), §5.1-§5.4
+   templates, check's two-way guards, the mixed-version minimum-reader
+   note, docs/CPPGRAPH_INTEGRATION.md + docs/ARCHITECTURE.md + the new
+   degraded diagnostic (diagnostics.py + TROUBLESHOOTING in the same
+   change) — BEFORE any writer emits the field.
+6. Compact universal witness (every eligible version's closure — active
+   AND refuted; observable_state per version; the equivalence proof stays
+   git-free by keeping claim events verbatim; measure compression on the
+   real base).
+7. Recall surfaces: status qualification, search/explain, list_stale split
+   (re-check vs "not applicable here"), any-version mode, agent
+   instructions + skill mirrors — the coordinated user-visible release.
+8. Facts v2 + cppgraph rollout (cppgraph learns v1+v2 first, flag off;
+   Masora flips CONTRACT_VERSION=2 after cppgraph validates; v1 retirement
+   scheduled separately).
+
+**Owner rulings (all recorded in §12 item 16):** compact universal;
+off-version leaves list_stale; facts v2 NOW (owner owns cppgraph, ships
+both sides — "the BEST solution, not the least costly"); filters
+displayed-default + active-only any-version (refuted archaeology → future
+`history` tool); fold ordering (ruling 5, refined by rounds 6-8 into the
+two-tier sel); format changes allowed (test phase, migration accepted);
+F1 squash blind spot accepted+documented.
 
 **Done:** 0.7.0 — sync becomes plan-then-confirm + the stacking recalibration
 (owner ruling: the default must not act, it must show) — `masora sync` without

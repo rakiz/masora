@@ -14,12 +14,14 @@ from helpers import (
     IDENT_MAIN,
     OMIT,
     SHA,
+    ULID_D1A,
     ULID_L1,
     ULID_L2,
     ULID_V1A,
     ULID_V2A,
     anchor,
     make_claim,
+    make_doubt,
     make_verify,
     write_event,
     write_graph_db,
@@ -1069,3 +1071,111 @@ def test_search_without_base_dir_refuses_an_unmapped_repo(tmp_path, home, capsys
         "run masora setup --base <url> in this checkout, or pass the base directory explicitly"
         in captured.out
     )
+
+
+REFUTE_REL = "2026-09/x/01J8Z3K0000000000000000002.refute.md"
+REFUTE_ID = ULID_D1A
+
+
+def test_search_default_keeps_only_the_effective_version(base, repo, home):
+    """§6.2 recall filtering: the default result filter keeps hits on the
+    DISPLAYED version (the newest for `none` lineages); the explicit
+    any_version mode searches every ACTIVE version instead."""
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, summary="Old alpha summary"))
+    write_event(
+        base,
+        V2_REL,
+        make_claim(ULID_V2A, lineage=ULID_L1, reason="v2", summary="New beta summary"),
+    )
+    build_index(base, repo, fingerprints=code_providers({IDENT_MAIN: FP}))
+    db = index_db_path(base, repo)
+    # both versions match the anchor; with no provable context the newest
+    # ULID displays and superseded hits are filtered by default
+    assert [h.version for h in search_index(db, "beta")] == [ULID_V2A]
+    assert search_index(db, "alpha") == []
+    assert [h.version for h in search_index(db, "summary")] == [ULID_V2A]
+    # any_version: every ACTIVE version of the matching lineage, ordered
+    any_hits = search_index(db, "summary", any_version=True)
+    assert [h.version for h in any_hits] == [ULID_L1, ULID_V2A]
+    assert [h.version for h in search_index(db, "alpha", any_version=True)] == [ULID_L1]
+
+
+def test_search_any_version_excludes_refuted_versions(base, repo, home):
+    """The any_version mode searches ACTIVE versions only (§12.16(h): refuted
+    archaeology belongs to a future history tool) — while the `none` lineage's
+    newest stays findable by default (negative knowledge, matching facts)."""
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, summary="Alpha archaeology"))
+    write_event(base, REFUTE_REL, make_doubt(REFUTE_ID, ULID_L1, ULID_L1, kind="refute"))
+    build_index(base, repo, fingerprints=code_providers({}))
+    db = index_db_path(base, repo)
+    default_hits = search_index(db, "alpha")
+    assert [h.version for h in default_hits] == [ULID_L1]
+    assert default_hits[0].refuted is True
+    assert default_hits[0].resolution == "none"
+    assert search_index(db, "alpha", any_version=True) == []
+
+
+def test_search_refuted_superseded_version_is_never_a_hit(base, repo, home):
+    """A refuted version that is not the effective one is filtered from BOTH
+    modes — the negative envelope, not search, owns refuted knowledge."""
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, summary="Old alpha summary"))
+    write_event(base, REFUTE_REL, make_doubt(REFUTE_ID, ULID_L1, ULID_L1, kind="refute"))
+    write_event(
+        base,
+        V2_REL,
+        make_claim(ULID_V2A, lineage=ULID_L1, reason="v2", summary="New beta summary"),
+    )
+    build_index(base, repo, fingerprints=code_providers({IDENT_MAIN: FP}))
+    db = index_db_path(base, repo)
+    assert [h.version for h in search_index(db, "summary")] == [ULID_V2A]
+    assert [h.version for h in search_index(db, "summary", any_version=True)] == [ULID_V2A]
+
+
+def test_search_default_filters_question_hits_on_superseded_versions(base, repo, home):
+    """A question-only hit on a non-displayed version is filtered by default
+    and surfaces in any_version mode with its matched question."""
+    write_event(
+        base,
+        CLAIM_REL,
+        make_claim(ULID_L1, questions=["Where does invalidation happen?"]),
+    )
+    write_event(
+        base,
+        V2_REL,
+        make_claim(
+            ULID_V2A,
+            lineage=ULID_L1,
+            reason="v2",
+            questions=["Where does resume happen?"],
+        ),
+    )
+    build_index(base, repo, fingerprints=code_providers({IDENT_MAIN: FP}))
+    db = index_db_path(base, repo)
+    assert search_index(db, "invalidation") == []
+    hits = search_index(db, "invalidation", any_version=True)
+    assert [h.version for h in hits] == [ULID_L1]
+    assert hits[0].matched_questions == ("Where does invalidation happen?",)
+
+
+def test_cli_search_renders_the_hit_context_suffixes(base, repo, home, capsys):
+    """The v6 context data surfaces compactly: the hit version's own relation
+    on its line, the lineage's degraded ordering ONCE on the lineage header
+    (the values' derivation is gitctx's test surface — this pins the
+    rendering)."""
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    build_index(base, repo, fingerprints=code_providers({IDENT_MAIN: FP}))
+    conn = sqlite3.connect(index_db_path(base, repo))
+    try:
+        conn.execute("UPDATE versions SET relation = 'out_of_line'")
+        conn.execute("UPDATE lineages SET context_ordering = 'degraded'")
+        conn.execute("UPDATE lineages SET off_version = 1")
+        conn.commit()
+    finally:
+        conn.close()
+    assert main(["search", str(base), "summary", "--repo", str(repo)]) == 0
+    out = capsys.readouterr().out
+    lines = out.splitlines()
+    assert "[established: out_of_line]" in lines[3]
+    assert "[context: degraded]" in lines[2]
+    assert "flags: off-version" in lines[2]
+    assert "[context: degraded]" not in lines[3]

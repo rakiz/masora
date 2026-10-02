@@ -37,6 +37,7 @@ from .index import (
     index_db_path,
     index_stale_reason,
     search_index,
+    search_result_lines,
 )
 from .ulid import new_ulid
 from .write import (
@@ -540,10 +541,11 @@ def _ensure_index(base_dir: Path, repo: Path) -> Path:
 
 def _tool_search(args: dict) -> str:
     query = _req_str(args, "query")
+    any_version = _opt_bool(args, "any_version") or False
     base_dir, repo = _resolve_read_context(args)
     db = _ensure_index(base_dir, repo)
     try:
-        hits = search_index(db, query)
+        hits = search_index(db, query, any_version=any_version)
     except IndexingError as exc:
         raise WriteError(exc.diag) from exc
     lines = []
@@ -552,28 +554,17 @@ def _tool_search(args: dict) -> str:
         lines.append(Diag("warning", W_IDX_STALE, f"{stale_reason} — rerun masora index").render())
     if not hits:
         return "\n".join([*lines, "no results"])
-    grouped: dict[str, list] = {}
-    for hit in hits:
-        grouped.setdefault(hit.lineage, []).append(hit)
-    lines.append(f"{len(hits)} match(es) in {len(grouped)} lineage(s)")
-    for lineage, group in grouped.items():
-        first = group[0]
-        lines.append(f"{lineage} [{first.resolution} {first.verification} flags: {first.flags}]")
-        for hit in group:
-            lines.append(f"  {hit.version} {hit.summary}")
-            for question in hit.matched_questions:
-                lines.append(f"    matched question: {question}")
-            for keyword in hit.matched_keywords:
-                lines.append(f"    matched keyword: {keyword}")
-        lines.append(f"details: masora explain {lineage}")
+    lines.extend(search_result_lines(hits))
     return "\n".join(lines)
 
 
 def _tool_explain(args: dict) -> str:
     lineage = _req_str(args, "lineage")
-    base_dir, repo = _resolve_read_context(args)
+    repo_value = _opt_str(args, "repo_root")
+    repo_root = Path(repo_value) if repo_value else None
+    base_dir = resolve_base(repo_root, _opt_str(args, "base"))
     try:
-        return explain_lineage(base_dir, lineage, repo)
+        return explain_lineage(base_dir, lineage, repo_root)
     except ExplainError as exc:
         raise WriteError(*exc.diags) from exc
 
@@ -585,8 +576,7 @@ def _tool_list_stale(args: dict) -> str:
     try:
         rows = conn.execute(
             "SELECT lineage, displayed, resolution, verification, suspect, doubted, pending,"
-            " unknown, unanchored FROM lineages WHERE resolution NOT IN ('current', 'none')"
-            " ORDER BY lineage"
+            " unknown, unanchored, off_version, context_ordering FROM lineages ORDER BY lineage"
         ).fetchall()
         heads = {}
         for row in rows:
@@ -597,20 +587,28 @@ def _tool_list_stale(args: dict) -> str:
                 heads[row[0]] = found[0][:60] if found and found[0] else ""
     finally:
         conn.close()
-    if not rows:
-        return "no stale lineages"
-    lines = [f"{len(rows)} stale lineage(s)"]
-    for (
-        lineage,
-        displayed,
-        resolution,
-        verification,
-        suspect,
-        doubted,
-        pending,
-        unknown,
-        unanchored,
-    ) in rows:
+    # §12.16(f)/(g): the split — off-version lineages leave the re-check list
+    # for the separate "not applicable here" list (their knowledge lives on
+    # another version line: true elsewhere, not actionable here). off_version
+    # wins over degraded when both fire.
+    recheck: list[str] = []
+    not_applicable: list[str] = []
+    for row in rows:
+        (
+            lineage,
+            displayed,
+            resolution,
+            verification,
+            suspect,
+            doubted,
+            pending,
+            unknown,
+            unanchored,
+            off_version,
+            ordering,
+        ) = row
+        if resolution in ("current", "none") and ordering != "degraded":
+            continue
         flags = (
             ",".join(
                 name
@@ -620,15 +618,31 @@ def _tool_list_stale(args: dict) -> str:
                     ("pending", pending),
                     ("unknown", unknown),
                     ("unanchored", unanchored),
+                    ("off-version", off_version),
                 )
                 if value
             )
             or "-"
         )
-        head = heads.get(lineage, "")
-        lines.append(
-            f"{lineage} [{resolution} {verification} flags: {flags}] {displayed or '-'} {head}".rstrip()
+        line = (
+            f"{lineage} [{resolution} {verification} flags: {flags}] {displayed or '-'}"
+            f" {heads.get(lineage, '')}".rstrip()
         )
+        if ordering == "degraded":
+            line += " [context: degraded]"
+        if off_version:
+            not_applicable.append(line)
+        else:
+            recheck.append(line)
+    if not recheck and not not_applicable:
+        return "no stale lineages"
+    lines = []
+    if recheck:
+        lines.append(f"re-check ({len(recheck)}):")
+        lines.extend(recheck)
+    if not_applicable:
+        lines.append(f"not applicable here ({len(not_applicable)}):")
+        lines.extend(not_applicable)
     return "\n".join(lines)
 
 
@@ -887,6 +901,11 @@ TOOLS = [
         "description": (
             "FTS query over the base index (MASORA_DESIGN.md §6.2); auto-builds a missing index,"
             " surfaces W-IDX-STALE without rebuilding (the SessionStart hook owns freshness)."
+            " Default filter: the DISPLAYED version of each matching lineage (the newest for"
+            " resolution-none lineages); the explicit any_version mode searches ALL ACTIVE"
+            " versions — archaeology of off-train knowledge, each hit with its own context."
+            " Refuted versions are never searched (a future history tool owns refuted"
+            " archaeology)."
         ),
         "inputSchema": _schema(
             {
@@ -894,6 +913,13 @@ TOOLS = [
                     description="FTS5 MATCH query over summaries and statements;"
                     " the '*' sentinel enumerates every indexed lineage"
                 ),
+                "any_version": {
+                    "type": "boolean",
+                    "description": "search ALL ACTIVE versions instead of only the displayed"
+                    " ones — for archaeology of knowledge established on other release lines;"
+                    " each hit reports the hit version's own git relation. Refuted versions are"
+                    " never searched (a future history tool owns refuted archaeology)",
+                },
                 **{k: v for k, v in _BASE_PROPS.items() if k != "repo_root"},
                 "repo_root": _str(
                     description="path to the code repo the index is keyed on (default: the base dir)"
@@ -904,7 +930,13 @@ TOOLS = [
     },
     {
         "name": "list_stale",
-        "description": "List lineages whose resolution is not current/none (stale, restored, unknown), from the index (auto-built when missing).",
+        "description": (
+            "Two labeled lists from the index (auto-built when missing): the re-check list —"
+            " stale, restored or unknown lineages, plus lineages whose context ordering is"
+            " degraded (versions worth re-verifying on this checkout) — and the separate 'not"
+            " applicable here' list of off-version lineages (the knowledge lives on another"
+            " version line — true elsewhere, not actionable here)."
+        ),
         "inputSchema": _schema(
             {
                 **{k: v for k, v in _BASE_PROPS.items() if k != "repo_root"},
@@ -921,7 +953,9 @@ TOOLS = [
             "The complete story of ONE lineage, statuses included: the fresh fold status"
             " (never the index), the effective version's summary/statement/questions, the"
             " anchors with their current match state, the full event chain in ULID order and"
-            " the active verify's evidence in full. Nothing is written."
+            " the active verify's evidence in full. With a code repo the git context is"
+            " re-derived live: the off-version field, the context ordering and each claim"
+            " version's established relation are surfaced. Nothing is written."
         ),
         "inputSchema": _schema(
             {

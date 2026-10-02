@@ -1121,9 +1121,10 @@ def test_list_stale_lists_non_current_lineages(server, code_repo, base):
     text, is_error = server.tool("list_stale", {"repo_root": str(repo), "base": str(base)})
     assert is_error is False
     lines = text.splitlines()
-    assert lines[0] == "1 stale lineage(s)"
+    assert lines[0] == "re-check (1):"
     assert "[stale unverified flags: -]" in lines[1]
     assert "Bring-up order" in lines[1]
+    assert "not applicable here" not in text
 
 
 def test_list_stale_empty_base(server, code_repo, base):
@@ -1132,6 +1133,140 @@ def test_list_stale_empty_base(server, code_repo, base):
     text, is_error = server.tool("list_stale", {"repo_root": str(repo), "base": str(base)})
     assert is_error is False
     assert text == "no stale lineages"
+
+
+def test_list_stale_splits_recheck_from_not_applicable(server, code_repo, base):
+    """§12.16(f)/(g): off-version lineages leave the re-check list for the
+    separate 'not applicable here' list (true elsewhere, not actionable
+    here); this line's own drift stays re-checkable."""
+    repo, _head = code_repo
+    server.ready()
+    # lineage 1: established on a feature line main never took; main then
+    # drops the symbol — the provable out_of_line fallback is off-version
+    git(repo, "checkout", "-b", "feature")
+    (repo / "mongo" / "engine.cpp").write_text(
+        SOURCE.replace("    stop();", "    halt();"), encoding="utf-8"
+    )
+    git(repo, "add", "mongo/engine.cpp")
+    git(repo, "commit", "-m", "feature")
+    established = git(repo, "rev-parse", "HEAD")
+    write_graph_db(
+        repo / ".cppgraph" / "repo.graph.db",
+        commit=established,
+        symbols={
+            SYM_A: ("mongo/engine.cpp", 1, 4),
+            SYM_B: ("mongo/engine.cpp", 5, 6),
+            SYM_C: ("mongo/engine.cpp", 7, 8),
+        },
+    )
+    note1, _ = server.tool("note", note_args(repo, base, anchors=[SYM_A]))
+    lineage1 = note1.splitlines()[1].split()[1]
+    git(repo, "checkout", "main")
+    (repo / "mongo" / "engine.cpp").write_text(
+        SOURCE.replace("void Engine::start() {\n    stop();\n    tick();\n}\n", ""),
+        encoding="utf-8",
+    )
+    git(repo, "add", "mongo/engine.cpp")
+    git(repo, "commit", "-m", "diverge")
+    diverged = git(repo, "rev-parse", "HEAD")
+    write_graph_db(
+        repo / ".cppgraph" / "repo.graph.db",
+        commit=diverged,
+        symbols={SYM_B: ("mongo/engine.cpp", 1, 2), SYM_C: ("mongo/engine.cpp", 3, 4)},
+    )
+    # lineage 2: established on main itself
+    note2, _ = server.tool("note", note_args(repo, base, anchors=[SYM_B]))
+    lineage2 = note2.splitlines()[1].split()[1]
+    # then main's own drift: the anchored symbol's definition body changes
+    (repo / "mongo" / "engine.cpp").write_text(
+        SOURCE.replace("void Engine::start() {\n    stop();\n    tick();\n}\n", "").replace(
+            "void Engine::stop() {\n}", "void Engine::stop() {\n    trace();\n}"
+        ),
+        encoding="utf-8",
+    )
+    git(repo, "add", "mongo/engine.cpp")
+    git(repo, "commit", "-m", "drift")
+    drift = git(repo, "rev-parse", "HEAD")
+    write_graph_db(
+        repo / ".cppgraph" / "repo.graph.db",
+        commit=drift,
+        symbols={SYM_B: ("mongo/engine.cpp", 1, 3), SYM_C: ("mongo/engine.cpp", 4, 5)},
+    )
+    text, is_error = server.tool("list_stale", {"repo_root": str(repo), "base": str(base)})
+    assert is_error is False
+    lines = text.splitlines()
+    assert lines[0] == "re-check (1):"
+    assert lineage2 in lines[1]
+    assert "[stale" in lines[1]
+    assert "off-version" not in lines[1]
+    assert lines[2] == "not applicable here (1):"
+    assert lineage1 in lines[3]
+    assert "off-version" in lines[3]
+
+
+def test_search_any_version_mode_searches_active_versions(server, code_repo, base):
+    """§12.16(f): default = the DISPLAYED version only; any_version = every
+    ACTIVE version with its own context. The in_line v1 outranks the newer
+    v2 (whose establishing commit is unknown to this checkout)."""
+    repo, _head = code_repo
+    server.ready()
+    note_text, _ = server.tool("note", note_args(repo, base))
+    v1_id = note_text.splitlines()[1].split()[1]
+    v1_rel = note_text.splitlines()[0].removeprefix("wrote ")
+    v2_id = later_ulid(v1_id)
+    write_v2(base, v1_rel, v2_id)
+    # default: a hit on the non-displayed active v2 does not surface
+    text, is_error = server.tool(
+        "search", {"query": "Second", "repo_root": str(repo), "base": str(base)}
+    )
+    assert is_error is False
+    assert text == "no results"
+    # the displayed v1 carries its own context on its line; promoting the
+    # unprovable v2 could change the display — the degraded ordering renders
+    # once, on the lineage header
+    text, _ = server.tool("search", {"query": "Bring", "repo_root": str(repo), "base": str(base)})
+    lines = text.splitlines()
+    assert "[context: degraded]" in lines[1]
+    assert f"  {v1_id} Bring-up order: start before stop [established: in_line]" in lines[2]
+    assert "[context: degraded]" not in lines[2]
+    # any_version: the hit version's identity, its own context alongside
+    text, _ = server.tool(
+        "search",
+        {"query": "Second", "any_version": True, "repo_root": str(repo), "base": str(base)},
+    )
+    assert f"  {v2_id} Second version" in text
+    assert "details: masora explain" in text
+
+
+def test_search_any_version_never_returns_refuted_versions(server, code_repo, base):
+    """Refuted archaeology is not searched (§12.16(h)) — a future history
+    tool owns it; the none lineage's newest stays findable by default."""
+    repo, _head = code_repo
+    server.ready()
+    note_text, _ = server.tool("note", note_args(repo, base))
+    uid = note_text.splitlines()[1].split()[1]
+    server.tool(
+        "refute",
+        {"id": uid, "reason": "Provably wrong.", "repo_root": str(repo), "base": str(base)},
+    )
+    text, is_error = server.tool(
+        "search", {"query": "Bring", "repo_root": str(repo), "base": str(base)}
+    )
+    assert is_error is False
+    assert uid in text  # negative knowledge: the none lineage's newest
+    text, _ = server.tool(
+        "search", {"query": "Bring", "any_version": True, "repo_root": str(repo), "base": str(base)}
+    )
+    assert text == "no results"
+
+
+def test_search_schema_records_the_refuted_exclusion(server):
+    server.ready()
+    listing = server.request("tools/list")
+    tools = {tool["name"]: tool for tool in listing["result"]["tools"]}
+    prop = tools["search"]["inputSchema"]["properties"]["any_version"]
+    assert prop["type"] == "boolean"
+    assert "Refuted versions are never searched" in prop["description"]
 
 
 def test_write_tools_require_repo_root(server, code_repo, base):

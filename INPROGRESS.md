@@ -189,9 +189,50 @@ FIXED since). Round 10 = the closure confirmation on this diff.
    verifies): a 9-event lineage compacts to 4 (the undone refute chain,
    doubt pair and non-effective verify drop). Tests: 3 new + 1 rewritten in
    tests/test_compact.py (30 total there); suite 739 green; ruff clean.)
-7. Recall surfaces: status qualification, search/explain, list_stale split
+7. ~~Recall surfaces: status qualification, search/explain, list_stale split
    (re-check vs "not applicable here"), any-version mode, agent
-   instructions + skill mirrors — the coordinated user-visible release.
+   instructions + skill mirrors — the coordinated user-visible release.~~
+   DONE (`masora/index.py`: `SearchHit` carries the v6 context — the hit
+   version's OWN `relation`, the lineage's `off_version` + `context_ordering`
+   — and `search_index(db, query, any_version=False)` implements the §12.16(f)
+   recall filter: DEFAULT keeps hits on the lineage's effective version
+   (displayed; newest for `none` lineages — negative knowledge stays
+   findable, the facts rule), `any_version` keeps hits on EVERY ACTIVE
+   version (never refuted ones — the flag's help text records that refuted
+   archaeology belongs to a future `history` tool); the `*` sentinel stays
+   mode-independent (effective versions); a shared `search_result_lines`
+   renderer keeps CLI and MCP identical: `[established: <relation>]` per hit
+   (no suffix when unprovable — a hit never borrows another version's
+   context), `[context: degraded]` on the lineage header, `off-version` in
+   the flags list. `masora explain`: with a repo the git context is
+   re-derived LIVE with a fresh prober budget (§6.2) and drives the same
+   two-tier sel (contexts into resolve_lineage AND fold_lineage); the render
+   gains the `off-version: yes|no` labeled field (never folded into the
+   flags), the `context: exact|degraded` line (repo only — nothing provable
+   without one) and the per-claim `[established: …]` markers; the MCP
+   `explain` tool now passes `repo_root`-or-None (the base-dir fallback
+   would probe the BASE repo as the asking line — the git context must come
+   from the code checkout). `list_stale` (MCP): split per §12.16(g) into
+   `re-check (N):` — stale/restored/unknown plus degraded ordering
+   (actionable here; off_version wins over degraded when both fire) — and
+   `not applicable here (N):` — off-version lineages; `no stale lineages`
+   when both are empty. CLI: `search --any-version`; the mcp subparser's
+   tool list names `explain` too. AGENT_INSTRUCTIONS + the packaged skill
+   (byte-identical tails): the search/list_stale bullets teach the modes and
+   the split (the duplicated `explain` bullet dropped), one new status-reading
+   bullet names the stamps and points cppgraph consumers at the rendering
+   rule (docs/CPPGRAPH_INTEGRATION.md §6). ARCHITECTURE's Explain/Index/MCP
+   sections updated (the tool table gains the missing `explain` row).
+   Tests: 5 index (default vs any_version incl. question-only hits on
+   superseded versions, refuted exclusion BOTH modes + the none-lineage
+   newest staying findable by default, the context-suffix rendering), 4 mcp
+   (the stale split with real diverged-branch relations,
+   any-version-over-MCP with a tier-1 v1 beating the newer unprovable v2 +
+   degraded surfacing, refuted exclusion over MCP, the schema's refuted
+   note), 3 explain (the off-version field without a repo, the live
+   out_of_line context on a real diverged repo, the degraded ordering), 3
+   docs (search modes, stale split, stamp reading — both files). Suite 754
+   green; ruff clean.)
 8. ~~Facts v2 + cppgraph rollout~~ DONE (CONTRACT_VERSION 2 — ruling (p)'s
    NO-dual-window flip: cppgraph learns v2 in the SAME release and v1 is
    retired with it, no version negotiation). Per-fact payload EXTENDS v1 with

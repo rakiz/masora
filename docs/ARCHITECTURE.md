@@ -335,15 +335,23 @@ helpers — content-based; the index is never consulted, a stale index cannot
 lie here): `check_base()` gates first (E-NOT-A-BASE, other base errors
 refuse), then `resolve_lineage`/`fold_lineage` compute the tuple and the
 fold with the providers from `--repo`/`repo_root` (no repo → anchor states
-report `unknown`, never a guess). The render: the status tuple, the
-effective version's summary/statement/questions, the anchors with their
+report `unknown`, never a guess). With a repo the git context is re-derived
+LIVE with a fresh probe budget (§6.2 — explain's own ordering is
+authoritative for its output): the per-version relations drive the same
+two-tier sel, and the render surfaces the context explicitly — the
+`off-version:` field (its own labeled field, never folded into the flags),
+the `context:` line (`exact`/`degraded`) and each claim version's
+`[established: <relation>]` marker in the event chain; without a repo
+nothing is provable and no context renders. The render: the status tuple,
+the effective version's summary/statement/questions, the anchors with their
 current match state (matched/changed/not_found/unknown), the full event
 chain in ULID order (each event one line: id, kind, writer, what it does
-via the targets chain, `[refuted]`/`[inactive]` markers) and the ACTIVE
-verify's evidence in full. An unknown id is `E-EXPLAIN-UNKNOWN` (a clean
-diagnostic naming the lineage-ULID rule). Nothing is written, ever. This
-promotes `explain (evidence-chain trace)` out of the TODO's out-of-scope
-list — the remaining advanced tools are `unrefute`, `recheck` and `history`.
+via the targets chain, `[established: …]`/`[refuted]`/`[inactive]` markers)
+and the ACTIVE verify's evidence in full. An unknown id is
+`E-EXPLAIN-UNKNOWN` (a clean diagnostic naming the lineage-ULID rule).
+Nothing is written, ever. This promotes `explain (evidence-chain trace)`
+out of the TODO's out-of-scope list — the remaining advanced tools are
+`unrefute`, `recheck` and `history`.
 
 ## Index and resolution (`masora/index.py`, `masora/gitctx.py`, `masora/resolve.py`, MASORA_DESIGN.md §6.2, §5.4, §8)
 
@@ -480,18 +488,30 @@ and adds FTS5 search. Section references are to MASORA_DESIGN.md.
   index; bases without questions/keywords rebuild cleanly).
   Tombstoned lineages (and tombstoned event ids) are excluded.
 - **Search union**: `search_index` runs the content MATCH (summary +
-  statement only — questions/keywords never dilute it) plus the questions
-  and keywords MATCHes, and unions the hits by version; each `SearchHit`
-  carries `matched_questions` and `matched_keywords` (the distinct matched
-  texts, ordinal order) — a question/keyword-only hit surfaces its version's
-   content row; the CLI and MCP `search` render a `matched question:` /
-   `matched keyword:` line per match and every hit group ends with
-   `details: masora explain <lineage>` (the door to the full story). The
-   `*` query is the match-all sentinel: it bypasses FTS and returns one hit
-   per indexed lineage — its displayed version (its newest version when none
-   is displayed) — with empty matched questions/keywords. `masora
-   facts` is untouched by the matching vocabularies: the JSON shape carries
-   no questions/keywords (questions serve matching, not the envelope).
+   statement only — questions/keywords never dilute it) plus the questions
+   and keywords MATCHes, and unions the hits by version; each `SearchHit`
+   carries `matched_questions` and `matched_keywords` (the distinct matched
+   texts, ordinal order) — a question/keyword-only hit surfaces its version's
+    content row; the CLI and MCP `search` render a `matched question:` /
+    `matched keyword:` line per match and every hit group ends with
+    `details: masora explain <lineage>` (the door to the full story). The
+    `*` query is the match-all sentinel: it bypasses FTS and returns one hit
+    per indexed lineage — its displayed version (its newest version when none
+    is displayed) — with empty matched questions/keywords, mode-independent.
+    Recall filtering (§6.2, §12.16(f)/(h)): the FTS matches every version,
+    the DEFAULT result filter keeps hits on the lineage's effective version
+    (the displayed version; the newest for `none` lineages — negative
+    knowledge stays findable, matching the facts behavior); the explicit
+    `any_version` mode (MCP `any_version`, CLI `--any-version`) keeps hits on
+    EVERY ACTIVE version instead — for archaeology of off-train knowledge —
+    and refuted versions are never hits there (a future `history` tool owns
+    refuted archaeology). Every hit carries the v6 context: the hit version's
+    OWN git relation (rendered `[established: <relation>]`, never borrowed
+    from another version) and the lineage's `off_version` (in the flags) +
+    `context_ordering` (rendered `[context: degraded]` on the lineage
+    header). `masora
+    facts` is untouched by the matching vocabularies: the JSON shape carries
+    no questions/keywords (questions serve matching, not the envelope).
 - **Rebuild trigger awareness**: the build stores the base's git HEAD plus
   the code state it fingerprinted (`repo_head`, `graph_commit` in meta) and
   the build moment (`built_at`, UTC ISO); `index_stale()` compares four axes
@@ -505,8 +525,9 @@ and adds FTS5 search. Section references are to MASORA_DESIGN.md.
   `W-IDX-STALE`; one walk of the base tree per read, no caching.
 - **CLI**: `masora index <base-dir> [--repo <path>] [--cppgraph <db>]
   [--no-cppgraph]` prints the graph store used, counts by status;
-  `masora search [<base-dir>] <query> [--repo <path>]` runs FTS and renders
-  `lineage [resolution verification flags]` + matched versions (MCP tools come
+  `masora search [<base-dir>] <query> [--repo <path>] [--any-version]` runs
+  FTS and renders `lineage [resolution verification flags]` + matched
+  versions with their `[established: …]` context suffixes (MCP tools come
    later). When `base_dir` is omitted the base is resolved by the shared
    gate's order — the hinted directory itself when it holds `base.toml`
    (`--repo`, else the cwd), then like `masora facts` (mappings on the
@@ -609,8 +630,9 @@ context per call — the server does no repo discovery):
 | `doubt` | `id`, `reason`, `repo_root`; optional `base`, `source`, `evidence[]`, `name`, `effort` | Targets a `.verify` ULID, or a lineage → the active verify of its displayed version; none → `E-MCP-UNKNOWN-ID`. |
 | `undoubt` | same params as `doubt` | Targets the doubt event's ULID only (no lineage form). |
 | `refute` | same params as `doubt` | Targets any event ULID, or a lineage → its displayed version. |
-| `search` | `query`; optional `base`, `repo_root` | FTS over the index (auto-**built when missing**, never rebuilt when merely stale — the SessionStart hook owns freshness); `W-IDX-STALE` is surfaced in the result text; statuses rendered per lineage. |
-| `list_stale` | optional `base`, `repo_root` | Lineages whose resolution is not `current`/`none` (stale, restored, unknown), as `lineage [resolution verification flags] displayed: summary head`. |
+| `search` | `query`; optional `any_version`, `base`, `repo_root` | FTS over the index (auto-**built when missing**, never rebuilt when merely stale — the SessionStart hook owns freshness); `W-IDX-STALE` is surfaced in the result text; statuses rendered per lineage. Default filter: the displayed version of each matching lineage (the newest for `none` lineages); `any_version` searches ALL ACTIVE versions, each hit with its own git relation — refuted versions are never searched (a future `history` tool owns refuted archaeology). |
+| `list_stale` | optional `base`, `repo_root` | Two labeled lists (§12.16(f)/(g)): `re-check (N):` — stale/restored/unknown lineages plus `degraded` context ordering (actionable: worth re-verifying on this checkout) — and `not applicable here (N):` — off-version lineages (the knowledge lives on another version line); `no stale lineages` when both are empty. |
+| `explain` | `lineage`; optional `base`, `repo_root` | The fresh one-lineage story (E-EXPLAIN-UNKNOWN on an unknown id); with a repo the git context is re-derived live with a fresh probe budget and surfaced — the `off-version:` field, the `context:` ordering line and per-claim `[established: <relation>]` markers. |
 
 The write path (`masora/write.py`) is shared by all five write tools:
 `resolve_base()` honours an explicit `base` parameter first (a caller-provided

@@ -189,6 +189,52 @@ def test_retrieval_budget_names_the_match_all_sentinel() -> None:
     assert fragment in flat(skill_text())
 
 
+def test_recall_instructions_carry_the_search_modes_in_both_docs() -> None:
+    fragment = (
+        "with `any_version` it searches every ACTIVE version (each hit carries the hit"
+        " version's own context) — for archaeology of knowledge established on other"
+        " release lines. Refuted versions are never searched."
+    )
+
+    def flat(text: str) -> str:
+        return " ".join(text.split())
+
+    assert fragment in flat(AGENT_INSTRUCTIONS.read_text(encoding="utf-8"))
+    assert fragment in flat(skill_text())
+
+
+def test_recall_instructions_carry_the_stale_split_in_both_docs() -> None:
+    fragment = (
+        "`list_stale` — two lists: the re-check list (`stale`/`restored`/`unknown`, plus"
+        ' `degraded` context ordering) and a "not applicable here" list (`off-version`:'
+        " the knowledge lives on another version line)."
+    )
+
+    def flat(text: str) -> str:
+        return " ".join(text.split())
+
+    assert fragment in flat(AGENT_INSTRUCTIONS.read_text(encoding="utf-8"))
+    assert fragment in flat(skill_text())
+
+
+def test_recall_instructions_carry_the_context_stamp_reading_in_both_docs() -> None:
+    fragment = (
+        "Read the context stamps with the status: `off-version` — the displayed version is"
+        " provably not of this checkout's line (the knowledge lives on another version line);"
+        " an `unknown` shadow — a version could not be evaluated, so the resolution is not"
+        " guessed; `context: degraded` — the git context was unprovable and the displayed"
+        " selection could change. cppgraph renders these stamps by the same"
+        " fire-when-it-matters rule (docs/CPPGRAPH_INTEGRATION.md §6) — render them, never"
+        " recompute them."
+    )
+
+    def flat(text: str) -> str:
+        return " ".join(text.split())
+
+    assert fragment in flat(AGENT_INSTRUCTIONS.read_text(encoding="utf-8"))
+    assert fragment in flat(skill_text())
+
+
 def test_retrieval_budget_forbids_grepping_the_base() -> None:
     fragment = (
         "Never read or grep the base's raw event files (`*.md` under the base"

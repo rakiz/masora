@@ -17,12 +17,14 @@ The `masora` MCP server (`masora mcp`) exposes eight tools:
 - `undoubt` — lift a recorded doubt.
 - `refute` — record that a claim or event is provably wrong, with a reason
   (reversible).
-- `search` — full-text search over the base's summaries and statements.
-- `list_stale` — list the lineages to re-check in this checkout: `stale`,
-  `restored` or `unknown`.
-- `explain` — the complete story of ONE lineage, statuses included: the
-  fresh fold, the effective version, the event chain and the active
-  verify's evidence.
+- `search` — full-text search over the base's summaries and statements: by
+  default it returns the DISPLAYED version of each matching lineage; with
+  `any_version` it searches every ACTIVE version (each hit carries the hit
+  version's own context) — for archaeology of knowledge established on other
+  release lines. Refuted versions are never searched.
+- `list_stale` — two lists: the re-check list (`stale`/`restored`/`unknown`,
+  plus `degraded` context ordering) and a "not applicable here" list
+  (`off-version`: the knowledge lives on another version line).
 - `explain` — the complete story of ONE lineage, statuses included: the
   fresh fold, the effective version, the event chain and the active
   verify's evidence.
@@ -45,6 +47,13 @@ The `masora` MCP server (`masora mcp`) exposes eight tools:
   - `verified(llm)` — a machine verified it; re-check it in code before
     depending on it.
   - `unverified` — a hypothesis: confirm it in code before depending on it.
+- Read the context stamps with the status: `off-version` — the displayed
+  version is provably not of this checkout's line (the knowledge lives on
+  another version line); an `unknown` shadow — a version could not be
+  evaluated, so the resolution is not guessed; `context: degraded` — the git
+  context was unprovable and the displayed selection could change. cppgraph
+  renders these stamps by the same fire-when-it-matters rule
+  (docs/CPPGRAPH_INTEGRATION.md §6) — render them, never recompute them.
 - If the current task depends on a `stale`, `suspect` or `unverified` claim,
   re-verify it first, then record the result. Verification is lazy: its cost
   is paid when the knowledge is used, never in bulk.

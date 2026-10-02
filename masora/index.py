@@ -97,8 +97,11 @@ CREATE VIRTUAL TABLE keywords USING fts5(
 SEARCH_SQL = """
 SELECT search.lineage, search.version, search.summary, lineages.displayed,
        lineages.resolution, lineages.verification, lineages.suspect,
-       lineages.doubted, lineages.pending, lineages.unknown, lineages.unanchored
+       lineages.doubted, lineages.pending, lineages.unknown, lineages.unanchored,
+       versions.refuted, versions.relation, lineages.off_version,
+       lineages.context_ordering
 FROM search JOIN lineages ON lineages.lineage = search.lineage
+JOIN versions ON versions.version = search.version
 WHERE search MATCH ?
 ORDER BY search.lineage, search.version
 """
@@ -116,21 +119,39 @@ ORDER BY version, keyword_ordinal
 CONTENT_BY_VERSION_SQL = """
 SELECT search.lineage, search.version, search.summary, lineages.displayed,
        lineages.resolution, lineages.verification, lineages.suspect,
-       lineages.doubted, lineages.pending, lineages.unknown, lineages.unanchored
+       lineages.doubted, lineages.pending, lineages.unknown, lineages.unanchored,
+       versions.refuted, versions.relation, lineages.off_version,
+       lineages.context_ordering
 FROM search JOIN lineages ON lineages.lineage = search.lineage
+JOIN versions ON versions.version = search.version
 WHERE search.version = ?
 """
 
 MATCH_ALL_SQL = """
 SELECT search.lineage, search.version, search.summary, lineages.displayed,
        lineages.resolution, lineages.verification, lineages.suspect,
-       lineages.doubted, lineages.pending, lineages.unknown, lineages.unanchored
+       lineages.doubted, lineages.pending, lineages.unknown, lineages.unanchored,
+       versions.refuted, versions.relation, lineages.off_version,
+       lineages.context_ordering
 FROM lineages JOIN search ON search.version = COALESCE(
     lineages.displayed,
     (SELECT versions.version FROM versions WHERE versions.lineage = lineages.lineage
      ORDER BY versions.version DESC LIMIT 1)
 )
+JOIN versions ON versions.version = search.version
 ORDER BY search.lineage
+"""
+
+# The effective version per lineage — the DEFAULT search filter's keep set
+# (§6.2 recall filtering): the displayed version, or the newest version for
+# `none` lineages (negative knowledge stays findable, the facts rule).
+EFFECTIVE_SQL = """
+SELECT lineages.lineage, COALESCE(
+    lineages.displayed,
+    (SELECT versions.version FROM versions WHERE versions.lineage = lineages.lineage
+     ORDER BY versions.version DESC LIMIT 1)
+)
+FROM lineages
 """
 
 
@@ -149,21 +170,31 @@ def _hit_from_row(
         pending=bool(row[8]),
         unknown=bool(row[9]),
         unanchored=bool(row[10]),
+        refuted=bool(row[11]),
+        relation=row[12],
+        off_version=bool(row[13]),
+        context_ordering=row[14],
         matched_questions=matched_questions,
         matched_keywords=matched_keywords,
     )
 
 
-def search_index(db: Path, query: str) -> list[SearchHit]:
+def search_index(db: Path, query: str, any_version: bool = False) -> list[SearchHit]:
     """Run the FTS query over THREE tables — the content (summary + statement),
     the per-question and the per-keyword tables — and union the hits by
     version; raises IndexingError for missing/corrupt index or bad query
     syntax. Every hit carries the distinct matched questions and keywords
-    (ordinal order); a question/keyword-only hit surfaces its version's
-    content row. The `*` query is the match-all sentinel: it bypasses FTS and
-    enumerates every indexed lineage once as its displayed version (its newest
-    version when none is displayed — the effective version, the same rule
-    `masora facts` applies), with no matched questions/keywords."""
+    (ordinal order), the hit version's own git relation and its lineage's
+    `off_version`/`context_ordering` stamps. The DEFAULT result filter keeps
+    hits on the lineage's effective version (the displayed version, the newest
+    for `none` lineages — negative knowledge stays findable, §6.2); the
+    explicit `any_version` mode keeps hits on EVERY ACTIVE version instead —
+    for archaeology of off-train knowledge, each hit reporting its own
+    context. Refuted versions are never hits in any_version mode (refuted
+    archaeology belongs to a future history tool). The `*` query is the
+    match-all sentinel: it bypasses FTS and enumerates every indexed lineage
+    once as its effective version (mode-independent), with no matched
+    questions/keywords."""
     if not query.strip():
         raise IndexingError(Diag("error", E_IDX_QUERY, "empty FTS query"))
     if not db.is_file():
@@ -212,6 +243,11 @@ def search_index(db: Path, query: str) -> list[SearchHit]:
                     tuple(questions_by_version.get(version, [])),
                     tuple(keywords_by_version.get(version, [])),
                 )
+        if any_version:
+            hits = {v: h for v, h in hits.items() if not h.refuted}
+        else:
+            effective = dict(conn.execute(EFFECTIVE_SQL).fetchall())
+            hits = {v: h for v, h in hits.items() if h.version == effective.get(h.lineage)}
     finally:
         conn.close()
     return sorted(hits.values(), key=lambda h: (h.lineage, h.version))
@@ -276,6 +312,10 @@ class SearchHit:
     pending: bool
     unknown: bool
     unanchored: bool
+    refuted: bool = False
+    relation: str | None = None
+    off_version: bool = False
+    context_ordering: str = "exact"
     matched_questions: tuple[str, ...] = ()
     matched_keywords: tuple[str, ...] = ()
 
@@ -289,10 +329,45 @@ class SearchHit:
                 ("pending", self.pending),
                 ("unknown", self.unknown),
                 ("unanchored", self.unanchored),
+                ("off-version", self.off_version),
             )
             if v
         ]
         return ",".join(names) or "-"
+
+    @property
+    def context_suffix(self) -> str:
+        """The hit version's OWN context rendered compactly (§6.2): its
+        establishing relation when proven — a hit never borrows another
+        version's context. The lineage's degraded ordering renders once, on
+        the lineage header (`search_result_lines`), not per hit."""
+        return f" [established: {self.relation}]" if self.relation else ""
+
+
+def search_result_lines(hits: list[SearchHit]) -> list[str]:
+    """The shared CLI/MCP result rendering: the count header, one group per
+    lineage (status tuple + the lineage-level `[context: degraded]` marker,
+    then per-hit version lines with their own `[established: …]` context)
+    and the `details:` tail — CLI and MCP stay identical."""
+    grouped: dict[str, list[SearchHit]] = {}
+    for hit in hits:
+        grouped.setdefault(hit.lineage, []).append(hit)
+    lines = [f"{len(hits)} match(es) in {len(grouped)} lineage(s)"]
+    for lineage, group in grouped.items():
+        first = group[0]
+        header = f"{lineage} [{first.resolution} {first.verification} flags: {first.flags}]"
+        # context_ordering is a PER-LINEAGE state — it renders once, here.
+        if first.context_ordering == "degraded":
+            header += " [context: degraded]"
+        lines.append(header)
+        for hit in group:
+            lines.append(f"  {hit.version} {hit.summary}{hit.context_suffix}")
+            for question in hit.matched_questions:
+                lines.append(f"    matched question: {question}")
+            for keyword in hit.matched_keywords:
+                lines.append(f"    matched keyword: {keyword}")
+        lines.append(f"details: masora explain {lineage}")
+    return lines
 
 
 def index_dir_for(base_dir: Path) -> Path:

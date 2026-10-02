@@ -19,6 +19,7 @@ from .index import (
     index_db_path,
     index_stale_reason,
     search_index,
+    search_result_lines,
 )
 from .init import run as run_init
 from .mcp import PROTOCOL_VERSION
@@ -307,7 +308,10 @@ def main(argv: list[str] | None = None) -> int:
         "search",
         help="run the FTS query over a built index and render status tuples (MASORA_DESIGN.md §6.2)",
         description="Exit codes: 0 results or no match, 1 errors (no/unusable index), 2 invalid query syntax."
-        " The `*` query enumerates every indexed lineage."
+        " The default result filter keeps each matching lineage's DISPLAYED version (the newest"
+        " for resolution-none lineages); --any-version searches ALL ACTIVE versions instead,"
+        " each hit with its own git relation — refuted versions are never searched (a future"
+        " history tool owns refuted archaeology). The `*` query enumerates every indexed lineage."
         " Prints W-IDX-STALE when the base or code state moved since the build, or events were written after it.",
     )
     search.add_argument(
@@ -327,6 +331,14 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=Path("."),
         help="path to the code repo the index was built for (default: current directory)",
+    )
+    search.add_argument(
+        "--any-version",
+        action="store_true",
+        help="search every ACTIVE version instead of only the displayed ones — for archaeology"
+        " of knowledge established on other release lines; each hit carries the hit version's"
+        " own git relation. Refuted versions are never searched (a future history tool owns"
+        " refuted archaeology)",
     )
     explain = sub.add_parser(
         "explain",
@@ -353,7 +365,7 @@ def main(argv: list[str] | None = None) -> int:
         help="run the MCP stdio server (MASORA_DESIGN.md §10.4)",
         description="Hand-rolled minimal MCP server over stdio: newline-delimited JSON-RPC 2.0,"
         f" protocol version {PROTOCOL_VERSION} (negotiated: the result always carries it), tools only — note, verify,"
-        " doubt, undoubt, refute, search, list_stale. Responses go to stdout; protocol anomalies"
+        " doubt, undoubt, refute, search, list_stale, explain. Responses go to stdout; protocol anomalies"
         " to stderr (W-MCP-PROTO); the loop survives malformed input.",
     )
     facts = sub.add_parser(
@@ -451,7 +463,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "index":
         return _run_index(args.base_dir, args.repo, args.cppgraph, args.no_cppgraph)
     if args.command == "search":
-        return _run_search(args.base_dir, args.query, args.repo)
+        return _run_search(args.base_dir, args.query, args.repo, args.any_version)
     if args.command == "explain":
         return _run_explain(args.base_dir, args.lineage_id, args.repo)
     if args.command == "mcp":
@@ -581,14 +593,14 @@ def _unresolved_base_message(repo: Path) -> str:
     )
 
 
-def _run_search(base_dir: Path, query: str, repo: Path) -> int:
+def _run_search(base_dir: Path, query: str, repo: Path, any_version: bool = False) -> int:
     print(f"masora search {base_dir}")
     if not base_dir.is_dir():
         print(f"masora search: base directory does not exist: {base_dir}", file=sys.stderr)
         return 1
     db = index_db_path(base_dir, repo)
     try:
-        hits = search_index(db, query)
+        hits = search_index(db, query, any_version=any_version)
     except IndexingError as exc:
         print(f"  {exc.diag.render()}")
         return 2 if exc.diag.code == E_IDX_QUERY else 1
@@ -599,20 +611,8 @@ def _run_search(base_dir: Path, query: str, repo: Path) -> int:
     if not hits:
         print("no results")
         return 0
-    grouped: dict[str, list] = {}
-    for hit in hits:
-        grouped.setdefault(hit.lineage, []).append(hit)
-    print(f"{len(hits)} match(es) in {len(grouped)} lineage(s)")
-    for lineage, group in grouped.items():
-        first = group[0]
-        print(f"{lineage} [{first.resolution} {first.verification} flags: {first.flags}]")
-        for hit in group:
-            print(f"  {hit.version} {hit.summary}")
-            for question in hit.matched_questions:
-                print(f"    matched question: {question}")
-            for keyword in hit.matched_keywords:
-                print(f"    matched keyword: {keyword}")
-        print(f"details: masora explain {lineage}")
+    for line in search_result_lines(hits):
+        print(line)
     return 0
 
 

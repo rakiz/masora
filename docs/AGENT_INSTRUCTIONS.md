@@ -104,6 +104,15 @@ with --yes. Never publish a stacked note by default.
 
 ## How to note well
 
+- **The base holds architect knowledge of the CODE — nothing else.** A claim
+  is what an architect knows of the system that cannot be had by reading a
+  few files: behaviour, mechanisms, invariants, cross-cutting decisions.
+  Process and workflow knowledge (backport procedures, PR conventions, CI/CD
+  and CLI how-tos, stacking tools, CODEOWNERS, ticket references) does NOT
+  belong here — it lives in the code repo's own `.agents/skills/` and docs.
+  Never note it, never cite tickets in statements, keywords or evidence;
+  when tempted, point at the code path instead.
+
 - One claim = one fact. If you wrote "and" twice, that is several claims:
   split them; each fact gets its own anchors and its own verification — a
   block claim is all-or-nothing to verify, to stale and to refute.

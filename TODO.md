@@ -8,6 +8,18 @@ AI coding agents re-derive the same project knowledge every session, forget corr
 
 Settled 2026-09-25 with the design owner — decisions recorded in MASORA_DESIGN.md §12 and reflected in SPEC.md: items 1–5 and 7. Items 6 (`same-as`) and 8 (co-change mining) remain postponed. Non-blocking refinements from the design review are listed at the end of MASORA_DESIGN.md §12.
 
+## Bug tickets (live-rollout reports)
+
+- [ ] **sync: deletion detection is merge-base-relative** (live-rollout report,
+  0.7.0, the shared base workstation): event DELETIONS that reached origin/main via
+  the `masora/pending` branch are invisible to a later `masora gc`/sync when
+  the local main is stale — the detection compares against the merge-base
+  (`sync.py:154`), and a behind main hides already-published deletions.
+  Reproduced on the workstation; workaround applied there: advance the local
+  main before re-running gc. Fix: the published-set read (`_published_ids`)
+  should compare against `origin/main` as fetched during the sync pipeline,
+  or the gate should refuse when local main is behind.
+
 ## Phases
 
 ### Phase 1: v0 core

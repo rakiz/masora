@@ -387,6 +387,49 @@ is wanted, without cppgraph.
 
 - [ ] Symbol-addressed search fallback: exercise the base via CLI/MCP `search` by symbol on machines without cppgraph (the anchors table exists; the FTS covers summary + statement only).
 
+- [ ] Code branches and source versions: qualify statuses by the code state
+  they were established against — ONE shared base, usable across versions
+  and branches (owner seed 2026-10-02, ruled IMPORTANT: "what happens when I
+  travel back in time in my codebase? … one knowledge base served over
+  different versions, different branches"). The real-world scale makes this
+  a core use case, not a refinement: release-train branches,
+  9.0, master) with ~a large distributed team working at various points of each —
+  most recall will happen OFF the branch a claim was established on.
+  Owner-endorsed shape: automatic
+  CONTEXT STAMPING at write/verify time — every claim and verify records
+  `context: {repo, branch, commit}`, captured by the write path exactly like
+  fingerprints and snapshots (the agent cannot forget it); provenance, NOT
+  truth — the fold never depends on it, the shared append-only ledger is
+  unchanged. The mental model: the fingerprint answers "does it apply
+  HERE" (content-based matching already does per-version applicability —
+  identical content on another branch or an older commit stays `current`),
+  the stamp answers "where does it come from and where has it applied".
+  Verification accumulates per version: one lineage carries several verify
+  events, each stamped with its own context — verified on `main@a1b2` AND
+  on `feature/x@cd3` live in the same lineage; the existing lazy re-verify
+  rule is the engine (a claim stale here with evidence anchored on
+  `main@abc` is re-verified HERE, the new verify stamps THIS context — the
+  base enriches at every version traversed instead of diverging). Recall
+  must stop lying when the anchored symbol does not exist in the asking
+  checkout (an old commit): today it reports `unknown` — indistinguishable
+  from a provider outage — the stamped knowledge becomes `off-version`
+  ("established on main; that symbol does not exist in your version").
+  Forbidden by the ruling: forking the base per branch (kills the one-base
+  property), putting the branch inside the fold (truth becomes reader-
+  dependent, incompatible with the shared ledger), duplicating claims per
+  version (one lineage, multiple verifications). Concrete surfaces: FORMAT.md
+  optional `context` field (compatible addition — bump format_version or
+  not: settle at design); the index indexes the stamps (filters: established
+  on this branch / verified on main but stale here); the status tuple gains
+  the qualification (`verified(<branch@sha>)` and an `off-version` flag or
+  equivalent); recall/search/facts/MCP report the qualification. Open
+  questions to settle at design time: exact stamp shape (does branch belong
+  in it, or is commit enough — branches are movable pointers);
+  `off-version` as a new flag vs a qualification of the existing tuple; how
+  `restored` interacts with branch switches (main → feature → main);
+  whether un-stamped legacy events default to a stamp or stay unqualified;
+  whether the index stays one-per-checkout or gains a per-branch key.
+
 <!-- Block template to duplicate per phase:
 
 ### Phase N: <name>

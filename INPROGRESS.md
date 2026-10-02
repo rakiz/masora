@@ -18,6 +18,14 @@ optionally `masora gc` to purge obsolete fiches, and update the cppgraph
 side to facts v2 (docs/CPPGRAPH_INTEGRATION.md is the contract it must
 respect). Threshold calibration on the real base happens at the next sync.
 
+**Friction relayed (cppgraph side, 0.4.8):** the zero-change guarantee's
+"renders nothing" was too absolute for version mismatches — cppgraph ships
+a contract-version `mismatch_advisory` (one visible line: newer contract →
+"update cppgraph", older → "update masora"; silence kept for unparsable
+JSON / absent or boolean version). Sanctioned in
+docs/CPPGRAPH_INTEGRATION.md (zero-change bullet); Masora-side action:
+NONE — the advisory names the tool versions, not the facts content.
+
 **Done:** 0.8.0 — branch/version context stamping: the closed design (10
 review rounds, 3.6M-case brute force) implemented across 8 committed stages
 (structured outcomes + two-tier sel; git relation adapter; index schema v6;

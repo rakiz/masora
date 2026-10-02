@@ -339,7 +339,16 @@ command handles it.
 - **Zero-change guarantee** (SPEC.md line 19): any failure mode — missing
   binary, non-zero exit, timeout, unparsable output, unknown
   `contract_version` — degrades to "no injection", never to an error surfaced
-  to the user.
+  to the user. ONE sanctioned exception, the contract-version
+  `mismatch_advisory`: on a recognized major-version mismatch — a NEWER
+  `contract_version` this reader does not support, or an OLDER one this
+  reader has retired — cppgraph may emit one visible advisory line next to
+  its empty injection, telling the user which side to update
+  (`masora: [facts contract v3 unsupported — update cppgraph]` /
+  `masora: [facts contract v1 — update masora]`); silence is still kept for
+  unparsable JSON and for an absent or boolean version, where there is
+  nothing to diagnose. The advisory states a VERSION mismatch only — it
+  never diagnoses content, never injects facts.
 - **Token discipline**: ≤ 60 tokens per response, at most 2 facts, cap
   reported (§6).
 - **Malformed facts fail closed**: a document containing any shape violation

@@ -10,12 +10,25 @@ the displayed one is null (`resolution: none`, FORMAT.md §6 folding); for
 those lineages `anchors_matched` lists the matched identities, and facts are
 empty-matched and skipped when they don't anchor the symbol. Each fact also
 carries the effective version's provenance (`source`, `name`, `effort`) and
-its FULL anchor-identity list (`anchors`). Hard failures
-exit 1 with a diagnostic on stderr and nothing on stdout; the two warning
-classes are in-band and never errors: `stale_warning` (index drift on four
-axes — base HEAD, code HEAD, graph indexed commit, and filesystem freshness:
-events written after the build move no git HEAD — W-IDX-STALE semantics) and
-per-lineage `unknown` flags (W-IDX-GRAPH semantics).
+its FULL anchor-identity list (`anchors`).
+
+Contract v2 stamps each fact with the git context Masora evaluated at index
+build time (MASORA_DESIGN.md §6.2): `established_relation` (the DISPLAYED
+version's relation — the contract enum `in_line | ahead | out_of_line |
+unknown`, with the index's `relation_unknown` reported as `unknown`; null
+when nothing displays or the context was unprovable), `established_commit`
+(the displayed version's establishing commit, SHORT — presentation-only,
+never a validity input), `off_version` (the lineage's fallback flag) and
+`context_ordering` (`exact | degraded`). cppgraph RENDERS this context
+(docs/CPPGRAPH_INTEGRATION.md §6) — it never computes ancestry and never
+treats the stamps as validity.
+
+Hard failures exit 1 with a diagnostic on stderr and nothing on stdout; the
+two warning classes are in-band and never errors: `stale_warning` (index
+drift on four axes — base HEAD, code HEAD, graph indexed commit, and
+filesystem freshness: events written after the build move no git HEAD —
+W-IDX-STALE semantics) and per-lineage `unknown` flags (W-IDX-GRAPH
+semantics).
 """
 
 from __future__ import annotations
@@ -29,8 +42,17 @@ from .diagnostics import E_FACTS_NO_BASE, E_FACTS_NOINDEX, E_IDX_REPO, Diag
 from .index import IndexingError, _open_index, index_db_path, index_stale
 from .write import WriteError, auto_base, origin_state
 
-CONTRACT_VERSION = 1
+CONTRACT_VERSION = 2
 _FLAG_NAMES = ("suspect", "doubted", "pending", "unknown", "unanchored")
+# The index's stored per-version relation (masora/index.py, §6.2) mapped onto
+# the v2 contract enum: `relation_unknown` is reported as `unknown`; a NULL
+# relation (unprovable context) stays null — both fire the rendering rule.
+_RELATION_ENUM = {
+    "in_line": "in_line",
+    "ahead": "ahead",
+    "out_of_line": "out_of_line",
+    "relation_unknown": "unknown",
+}
 
 
 class FactsError(Exception):
@@ -102,10 +124,19 @@ def _facts(repo: Path, symbol: str | None) -> dict:
         meta = dict(conn.execute("SELECT key, value FROM meta").fetchall())
         facts = []
         for row in conn.execute(
-            "SELECT lineage, displayed, resolution, verification, suspect, doubted, pending,"
-            " unknown, unanchored FROM lineages ORDER BY lineage"
+            "SELECT lineage, displayed, resolution, verification, off_version,"
+            " context_ordering, suspect, doubted, pending, unknown, unanchored"
+            " FROM lineages ORDER BY lineage"
         ).fetchall():
-            lineage, displayed, resolution, verification, *flag_values = row
+            (
+                lineage,
+                displayed,
+                resolution,
+                verification,
+                off_version,
+                ordering,
+                *flag_values,
+            ) = row
             effective = displayed
             if effective is None:
                 newest = conn.execute(
@@ -119,6 +150,24 @@ def _facts(repo: Path, symbol: str | None) -> dict:
             name: str | None = None
             effort: str | None = None
             anchor_identities: list[str] = []
+            # The context stamps belong to the DISPLAYED version: a lineage
+            # with nothing displayed (every version refuted) carries null
+            # stamps even though its summary/anchors come from the newest
+            # version (the effective-version rule above).
+            established_relation: str | None = None
+            established_commit: str | None = None
+            if displayed is not None:
+                stamped = conn.execute(
+                    "SELECT relation, established_commit FROM versions WHERE version = ?",
+                    (displayed,),
+                ).fetchone()
+                if stamped is not None:
+                    established_relation = (
+                        _RELATION_ENUM.get(stamped[0]) if stamped[0] is not None else None
+                    )
+                    # SHORT, presentation-only: cppgraph shows a pointer, it
+                    # never re-derives ancestry from 12 hex chars.
+                    established_commit = stamped[1][:12] if stamped[1] else None
             if effective is not None:
                 found = conn.execute(
                     "SELECT summary, source, name, effort FROM versions WHERE version = ?",
@@ -157,6 +206,10 @@ def _facts(repo: Path, symbol: str | None) -> dict:
                     "effort": effort,
                     "anchors": anchor_identities,
                     "anchors_matched": matched,
+                    "established_relation": established_relation,
+                    "established_commit": established_commit,
+                    "off_version": bool(off_version),
+                    "context_ordering": ordering,
                 }
             )
     finally:

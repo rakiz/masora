@@ -39,7 +39,7 @@ from .schema import EventRecord, validate_event
 from .sync import SyncError, _tombstone_pairs, git_env
 from .ulid import is_ulid
 
-SCHEMA_VERSION = "5"
+SCHEMA_VERSION = "6"
 
 DDL = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -65,7 +65,8 @@ CREATE TABLE versions (
     source TEXT NOT NULL,
     name TEXT,
     effort TEXT,
-    relation TEXT
+    relation TEXT,
+    established_commit TEXT
 );
 CREATE INDEX versions_by_lineage ON versions (lineage);
 CREATE TABLE anchors (
@@ -839,7 +840,9 @@ def _write_db(
             for claim in entry.claims:
                 refuted = claim.record.id in status.refuted
                 conn.execute(
-                    "INSERT INTO versions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO versions (version, lineage, refuted, summary, statement,"
+                    " source, name, effort, relation, established_commit)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         claim.record.id,
                         status.lineage,
@@ -850,6 +853,7 @@ def _write_db(
                         claim.record.name,
                         claim.record.effort,
                         entry.relations.get(claim.record.id),
+                        claim.record.timestamp_commit,
                     ),
                 )
                 for a in claim.anchors:

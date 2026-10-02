@@ -11,7 +11,11 @@ Masora is a git-backed, append-only knowledge base of claims anchored to code
 symbols: each claim lives as a small `.md` event file in a *base* (a separate
 git repo), and a disposable per-checkout SQLite index recomputes each claim's
 status (resolution, verification, flags) from anchor fingerprints. Masora
-never touches the code repo. The integration contract (SPEC.md line 19,
+never touches the code repo. Every claim version also carries the git context
+it was established against: the index stamps each version with its relation
+to the asking checkout's HEAD, and the facts contract exposes those stamps so
+cppgraph can render the context — **Masora evaluates, cppgraph renders**.
+The integration contract (SPEC.md line 19,
 quoted verbatim):
 
 > Anchor providers must be pluggable with kinds `code`, `file` and `url`;
@@ -48,11 +52,11 @@ How cppgraph detects Masora: the presence of the `masora` binary on `PATH`
 (e.g. `shutil.which`) is the only detection signal; if it is absent, cppgraph
 makes zero change (the §7 zero-change guarantee already covers this).
 
-## 3. Output contract — version 1
+## 3. Output contract — version 2
 
 ```json
 {
-  "contract_version": 1,
+  "contract_version": 2,
   "repo_head": "1a1a8e1f4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c",
   "graph_commit": "0e5f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f",
   "stale_warning": false,
@@ -71,7 +75,11 @@ makes zero change (the §7 zero-change guarantee already covers this).
       ],
       "anchors_matched": [
         "scip-clang cxx . . mongo/ResumeTokenData#makeResumeToken()."
-      ]
+      ],
+      "established_relation": "in_line",
+      "established_commit": "1a1a8e1f4e5a",
+      "off_version": false,
+      "context_ordering": "exact"
     },
     {
       "lineage": "01J8ZP20000000000000000000",
@@ -87,7 +95,11 @@ makes zero change (the §7 zero-change guarantee already covers this).
       ],
       "anchors_matched": [
         "scip-clang cxx . . mongo/Engine#commitShard()."
-      ]
+      ],
+      "established_relation": "out_of_line",
+      "established_commit": "9f8e7d6c5b4a",
+      "off_version": true,
+      "context_ordering": "exact"
     },
     {
       "lineage": "01JB1R00000000000000000000",
@@ -99,31 +111,53 @@ makes zero change (the §7 zero-change guarantee already covers this).
       "name": null,
       "effort": null,
       "anchors": ["scip-clang cxx . . mongo/Util#tick()."],
-      "anchors_matched": ["scip-clang cxx . . mongo/Util#tick()."]
+      "anchors_matched": ["scip-clang cxx . . mongo/Util#tick()."],
+      "established_relation": null,
+      "established_commit": null,
+      "off_version": false,
+      "context_ordering": "exact"
     }
   ]
 }
 ```
 
-Field semantics:
+Field semantics (types, nullability, enums):
 
-| Field | Meaning |
-|---|---|
-| `contract_version` | integer `1`; §3's shape IS version 1's shape — any field addition or change lands as a new major `contract_version`, and producers never enrich a shipped shape in place; a major-version change means an incompatible shape — cppgraph rejects unknown major versions and renders nothing; checked as a strict integer: a JSON boolean is invalid even where the language conflates bool and int (e.g. Python `True == 1`) |
-| `repo_head` | code repo HEAD the statuses were resolved against, or `null` (not a git checkout) |
-| `graph_commit` | cppgraph-indexed commit that served the code fingerprints, or `null` (no usable graph store) |
-| `stale_warning` | `true` when the base or code state moved since the index was built, OR events were written after it (filesystem freshness — an uncommitted note moves no git HEAD; the build moment is compared against the base tree's newest event-file mtime with a ~2 s tolerance); `false` current; `null` when not comparable |
-| `facts` | zero or more facts, one per matching lineage; may be empty |
-| `facts[].lineage` | lineage id — stable across versions; use it for dedup/caching |
-| `facts[].summary` | one line, ≤ 120 chars — rendered verbatim |
-| `facts[].resolution` | `current` \| `stale` \| `restored` \| `none` \| `unknown` (§6); `unknown` = provider unavailable, shadows the resolution |
-| `facts[].verification` | `verified(<source>)` with source `human` \| `llm` \| `graph`, or `unverified` |
-| `facts[].flags` | comma-joined subset of `suspect,doubted,pending,unknown,unanchored`, or `-` when none |
-| `facts[].source` | the effective version's provenance (`human` \| `llm` \| `graph` — the claim writer's nature), or `null` when unavailable |
-| `facts[].name` | the writer's self-signed name (git user.name for `human`, model name for `llm`), or `null` when absent |
-| `facts[].effort` | the declared LLM effort (`low` \| `medium` \| `high`), or `null` unless the version was written by an llm with an effort recorded |
-| `facts[].anchors` | the effective version's FULL anchor-identity list (not only the ones matched by `--symbol`) — the anchor leg of the SPEC evidence envelope |
-| `facts[].anchors_matched` | the effective version's anchor identities the query matched; for `resolution: "none"` they come from the newest version (displayed version is null); empty when no `--symbol` was passed |
+| Field | Type | Meaning |
+|---|---|---|
+| `contract_version` | integer | `2`; §3's shape IS version 2's shape — any field addition or change lands as a new major `contract_version`, and producers never enrich a shipped shape in place; a major-version change means an incompatible shape — cppgraph rejects unknown major versions and renders nothing; checked as a strict integer: a JSON boolean is invalid even where the language conflates bool and int (e.g. Python `True == 1`) |
+| `repo_head` | string \| null | code repo HEAD the statuses were resolved against, or `null` (not a git checkout) |
+| `graph_commit` | string \| null | cppgraph-indexed commit that served the code fingerprints, or `null` (no usable graph store) |
+| `stale_warning` | bool \| null | `true` when the base or code state moved since the index was built, OR events were written after it (filesystem freshness — an uncommitted note moves no git HEAD; the build moment is compared against the base tree's newest event-file mtime with a ~2 s tolerance); `false` current; `null` when not comparable |
+| `facts` | array | zero or more facts, one per matching lineage; may be empty |
+| `facts[].lineage` | string | lineage id — stable across versions; use it for dedup/caching |
+| `facts[].summary` | string | one line, ≤ 120 chars — rendered verbatim |
+| `facts[].resolution` | string | `current` \| `stale` \| `restored` \| `none` \| `unknown` (§6); `unknown` = provider unavailable, shadows the resolution |
+| `facts[].verification` | string | `verified(<source>)` with source `human` \| `llm` \| `graph`, or `unverified` |
+| `facts[].flags` | string | comma-joined subset of `suspect,doubted,pending,unknown,unanchored`, or `-` when none |
+| `facts[].source` | string \| null | the effective version's provenance (`human` \| `llm` \| `graph` — the claim writer's nature), or `null` when unavailable |
+| `facts[].name` | string \| null | the writer's self-signed name (git user.name for `human`, model name for `llm`), or `null` when absent |
+| `facts[].effort` | string \| null | the declared LLM effort (`low` \| `medium` \| `high`), or `null` unless the version was written by an llm with an effort recorded |
+| `facts[].anchors` | string[] | the effective version's FULL anchor-identity list (not only the ones matched by `--symbol`) — the anchor leg of the SPEC evidence envelope |
+| `facts[].anchors_matched` | string[] | the effective version's anchor identities the query matched; for `resolution: "none"` they come from the newest version (displayed version is null); empty when no `--symbol` was passed |
+| `facts[].established_relation` | string \| null | Masora-EVALUATED relation of the **displayed** version's establishing commit against the asking checkout's HEAD: `in_line` (ancestor-or-equal of HEAD, HEAD-equal included) \| `ahead` (proper descendant of HEAD, below the branch's upstream ref as present locally — never fetched) \| `out_of_line` (provably neither) \| `unknown` (proven not in_line, but the ahead test could not finish); `null` when nothing displays (`resolution: "none"` — the summary then comes from the newest version) or the context was unprovable (shallow clone, missing object, probe budget). A qualification, never a validity input (§6) |
+| `facts[].established_commit` | string \| null | the displayed version's establishing commit, SHORT (12 hex chars) — presentation-only: a pointer for the rendered context, never an input to any comparison (cppgraph cannot derive ancestry from it, by design); `null` when no version displays (`resolution: "none"`) or the displayed version is unstamped (no recorded commit); present even when context is unprovable (`established_relation` is null) |
+| `facts[].off_version` | bool | `true` when the shown version is the no-match fallback whose anchors are definitively absent here (`not_found`) AND provably `out_of_line` — the claim is not applicable to THIS checkout; never silently read as current |
+| `facts[].context_ordering` | string | `exact` \| `degraded` — `degraded` means some version's git context was unprovable and, if it became provable, what displays, the shadow decision or the restored decision could change; the served selection stays readable but its context is incomplete. Per LINEAGE (it qualifies the selection, not one version) |
+
+The v2 shape is version 1's shape PLUS the four context fields — nothing was
+removed; the v2 fields are required in v2 (a fact missing one is a shape
+violation, §7 fail-closed).
+
+## Beta release note — contract version 2 only, no dual-version window
+
+Masora and cppgraph ship on the same release train under the same owner
+(MASORA_DESIGN.md §12.16(p)): cppgraph learns contract version 2 with the
+release that flips Masora to it, so there is no window in which one side
+emits v1 while the other expects v2 — Masora produces ONLY the §3 shape, and
+a consumer that knows nothing but version 1 renders nothing (the zero-change
+guarantee of §7 covers it silently). No negotiation, no version preference
+list: `contract_version` 2 or nothing.
 
 ## 4. Discovery: cppgraph passes `--repo`, nothing else
 
@@ -200,6 +234,54 @@ command handles it.
   - `masora: Bring-up order: start before stop [current, verified(llm), low-effort]` (a `verified(llm)` fact with `effort: "low"` — the one interpretive token)
   - `masora: Lock L must be held before calling commitShard [stale, suspect — re-check]`
   - `masora NOT: changeStream re-opens on resumeToken == null [refuted]`
+- **Render the git context when it matters — the stamps are the trigger, and
+  cppgraph never computes git state.** A fact's context label renders iff ANY
+  of:
+  - `off_version` is `true`;
+  - `established_relation` is anything but `in_line` — `ahead`, `out_of_line`,
+    `unknown`, or `null`;
+  - `context_ordering` is `degraded`.
+
+  When none fires (`in_line` + `exact` + `off_version: false` — the common
+  case on merge-commit repos), no context label renders and the fact's token
+  cost is the v1 cost. When it fires, the label renders ONLY what the stamps
+  say, in plain words: the relation (`ahead` → "established ahead of this
+  checkout"; `out_of_line` → "established on another line"; `unknown`/`null`
+  → "context unproven"; `degraded` → "selection ordering degraded"), the
+  short `established_commit` beside it as a pointer, and `off_version: true`
+  as "off-version" (the strongest of the qualifications: the claim is not
+  applicable to this checkout). Never render a branch name — the contract
+  carries none — and never present the stamps as validity.
+
+  Worked example — an `off_version` fact (the second fact of §3's document):
+
+  ```json
+  {
+    "lineage": "01J8ZP20000000000000000000",
+    "summary": "Lock L must be held before calling commitShard",
+    "resolution": "stale",
+    "verification": "unverified",
+    "flags": "suspect",
+    "established_relation": "out_of_line",
+    "established_commit": "9f8e7d6c5b4a",
+    "off_version": true,
+    "context_ordering": "exact"
+  }
+  ```
+
+  cppgraph renders (one line, the context clause appended):
+
+  ```
+  masora: Lock L must be held before calling commitShard [stale, suspect — re-check]
+    context: off-version — established on another line (9f8e7d6c5b4a)
+  ```
+
+  On a SQUASH-merge repo most landed facts are `out_of_line`, so the context
+  label renders on most facts there — accepted: the label is one short token
+  cluster (MASORA_DESIGN.md §6.2). cppgraph NEVER computes git ancestry
+  itself (it cannot: `established_commit` is deliberately 12 hex chars), and
+  it NEVER treats the stamps as a validity judgment — a `stale` fact with
+  `established_relation: "in_line"` stays stale.
 - Never turn a fact into an instruction: label + summary + status only.
 
 ## Input hygiene (cppgraph side)
@@ -214,6 +296,20 @@ command handles it.
 - Strict-argument tests are required on the cppgraph side: every tool's
   parameter set is pinned (unknown names refused) and every
   absent/unmatchable filter target errors loudly.
+
+## Non-goals (what the stamps are NOT)
+
+- **cppgraph does not compute relations.** No git invocation, no ancestry
+  derivation, no second-guessing `established_relation`: Masora evaluated it
+  at index build time against the same checkout, and the short
+  `established_commit` is rendered, never analyzed.
+- **cppgraph does not rank with the stamps.** Facts are selected by Masora's
+  fold; the context fields never reorder, filter or drop a fact, and they
+  never participate in the dedup/caching key (that stays `lineage`).
+- **cppgraph does not guess validity from the stamps.** The validity surface
+  is the status tuple (`resolution`/`verification`/`flags`) exactly as in v1;
+  the context qualifies the reading, it never gates, upgrades or downgrades
+  it.
 
 ## 7. Invariants for the cppgraph side
 
@@ -249,11 +345,13 @@ switch once the feature flag is turned on.
    only (single-symbol-centered responses); extending it to the other
    symbol-bearing queries (`find`, `impact`, `references`, `path`) is a
    deliberate later decision, not part of the first integration.
-3. Render per §6; assert the ≤ 2-facts / ≤ 60-token budget in a test.
+3. Render per §6 (status labels AND the context rule); assert the
+   ≤ 2-facts / ≤ 60-token budget in a test.
 4. Test with (a) a repo with a configured base and a fresh index, (b) a repo
    with a stale index (`stale_warning: true`), (c) a repo with no Masora
    config (silent skip), (d) Masora absent from PATH (silent skip), (e) a
-   killed/timed-out subprocess (silent skip).
+   killed/timed-out subprocess (silent skip), (f) an `off_version` fact (the
+   §6 worked example's context clause renders).
 5. Confirm the zero-change guarantee: without Masora, byte-identical cppgraph
    responses and timing within noise.
 6. Report contract friction back to the Masora repo — shape changes land as a
@@ -271,8 +369,8 @@ verify it (a behavior or a test shape). An unchecked item is missing work.
 | 2 | Detection: the masora binary on PATH (`shutil.which`); absent = instant silent skip, no spawn attempted | Remove masora from PATH in a test; assert byte-identical output and no subprocess spawned |
 | 3 | The flag: `CPPGRAPH_MASORA` — unset/`0`/`false` = OFF (the default until validated), `1`/`true` = ON; checked before any spawn | Parametrized flag tests (unset/`0`/`false`/`1`/`true`); a spawn-count assert on the OFF cases |
 | 4 | The spawn: `masora facts --repo <root> --symbol <S>`; a 2 s wall-clock timeout; the child's stdin DETACHED (MCP stdio-transport protection); the process TREE killed on timeout; an stdout cap (overflow = unparsable); any failure = no injection, never an error | A timeout test with a hanging child (assert the tree is gone after); a >cap-output test (unparsable, skipped); every failure mode asserts "no injection, no error" |
-| 5 | The parser: `contract_version` 1 as a strict integer (bool rejected); fail-closed per-fact shape validation (a wrong type rejects the WHOLE document); the additive-optional enrichment fields (`source`/`name`/`effort`/`anchors`) tolerated with defaults; unknown enum values inert; `summary` ≤ 120 + printable | Table-driven parser tests: a bool `contract_version`, one wrong-typed field in an otherwise-good document (whole-document rejection), missing enrichment fields (defaults), an unknown `effort`/`source` (inert), a 121-char summary |
-| 6 | Rendering: ≤ 2 facts, ≤ 60 tokens (CJK-aware estimate); the visible truncation line; at least one fact renders; statuses as labels (resolution, `verified(<source>)` bare, flags); the interpretive token ONLY for `verified(llm)` at `effort: low`; never under `verified(human)`/`verified(graph)`/`unverified`; the `NOT:` envelope for resolution `none`; the stale-index note only alongside facts; duplicate lineage ids deduped; no caching across responses | The §6 trust-matrix tests (every row); a >budget-facts test (truncation visible); a CJK-summary token estimate; a repeat-query test (no cached second render) |
+| 5 | The parser: `contract_version` 2 as a strict integer (bool rejected); fail-closed per-fact shape validation (a wrong type rejects the WHOLE document); the v2 context fields (`established_relation`/`established_commit`/`off_version`/`context_ordering`) REQUIRED — a fact missing one is a shape violation; enum values per §3 with unknown values inert; `summary` ≤ 120 + printable | Table-driven parser tests: a bool `contract_version`, one wrong-typed field in an otherwise-good document (whole-document rejection), a fact missing `established_relation` (rejected), an unknown `established_relation`/`effort`/`source` (inert), a 121-char summary |
+| 6 | Rendering: ≤ 2 facts, ≤ 60 tokens (CJK-aware estimate); the visible truncation line; at least one fact renders; statuses as labels (resolution, `verified(<source>)` bare, flags); the interpretive token ONLY for `verified(llm)` at `effort: low`; never under `verified(human)`/`verified(graph)`/`unverified`; the `NOT:` envelope for resolution `none`; the CONTEXT label iff `off_version` or `established_relation` ≠ `in_line` (incl. `unknown`/null) or `context_ordering: degraded` — rendered from the stamps only, never computed, never as validity; the stale-index note only alongside facts; duplicate lineage ids deduped; no caching across responses | The §6 trust-matrix tests (every row); the context-rule tests (fires per trigger: an `off_version` fact, an `ahead`/`out_of_line`/`unknown`/null relation, a `degraded` ordering; silent for `in_line`+`exact`+false); a >budget-facts test (truncation visible); a CJK-summary token estimate; a repeat-query test (no cached second render) |
 | 7 | `repo_root`: the store's recorded project root; a recorded-but-missing root SKIPS injection (never facts for the wrong checkout); legacy no-root graphs fall back to the cwd | A test with a store whose recorded root is deleted (skip asserted); a legacy store without the root (cwd fallback asserted) |
 | 8 | **PENDING ON THE CPPGRAPH SIDE (implement next — not yet evidenced there):** (a) INPUT HYGIENE — unknown parameters REJECTED, never silently ignored (the typo'd-param class silently returns unfiltered results); an absent path/filter target = an EXPLICIT error, never a silent whole-repo broadening; strict-argument tests proving both; (b) the CONFIGURABLE FACT COUNT — `CPPGRAPH_MASORA_MAX_FACTS` (default 2, higher allowed; the ≤ 60-token guidance stands; a cap reported visibly per the existing rule) | (a) a test per tool passing an unknown parameter (error, not unfiltered output) and an unmatchable filter (explicit error); (b) a test rendering with `CPPGRAPH_MASORA_MAX_FACTS=3` (three facts within the token budget; the cap visible when more match) |
 | 9 | The read-only invariants: never parse Masora's SQLite, never write anywhere Masora owns, never locate bases (only `--repo`) | A code-review item + a test asserting no file writes under `~/.local/share/masora` / `~/.config/masora` during an injection |

@@ -447,14 +447,15 @@ and adds FTS5 search. Section references are to MASORA_DESIGN.md.
   graph_commit, graph_db, built_at), `lineages` (status-tuple columns +
   `off_version` + `context_ordering`), `versions` (refuted flag +
   summary/statement per claim version + `relation` — the §6.2 git context
-  label, NULL when unprovable), `anchors` (provider/identity/
+  label, NULL when unprovable — + `established_commit`, the version's
+  establishing `recorded_at.commit`), `anchors` (provider/identity/
   fingerprint per version), FTS5 virtual table `search` (summary + statement;
   unicode61 tokenizer → case/accent-insensitive; lineage/version unindexed) and
   the per-question FTS5 table `questions` (question; version + question_ordinal
   unindexed) — one row per claim question (FORMAT.md §4), and the
   per-keyword FTS5 table `keywords` (keyword; version + keyword_ordinal
   unindexed) — one row per claim keyword (the alternate vocabulary, FORMAT.md
-  §4), so the matched question/keyword text can be surfaced. Schema version 5
+  §4), so the matched question/keyword text can be surfaced. Schema version 6
   (a foreign-version DB is
   refused with `E-IDX-CORRUPT` and `masora index` rebuilds — the index is
   disposable; §12.16(p): a schema bump needs no migration, rebuild the
@@ -471,8 +472,8 @@ and adds FTS5 search. Section references are to MASORA_DESIGN.md.
    `*` query is the match-all sentinel: it bypasses FTS and returns one hit
    per indexed lineage — its displayed version (its newest version when none
    is displayed) — with empty matched questions/keywords. `masora
-   facts` is untouched: the contract version stays 1 and the JSON shape
-   carries no questions/keywords.
+   facts` is untouched by the matching vocabularies: the JSON shape carries
+   no questions/keywords (questions serve matching, not the envelope).
 - **Rebuild trigger awareness**: the build stores the base's git HEAD plus
   the code state it fingerprinted (`repo_head`, `graph_commit` in meta) and
   the build moment (`built_at`, UTC ISO); `index_stale()` compares four axes
@@ -631,15 +632,21 @@ relocates config, bases and indexes as everywhere else.
 ## Facts command (`masora/facts.py`, docs/CPPGRAPH_INTEGRATION.md)
 
 `masora facts --repo <path> [--symbol <scip-string>]` is the Masora side of
-the cppgraph injection contract: strictly read-only (no index build, no git
-network access), it resolves the base via `write.auto_base()` (mappings on
-the normalized `origin` remote, then `default_base` — the same chain the MCP
-write tools use, minus the explicit parameter the contract forbids), reads
-the existing index and prints ONE compact JSON document (`contract_version`
-1) per the contract: `{contract_version, repo_head, graph_commit,
-stale_warning, facts[]}` — each fact carrying the status tuple, the
-effective version's provenance (`source`, `name`, `effort`) and its full
-anchor-identity list (`anchors`) beside `anchors_matched`.
+the cppgraph injection contract (docs/CPPGRAPH_INTEGRATION.md, contract
+version 2): strictly read-only (no index build, no git network access), it
+resolves the base via `write.auto_base()` (mappings on the normalized
+`origin` remote, then `default_base` — the same chain the MCP write tools
+use, minus the explicit parameter the contract forbids), reads the existing
+index and prints ONE compact JSON document per the contract:
+`{contract_version, repo_head, graph_commit, stale_warning, facts[]}` — each
+fact carrying the status tuple, the effective version's provenance (`source`,
+`name`, `effort`), its full anchor-identity list (`anchors`) beside
+`anchors_matched`, and the git-context stamps of the DISPLAYED version
+(MASORA_DESIGN.md §6.2): `established_relation` (the contract enum
+`in_line | ahead | out_of_line | unknown` — the index's `relation_unknown`
+reported as `unknown`; null when nothing displays or the context was
+unprovable), `established_commit` (SHORT, presentation-only), `off_version`
+and `context_ordering` — Masora evaluates the context, cppgraph renders it.
 `--symbol` filters to lineages whose **effective**
 version anchors on the exact identity — the displayed version, or the newest
 when `displayed` is null (`resolution: none` / founderless-unknown, per the

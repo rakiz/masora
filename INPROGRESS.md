@@ -167,9 +167,29 @@ FIXED since). Round 10 = the closure confirmation on this diff.
 7. Recall surfaces: status qualification, search/explain, list_stale split
    (re-check vs "not applicable here"), any-version mode, agent
    instructions + skill mirrors — the coordinated user-visible release.
-8. Facts v2 + cppgraph rollout (cppgraph learns v1+v2 first, flag off;
-   Masora flips CONTRACT_VERSION=2 after cppgraph validates; v1 retirement
-   scheduled separately).
+8. ~~Facts v2 + cppgraph rollout~~ DONE (CONTRACT_VERSION 2 — ruling (p)'s
+   NO-dual-window flip: cppgraph learns v2 in the SAME release and v1 is
+   retired with it, no version negotiation). Per-fact payload EXTENDS v1 with
+   four context stamps: `established_relation` (the DISPLAYED version's
+   stored relation mapped to the contract enum `in_line | ahead |
+   out_of_line | unknown` — the index's `relation_unknown` reported as
+   `unknown`; null when nothing displays (`resolution: none` — summary still
+   comes from the newest version) or the context was unprovable; DECISION:
+   legacy/unstamped `absent` context is the same null — visibly qualified by
+   the rendering rule), `established_commit` (SHORT 12 hex, presentation-only
+   — schema v6 gained `versions.established_commit` for it, rebuild-only per
+   §12.16(p)), `off_version` (bool), `context_ordering` (`exact|degraded`).
+   The rendering rule lives in the DOC (docs/CPPGRAPH_INTEGRATION.md §6
+   rewritten to v2: schema table with types/nullability/enums, the
+   fire-on-`off_version`-or-non-`in_line`-or-`degraded` rule + one worked
+   example, the no-dual-window release note, the explicit non-goals —
+   cppgraph never computes relations, never ranks, never guesses validity);
+   NO --render flag, NO cppgraph-side code here. Tests: test_facts.py 23
+   (real-scenario off_version/out_of_line via a diverged branch whose symbol
+   is gone on main, degraded via a missing establishing commit behind an
+   in_line display, unprovable → null, the relation_unknown → `unknown`
+   mapping pinned reader-side, null stamps on none lineages, 12-char commit
+   cut, v1 fields intact, contract_version 2). Suite 736 green; ruff clean.
 
 **Owner rulings (all recorded in §12 item 16):** compact universal;
 off-version leaves list_stale; facts v2 NOW (owner owns cppgraph, ships

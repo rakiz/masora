@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 from helpers import (
+    FP2,
+    IDENT_OTHER,
     ULID_D1A,
     ULID_L1,
     ULID_L2,
@@ -16,6 +18,8 @@ from helpers import (
     ULID_U1A,
     ULID_V1A,
     ULID_V2A,
+    ULID_V3A,
+    anchor,
     make_claim,
     make_doubt,
     make_verify,
@@ -23,9 +27,15 @@ from helpers import (
 )
 from test_fold_bruteforce import enumerate_graphs, has_cycle, sample_graphs
 
-from masora.checker import check_base
+from masora.checker import _parse_event_file, check_base, discover_event_files
 from masora.cli import main
-from masora.compact import _status_tuple, observable_state, select_witness
+from masora.compact import (
+    _proof_assignments,
+    _status_tuple,
+    _to_event,
+    observable_state,
+    select_witness,
+)
 from masora.compact import run as compact_run
 from masora.fold import Event, fold_lineage, resolve_activity
 from masora.sync import git_env
@@ -46,6 +56,8 @@ C3_REL = "2026-09/x/01J8Z3K000000000000000000A.claim.md"
 R1_REL = "2026-09/x/01J8Z3K0000000000000000004.refute.md"
 R2_REL = "2026-09/x/01J8Z3K0000000000000000009.refute.md"
 R3_REL = "2026-09/x/01J8Z3K000000000000000000B.refute.md"
+UNREFUTE_REL = "2026-09/x/01J8Z3K000000000000000000D.unrefute.md"
+V3_REL = "2026-09/x/01J8Z3K0000000000000000008.claim.md"
 BARE_HOME = f"2026-09/{ULID_L1}"
 CANON_HOME = f"2026-09/one-line-summary-{ULID_L1}"
 NEXT_MONTH = f"2026-10/{ULID_L1}"
@@ -116,16 +128,24 @@ def _assert_witness_preserves(events: list[Event]) -> None:
     founder_present = any(e.id == lineage for e in claims)
     eligible = [e.id for e in claims if e.id == lineage or founder_present]
     activity = resolve_activity(list(events))
-    fold_full = fold_lineage(lineage, list(events), activity, eligible)
     kept = select_witness(lineage, list(events), eligible, activity)
     witness = [e for e in events if e.id in kept]
     wit_activity = resolve_activity(witness)
     wit_eligible = [v for v in eligible if v in kept]
-    fold_wit = fold_lineage(lineage, witness, wit_activity, wit_eligible)
     kept_versions = [v for v in eligible if v in kept]
-    assert observable_state(fold_full, activity, kept_versions) == observable_state(
-        fold_wit, wit_activity, kept_versions
-    ), (events, kept)
+    # The proof's context assignments: the standalone posture plus the
+    # tier-1 assignments under which the counterfactual restored can fire —
+    # a refuted version winning sel on relations must keep proving it.
+    for tag, outcomes, contexts in _proof_assignments(eligible, activity):
+        fold_full = fold_lineage(
+            lineage, list(events), activity, eligible, outcomes=outcomes, contexts=contexts
+        )
+        fold_wit = fold_lineage(
+            lineage, witness, wit_activity, wit_eligible, outcomes=outcomes, contexts=contexts
+        )
+        assert observable_state(fold_full, activity, kept_versions) == observable_state(
+            fold_wit, wit_activity, kept_versions
+        ), (events, kept, tag)
 
 
 @pytest.mark.parametrize("n", (1, 2, 3, 4))
@@ -245,7 +265,7 @@ def test_compact_all_refuted_lineage_is_negative_knowledge_kept(repo, capsys):
     assert len(tree_bytes(base)) == 5
 
 
-def test_compact_restored_keeps_only_the_newest_refutation(repo, capsys):
+def test_compact_keeps_refuted_versions_with_their_surviving_refutations(repo, capsys):
     base, _origin = repo
     write_event(base, CLAIM_REL, make_claim(ULID_L1))
     write_event(base, VERIFY_REL, make_verify(ULID_V1A, ULID_L1, ULID_L1))
@@ -256,28 +276,191 @@ def test_compact_restored_keeps_only_the_newest_refutation(repo, capsys):
     seed(base)
     # Standalone check wires no provider: no match can display, so the
     # counterfactual restored cannot fire (§6.2 rule 4) and the unknown
-    # shadow covers the lineage. The witness rule below still keeps the
-    # newest refutation, which a provider-backed recall-time restored
+    # shadow covers the lineage. The universal witness (§12.16) keeps every
+    # eligible version's claim — refuted ones included, each with the
+    # surviving refutation a provider-backed recall-time restored
     # counterfactual would depend on.
-    envelope = next(env for env in check_base(base).envelopes if env["lineage"] == ULID_L1)
-    assert envelope["restored"] is False
+    pre = next(env for env in check_base(base).envelopes if env["lineage"] == ULID_L1)
+    assert pre["restored"] is False
 
     code = compact_run(base, yes=True)
 
     assert code == 0
-    assert not (base / V2_REL).exists()
-    assert not (base / R2_REL).exists()
-    assert (base / CLAIM_REL).exists()
-    assert (base / VERIFY_REL).exists()
-    assert (base / C3_REL).exists()
-    assert (base / R3_REL).exists()
-    assert (base / "deleted.toml").read_text(encoding="utf-8") == deleted_events_tombstone(
-        ULID_L1, [ULID_R1A, ULID_V2A]
+    assert "nothing to compact: every lineage is already at its minimal witness set" in (
+        capsys.readouterr().out
     )
-    post = check_base(base)
-    assert post.errors == []
-    post_envelope = next(env for env in post.envelopes if env["lineage"] == ULID_L1)
-    assert _status_tuple(post_envelope) == _status_tuple(envelope)
+    for rel in (CLAIM_REL, VERIFY_REL, V2_REL, R1_REL, C3_REL, R3_REL):
+        assert (base / rel).exists(), rel
+    assert not (base / "deleted.toml").exists()
+    post = next(env for env in check_base(base).envelopes if env["lineage"] == ULID_L1)
+    assert _status_tuple(post) == _status_tuple(pre)
+    assert {v["id"]: v["refuted"] for v in post["versions"]} == {
+        ULID_L1: False,
+        ULID_V2A: True,
+        ULID_C3: True,
+    }
+
+
+def _parsed_events(base: Path) -> list[Event]:
+    events = []
+    for path in discover_event_files(base):
+        record = _parse_event_file(path, str(path.relative_to(base)), [])
+        assert record is not None, path
+        events.append(_to_event(record))
+    return events
+
+
+def _eligible_of(events: list[Event]) -> list[str]:
+    lineage = events[0].lineage
+    claims = [e for e in events if e.kind == "claim"]
+    founder_present = any(e.id == lineage for e in claims)
+    return [e.id for e in claims if e.id == lineage or founder_present]
+
+
+def test_compacted_base_refolds_identically_under_contexts(repo):
+    base, _origin = repo
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    write_event(base, VERIFY_REL, make_verify(ULID_V1A, ULID_L1, ULID_L1))
+    write_event(base, V2_REL, make_claim(ULID_V2A, lineage=ULID_L1, reason="v2 after code change"))
+    write_event(base, R2_REL, make_doubt(ULID_R2, ULID_L1, ULID_V2A, kind="refute"))
+    seed(base)
+    events = _parsed_events(base)
+    eligible = _eligible_of(events)
+    activity = resolve_activity(events)
+    pre = [
+        (
+            tag,
+            fold_lineage(ULID_L1, events, activity, eligible, outcomes=outcomes, contexts=contexts),
+        )
+        for tag, outcomes, contexts in _proof_assignments(eligible, activity)
+    ]
+    # The corpus exercises the restored counterfactual: with the refuted v2
+    # promoted to a tier-1 relation it would win sel over the displayed
+    # match (§6.2 rule 4) — the state compaction must preserve.
+    restored_tag = f"restored:{ULID_V2A}"
+    assert any(tag == restored_tag and fold.restored for tag, fold in pre)
+
+    assert compact_run(base, yes=True) == 0
+
+    survivor_events = _parsed_events(base)
+    survivor_activity = resolve_activity(survivor_events)
+    assert (base / V2_REL).exists() and (base / R2_REL).exists()
+    assert len(survivor_events) == len(events)
+    for tag, outcomes, contexts in _proof_assignments(eligible, activity):
+        before = fold_lineage(
+            ULID_L1, events, activity, eligible, outcomes=outcomes, contexts=contexts
+        )
+        after = fold_lineage(
+            ULID_L1,
+            survivor_events,
+            survivor_activity,
+            eligible,
+            outcomes=outcomes,
+            contexts=contexts,
+        )
+        assert observable_state(after, survivor_activity, eligible) == observable_state(
+            before, activity, eligible
+        ), tag
+
+
+def test_compact_preserves_refuted_version_anchors_and_establishing_commit(repo):
+    base, _origin = repo
+    other_sha = "fedcba9876543210fedcba9876543210fedcba98"
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    write_event(
+        base,
+        V2_REL,
+        make_claim(
+            ULID_V2A,
+            lineage=ULID_L1,
+            reason="v2 after code change",
+            anchors=[anchor(identity=IDENT_OTHER, fingerprint=FP2)],
+            recorded_at={"commit": other_sha, "graph_commit": other_sha},
+        ),
+    )
+    write_event(base, R2_REL, make_doubt(ULID_R2, ULID_L1, ULID_V2A, kind="refute"))
+    seed(base)
+    before = tree_bytes(base)
+
+    code = compact_run(base, yes=True)
+
+    assert code == 0
+    after = tree_bytes(base)
+    # The refuted version's witness survives verbatim: anchors, fingerprints
+    # and the establishing commit are the per-version context (§12.16) a
+    # future index build re-derives its composed outcome and git relation
+    # from — and the surviving refutation sustains its refuted activity.
+    assert after[V2_REL] == before[V2_REL]
+    assert after[R2_REL] == before[R2_REL]
+    record = _parse_event_file(base / V2_REL, V2_REL, [])
+    assert record.anchor_identities == (IDENT_OTHER,)
+    assert record.timestamp_commit == other_sha
+    assert record.unanchored is False
+    envelope = next(env for env in check_base(base).envelopes if env["lineage"] == ULID_L1)
+    assert {v["id"]: v["refuted"] for v in envelope["versions"]} == {
+        ULID_L1: False,
+        ULID_V2A: True,
+    }
+
+
+def test_compacted_corpus_size_stays_bounded(base):
+    # Measurement stand-in for the design's real-base compression figure (no
+    # real base in-repo): a long-lived lineage whose later versions were
+    # refuted-then-unrefuted (pure history) or stay refuted (witness), with
+    # an undone doubt pair and a non-effective version's verify. The
+    # universal closure adds no more than one record per eligible version —
+    # the claim itself, carrying anchors/fingerprints/unanchored/establishing
+    # commit — plus the surviving refutations and the effective version's
+    # active verifies.
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    write_event(base, VERIFY_REL, make_verify(ULID_V1A, ULID_L1, ULID_L1))
+    write_event(base, DOUBT_REL, make_doubt(ULID_D1A, ULID_L1, ULID_V1A))
+    write_event(base, UNDOUBT_REL, make_doubt(ULID_U1A, ULID_L1, ULID_D1A, kind="undoubt"))
+    write_event(base, V2_REL, make_claim(ULID_V2A, lineage=ULID_L1, reason="v2 after code change"))
+    write_event(base, R1_REL, make_doubt(ULID_R1A, ULID_L1, ULID_V2A, kind="refute"))
+    write_event(base, UNREFUTE_REL, make_doubt(ULID_U2, ULID_L1, ULID_R1A, kind="unrefute"))
+    write_event(base, V3_REL, make_claim(ULID_V3A, ULID_L1, reason="v3 after code change"))
+    write_event(base, R3_REL, make_doubt(ULID_R3, ULID_L1, ULID_V3A, kind="refute"))
+    before = len(tree_bytes(base))
+    assert before == 10  # 9 event files + base.toml
+    events = _parsed_events(base)
+    eligible = _eligible_of(events)
+    activity = resolve_activity(events)
+    pre = [
+        (
+            tag,
+            fold_lineage(ULID_L1, events, activity, eligible, outcomes=outcomes, contexts=contexts),
+        )
+        for tag, outcomes, contexts in _proof_assignments(eligible, activity)
+    ]
+
+    assert compact_run(base, yes=True) == 0
+
+    survivors = _parsed_events(base)
+    kept_ids = {e.id for e in survivors}
+    # Exactly one record per eligible version — its claim — plus the
+    # surviving refutation of the still-refuted v3. Dropped: the undone
+    # refute chain of the active v2 (refute + unrefute), the undone doubt
+    # pair, and the non-effective version's verify.
+    assert {e.id for e in survivors if e.kind == "claim"} == set(eligible)
+    assert kept_ids == {ULID_L1, ULID_V2A, ULID_V3A, ULID_R3}
+    assert len(tree_bytes(base)) == before - 5
+    survivor_activity = resolve_activity(survivors)
+    for tag, outcomes, contexts in _proof_assignments(eligible, activity):
+        after = fold_lineage(
+            ULID_L1,
+            survivors,
+            survivor_activity,
+            eligible,
+            outcomes=outcomes,
+            contexts=contexts,
+        )
+        _, before_fold = next(pair for pair in pre if pair[0] == tag)
+        assert observable_state(after, survivor_activity, eligible) == observable_state(
+            before_fold, activity, eligible
+        ), tag
+        assert after.displayed == ULID_V2A
+    assert check_base(base).errors == []
 
 
 def test_compact_refuses_diverging_lineage_fail_closed(repo, monkeypatch, capsys):

@@ -160,10 +160,35 @@ FIXED since). Round 10 = the closure confirmation on this diff.
    check green), 3 mcp (stamp on a branched checkout, no-lines-argument
    guard, pinned shapes updated). NOTHING in fold/resolve/index/gitctx reads
    `lines` — grep-verified).
-6. Compact universal witness (every eligible version's closure — active
-   AND refuted; observable_state per version; the equivalence proof stays
-   git-free by keeping claim events verbatim; measure compression on the
-   real base).
+6. ~~Compact universal witness~~ DONE (`masora/compact.py`: `select_witness`
+   keeps EVERY eligible version's claim — active AND refuted, §12.16(l)/(m) —
+   each claim verbatim with identity/lineage/anchors/anchor
+   fingerprints/unanchored flag and the establishing commit
+   `recorded_at.commit` (the per-version context a future index build
+   re-derives its composed anchor outcome + git relation from); a refuted
+   version keeps its surviving refutation via the activity closure (active
+   refutes targeting kept events); an active version's own refutation
+   history (refute + its unrefute/refute-of-refute) stays droppable pure
+   history — activity sustained by absence, the same rule as the kept
+   verify's doubt/undoubt chains (pinned by the existing tests); verifies,
+   doubts, snapshots, founderless and `resolution: none` rules unchanged.
+   The E-COMPACT-DIVERGE proof now folds full vs witness under EACH of
+   `_proof_assignments`' git-free context assignments — the standalone
+   posture, all-`in_line`, and each refuted version promoted to `ahead`
+   (the assignment under which the counterfactual restored fires: a refuted
+   version winning sel on relations keeps proving it); no git calls added —
+   the real per-version relations are preserved by keeping claim events
+   verbatim (§12.16(d) reading). Brute force extended: exhaustive n ≤ 4 +
+   sampled n = 5 DAGs prove witness-fold equality under the same
+   assignments. §12.16(e) (cherry-pick blind spot) requires NO
+   per-version observable_state in compact output — `observable_state`
+   untouched (the activity tuple now covers EVERY eligible version since
+   all are kept). Real-base compression measurement: no real base
+   in-repo — `test_compacted_corpus_size_stays_bounded` pins the bound (one
+   record per eligible version + surviving refutations + effective
+   verifies): a 9-event lineage compacts to 4 (the undone refute chain,
+   doubt pair and non-effective verify drop). Tests: 3 new + 1 rewritten in
+   tests/test_compact.py (30 total there); suite 739 green; ruff clean.)
 7. Recall surfaces: status qualification, search/explain, list_stale split
    (re-check vs "not applicable here"), any-version mode, agent
    instructions + skill mirrors — the coordinated user-visible release.

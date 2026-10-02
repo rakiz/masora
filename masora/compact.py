@@ -3,9 +3,15 @@
 (FORMAT.md §1).
 
 Every lineage is reduced to the event files still contributing to its current
-§6 fold state; surviving files keep their ULIDs and bytes. The plan carries a
-per-lineage proof — the witness fold must equal the full fold — and any
-diverging lineage refuses the whole run fail-closed (`E-COMPACT-DIVERGE`).
+§6 fold state and to the per-version context a future index build re-derives:
+every eligible version's claim — active AND refuted — survives with its
+anchors, fingerprints, unanchored flag and establishing commit (the
+counterfactual `restored` consults refuted versions' relations, §12.16);
+surviving files keep their ULIDs and bytes. The plan carries a per-lineage
+proof — the witness fold must equal the full fold, under the standalone
+posture and under the context assignments that exercise the tiered selection
+and the restored counterfactual — and any diverging lineage refuses the whole
+run fail-closed (`E-COMPACT-DIVERGE`).
 Dropped events known to the shared repo (present on `origin/main` or the sync
 merge-base) are tombstoned per-event in the `[[deleted_events]]` table of
 `deleted.toml`; unpublished events are dropped silently. `--rehome` moves the
@@ -29,7 +35,7 @@ from .checker import (
     discover_event_files,
 )
 from .diagnostics import E_COMPACT_CHECK, E_COMPACT_DIVERGE, Diag
-from .fold import Event, LineageFold, fold_lineage, resolve_activity
+from .fold import Event, LineageFold, VersionContext, fold_lineage, resolve_activity
 from .gc import _prune_empty_dirs
 from .schema import EventRecord
 from .sync import _optional_rev, _render_deleted_events, git_env
@@ -157,46 +163,45 @@ def select_witness(
     """The minimal live witness set of one lineage (FORMAT.md §6, MASORA_DESIGN.md §6.2).
 
     Returns the event ids whose files still contribute to the lineage's
-    current fold state: the founding claim (every eligible version's
-    resolution hangs on it), the effective version — the newest active
+    current fold state and to the per-version context a future index build
+    re-derives (MASORA_DESIGN.md §6.2 rules 3-8): the founding claim, and
+    EVERY eligible version's claim — active AND refuted (§12.16) — each
+    claim carrying its identity, lineage, anchors, anchor fingerprints,
+    unanchored flag and establishing commit (`recorded_at.commit`), the
+    inputs a future index build needs to re-derive the version's composed
+    anchor outcome, its git relation and its activity; the counterfactual
+    `restored` consults refuted versions' relations, so a refuted version
+    also keeps its surviving refutation (every active refute targeting it,
+    pulled by the closure below). The effective version — the newest active
     eligible version, the newest eligible version when every version is
     refuted (`resolution: none`), the newest existing version when the
-    lineage is founderless —, every active verify of the effective version
-    (their sources feed the envelope; with no displayed version the fold
-    counts active verifies with no target, kept as well), every active doubt
-    on a kept verify, every active refute of a version when `resolution:
-    none`, and the newest version (whose active refutations sustain
-    `restored`) when restored. The
-    set is closed over `targets`/`contradicts` (a kept event's references
-    must resolve) and over the active refute/unrefute/undoubt events
-    targeting kept events (a kept event's activity must not flip). Everything
+    lineage is founderless — keeps every active verify of it (their sources
+    feed the envelope; with no displayed version the fold counts active
+    verifies with no target, kept as well), and every active doubt on a kept
+    verify. The set is closed over `targets`/`contradicts` (a kept event's
+    references must resolve) and over the active refute/unrefute/undoubt
+    events targeting kept events (a kept event's activity must not flip).
+    An active version's own refutation history — a refute neutralized by an
+    unrefute or a refute-of-refute — stays pure history: its activity
+    outcome (active) is sustained by the absence of any surviving refute,
+    the same way a kept verify's doubt/undoubt chain is dropped. Everything
     else is pure history.
     """
     claim_ids = {e.id for e in events if e.kind == "claim"}
     versions = sorted(claim_ids, reverse=True)
     eligible_desc = sorted(set(eligible), reverse=True)
     active_versions = [v for v in eligible_desc if activity.get(v, False)]
-    refuted_versions = [v for v in eligible_desc if not activity.get(v, False)]
-    displayed = active_versions[0] if active_versions else None
-    restored = displayed is not None and any(v > displayed for v in refuted_versions)
-    founder = next((e.id for e in events if e.kind == "claim" and e.id == lineage), None)
-    kept: set[str] = set()
     effective: str | None = None
+    kept: set[str] = set()
     if eligible_desc:
-        if founder is not None:
-            kept.add(founder)
-        if not active_versions:
-            for e in events:
-                if e.kind == "refute" and activity[e.id] and e.targets in claim_ids:
-                    kept.add(e.id)
-        else:
-            effective = displayed
-            kept.add(displayed)
-            for e in events:
-                if e.kind == "verify" and e.targets == displayed and activity[e.id]:
-                    kept.add(e.id)
-            if restored:
-                kept.add(versions[0])
+        # Universal witness (§12.16): every eligible version's claim survives
+        # verbatim — the founder included (it is an eligible version) — so
+        # the compacted corpus preserves the anchors, fingerprints,
+        # unanchored flag and establishing commit of active AND refuted
+        # versions alike.
+        kept.update(eligible_desc)
+        if active_versions:
+            effective = active_versions[0]
     elif versions:
         kept.add(versions[0])
     for e in events:
@@ -282,6 +287,43 @@ def _build_plan(base_dir: Path, known: set[str] | None, rehome: bool = False) ->
     )
 
 
+def _proof_assignments(
+    eligible: list[str], activity: dict[str, bool]
+) -> list[tuple[str, dict[str, str] | None, dict[str, VersionContext] | None]]:
+    """The context assignments the per-lineage equivalence proof folds over.
+
+    Git-free (compact never spawns git): the proof folds the full corpus and
+    the witness under the SAME injected outcomes/contexts — the
+    context-bearing selection of MASORA_DESIGN.md §6.2 rules 3-8 — and
+    demands the same observable state under each. The standalone posture (no
+    anchor provider, no git context) stands first; the all-match assignments
+    then exercise the tiered selection where the counterfactual `restored`
+    can fire: every version `in_line`, then each refuted version promoted to
+    `ahead` — a refuted version that would win the restored counterfactual
+    on relations rather than ULID order must keep proving it. A promotion
+    never moves the display (a refuted version cannot display, and matches
+    sharing one relation with no ancestry keep the newest active version),
+    so the verification closure stays inside the proof's reach; the real
+    per-version relations a future recall derives are preserved by keeping
+    every claim event verbatim.
+    """
+    assignments: list[tuple[str, dict[str, str] | None, dict[str, VersionContext] | None]] = [
+        ("standalone", None, None)
+    ]
+    if not eligible:
+        return assignments
+    outcomes = {v: "match" for v in eligible}
+    in_line = {v: VersionContext(v, "in_line") for v in eligible}
+    assignments.append(("in_line", outcomes, in_line))
+    for version in sorted(eligible, reverse=True):
+        if activity.get(version, False):
+            continue
+        contexts = dict(in_line)
+        contexts[version] = VersionContext(version, "ahead")
+        assignments.append((f"restored:{version}", outcomes, contexts))
+    return assignments
+
+
 def _plan_lineage(
     lineage: str, records: list[EventRecord], known: set[str] | None
 ) -> tuple[LineagePlan, list[Diag]]:
@@ -292,25 +334,32 @@ def _plan_lineage(
     has_founder = founder is not None and founder.kind == "claim"
     eligible = [record.id for record in claims if record.id == lineage or has_founder]
     activity = resolve_activity(events)
-    fold_full = fold_lineage(lineage, events, activity, eligible)
     kept = select_witness(lineage, events, eligible, activity)
     witness = [e for e in events if e.id in kept]
     wit_activity = resolve_activity(witness)
     wit_eligible = [v for v in eligible if v in kept]
-    fold_wit = fold_lineage(lineage, witness, wit_activity, wit_eligible)
     kept_versions = [v for v in eligible if v in kept]
     diverged = []
-    if observable_state(fold_full, activity, kept_versions) != observable_state(
-        fold_wit, wit_activity, kept_versions
-    ):
-        diverged.append(
-            Diag(
-                "error",
-                E_COMPACT_DIVERGE,
-                f"lineage {lineage}: the witness fold would diverge from the full fold "
-                "— compaction is refused (fail-closed), nothing written",
-            )
+    for tag, outcomes, contexts in _proof_assignments(eligible, activity):
+        fold_full = fold_lineage(
+            lineage, events, activity, eligible, outcomes=outcomes, contexts=contexts
         )
+        fold_wit = fold_lineage(
+            lineage, witness, wit_activity, wit_eligible, outcomes=outcomes, contexts=contexts
+        )
+        if observable_state(fold_full, activity, kept_versions) != observable_state(
+            fold_wit, wit_activity, kept_versions
+        ):
+            diverged.append(
+                Diag(
+                    "error",
+                    E_COMPACT_DIVERGE,
+                    f"lineage {lineage}: the witness fold would diverge from the full fold "
+                    f"under the {tag} context assignment — compaction is refused "
+                    "(fail-closed), nothing written",
+                )
+            )
+            break
     kept_records = sorted((record for record in records if record.id in kept), key=lambda r: r.id)
     dropped_records = sorted(
         (record for record in records if record.id not in kept), key=lambda r: r.id

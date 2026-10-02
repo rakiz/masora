@@ -240,27 +240,43 @@ keep working. Sequencing:
 
 1. **Pre-check**: `check_base()`; errors block and nothing is mutated.
 2. **Witness selection** (`select_witness`, pure over fold events): per
-   lineage it keeps the founding claim (every eligible version's resolution
-   hangs on it), the effective version (the newest active eligible version;
-   the newest eligible version when every version is refuted —
-   `resolution: none`; the newest existing version when the lineage is
-   founderless), every active verify of the effective version (their
-   `source`s feed the envelope), every active doubt on a kept verify, every
-   active refute of a version when `resolution: none`, and the newest
-   version — whose active refutations sustain `restored` — when restored.
-   The set is closed over `targets`/`contradicts` (a kept event's references
-   must resolve) and over the active refute/unrefute/undoubt events
-   targeting kept events (a kept event's activity must not flip); everything
-   else is dropped. Correctness over compression: any ambiguity keeps.
+   lineage it keeps EVERY eligible version's claim — active AND refuted
+   (MASORA_DESIGN.md §12.16: the counterfactual `restored` consults refuted
+   versions' relations) — each claim carrying the per-version context a
+   future index build re-derives: identity, lineage, anchors, anchor
+   fingerprints, unanchored flag and the establishing commit
+   (`recorded_at.commit`). A refuted version also keeps its surviving
+   refutation (the active refutes targeting it, pulled by the closure); an
+   active version's own refutation history (a refute neutralized by an
+   unrefute or a refute-of-refute) stays pure history — its activity is
+   sustained by the absence of any surviving refute, the same way a kept
+   verify's doubt/undoubt chain drops. On top of the versions: the founding
+   claim, the effective version (the newest active eligible version; the
+   newest eligible version when every version is refuted — `resolution:
+   none`; the newest existing version when the lineage is founderless) with
+   every active verify of it (their `source`s feed the envelope), and every
+   active doubt on a kept verify. The set is closed over
+   `targets`/`contradicts` (a kept event's references must resolve) and over
+   the active refute/unrefute/undoubt events targeting kept events (a kept
+   event's activity must not flip); everything else is dropped. Correctness
+   over compression: any ambiguity keeps.
 3. **The proof**: per lineage, `observable_state(fold_full) ==
    observable_state(fold_witness)` — displayed, restored, resolution,
    verification fields, sources, doubted and the activity state of every
-   surviving version. Any divergence refuses the whole run fail-closed with
-   `E-COMPACT-DIVERGE` (exit 1, nothing written). The rule is exercised by
-   the brute-force suite: every acyclic event DAG at n ≤ 4 exhaustively plus
-   sampled n = 5 DAGs must fold identically before and after witness
-   selection, and every fixture tree must compact with an unchanged per-lineage
-   status (`tests/test_compact.py`).
+   surviving version — under EACH context assignment the proof runs over
+   (git-free, no git is ever spawned): the standalone posture (no provider,
+   no git context) plus the all-match assignments exercising the §6.2
+   tiered selection — every version `in_line`, then each refuted version
+   promoted to `ahead`, under which the counterfactual `restored` fires, so
+   a refuted version that would win the restored counterfactual on
+   relations keeps proving it. The real per-version relations a future
+   recall derives are preserved by keeping every claim event verbatim. Any
+   divergence refuses the whole run fail-closed with `E-COMPACT-DIVERGE`
+   (exit 1, nothing written). The rule is exercised by the brute-force
+   suite: every acyclic event DAG at n ≤ 4 exhaustively plus sampled n = 5
+   DAGs must fold identically before and after witness selection under the
+   same assignments, and every fixture tree must compact with an unchanged
+   per-lineage status (`tests/test_compact.py`).
 4. **Tombstones**: an event is tombstoned only if the shared repo knows it —
    its ULID exists on `origin/main` or on the sync merge-base (the same git
    plumbing as sync's diff, no fetch; no remote/merge-base → no tombstones
@@ -304,7 +320,9 @@ Compact folds standalone (no anchor provider, like `check`): the effective
 version is the newest active one. An index built with a fingerprint-matching
 OLDER version may display that older version; its verifies of
 non-displayed versions are dropped, so re-index after compacting a base
-whose lineages resolve to older versions.
+whose lineages resolve to older versions. Every eligible version's claim —
+refuted ones included — survives with its anchors and establishing commit,
+so the per-version context of §12.16 survives compaction.
 
 ## Explain (`masora/explain.py`, §6, FORMAT.md §5)
 

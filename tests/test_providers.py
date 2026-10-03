@@ -367,3 +367,88 @@ def test_open_graph_reads_provenance(tmp_path):
     assert handle is not None
     assert handle.source_commit == head
     handle.conn.close()
+
+
+def _set_symbol_format(db: Path, value: str | None) -> None:
+    import sqlite3
+
+    conn = sqlite3.connect(db)
+    if value is None:
+        conn.execute("DELETE FROM meta WHERE key = 'symbol_format'")
+    else:
+        conn.execute(
+            "INSERT INTO meta (key, value) VALUES ('symbol_format', ?)"
+            " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (value,),
+        )
+    conn.commit()
+    conn.close()
+
+
+def test_open_graph_accepts_legacy_store_without_symbol_format(tmp_path):
+    repo, head = make_repo(tmp_path)
+    db = write_current_graph(repo, head)
+    _set_symbol_format(db, None)
+    handle = open_graph(db)
+    assert handle is not None
+    handle.conn.close()
+    registry = cppgraph_registry(repo)
+    assert registry.available and registry.reason is None
+
+
+def test_open_graph_accepts_symbol_format_one(tmp_path):
+    repo, head = make_repo(tmp_path)
+    db = write_current_graph(repo, head)
+    _set_symbol_format(db, "1")
+    handle = open_graph(db)
+    assert handle is not None
+    handle.conn.close()
+    registry = cppgraph_registry(repo)
+    assert registry.available and registry.reason is None
+
+
+def test_open_graph_refuses_newer_symbol_format_naming_direction(tmp_path):
+    repo, head = make_repo(tmp_path)
+    db = write_current_graph(repo, head)
+    _set_symbol_format(db, "2")
+    assert open_graph(db) is None
+    registry = cppgraph_registry(repo)
+    assert registry.fingerprints is None and registry.edges is None
+    assert registry.reason is not None
+    assert "symbol_format 2" in registry.reason
+    assert "newer" in registry.reason
+    assert "format 1" in registry.reason
+    assert "re-index" in registry.reason
+
+
+def test_open_graph_refuses_older_symbol_format(tmp_path):
+    repo, head = make_repo(tmp_path)
+    db = write_current_graph(repo, head)
+    _set_symbol_format(db, "0")
+    assert open_graph(db) is None
+    registry = cppgraph_registry(repo)
+    assert registry.fingerprints is None
+    assert registry.reason is not None
+    assert "symbol_format 0" in registry.reason
+    assert "older" in registry.reason
+
+
+def test_open_graph_refuses_unparsable_symbol_format(tmp_path):
+    repo, head = make_repo(tmp_path)
+    db = write_current_graph(repo, head)
+    _set_symbol_format(db, "one")
+    assert open_graph(db) is None
+    registry = cppgraph_registry(repo)
+    assert registry.reason is not None
+    assert "unparsable symbol_format 'one'" in registry.reason
+
+
+def test_symbol_format_mismatch_degrades_to_unknown_not_raise(tmp_path):
+    repo, head = make_repo(tmp_path)
+    db = write_current_graph(repo, head)
+    _set_symbol_format(db, "2")
+    registry = cppgraph_registry(repo)
+    assert not registry.available
+    assert registry.reason is not None and "re-index" in registry.reason
+    # the unavailability path: unknown shadows rather than raising
+    assert registry.resolve(SYM_A) is None

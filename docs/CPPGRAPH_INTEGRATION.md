@@ -405,6 +405,32 @@ switch once the feature flag is turned on.
 6. Report contract friction back to the Masora repo — shape changes land as a
    new major `contract_version`, never in place.
 
+## The symbol identity format is versioned (store meta row `symbol_format`)
+
+Anchor identities are load-bearing across repos and rebuilds: masora embeds
+them verbatim into the base's event files (which persist for years), and
+re-fingerprinting matches them verbatim against `symbols.symbol` in the graph
+store. The exact shape of those strings (the decorated
+`cxx . . $ mongo/...#method(hash).` form) is therefore a CONTRACT, not an
+internal detail, and it is versioned exactly like the store schema:
+
+- cppgraph writes an integer meta row `symbol_format` into the store at build
+  time (monotone: every change to the symbol identity format bumps it).
+- masora's reader gates on it exactly like the store `schema_version`:
+  - **absent** → legacy store, accepted (it carries format 1 — every store
+    predating the row reads as format 1, so existing graphs keep working);
+  - **present and == masora's learned constant** (format 1) → accepted;
+  - **present but unparsable, or any other value** → the store is refused
+    with a reason naming the seen value, the expected format, the
+    newer/older direction, and the re-index remedy; code anchors report
+    `unknown` (the `W-IDX-GRAPH` path), nothing is guessed.
+
+**Governance rule**: changing the symbol identity format without bumping
+`symbol_format` in the SAME change is a cppgraph bug — the format version and
+the format move together. A silent format drift would let reads succeed while
+old anchors silently mismatch, which is exactly what the gate exists to
+prevent.
+
 ## 9. cppgraph-side requirements — self-check inventory
 
 The checklist of everything the cppgraph side must have implemented, written
@@ -424,3 +450,4 @@ verify it (a behavior or a test shape). An unchecked item is missing work.
 | 9 | The read-only invariants: never parse Masora's SQLite, never write anywhere Masora owns, never locate bases (only `--repo`) | A code-review item + a test asserting no file writes under `~/.local/share/masora` / `~/.config/masora` during an injection |
 | 10 | Multi-symbol spawn: `find`/`outline` inject with ONE batched `masora facts` spawn carrying all result symbols (`--symbol` repeated); OR-matching per §2; `anchors_matched` per lineage; the ≤ 2-fact / ≤ 60-token budget is per RESPONSE and the truncation line stays visible | A test per covered tool asserting a single subprocess for a multi-symbol response (spawn-count assert) and that facts from different lineages of the batched symbols all render; a test that two symbols anchoring the SAME lineage render one fact once; a >budget-facts test showing the visible truncation |
 | 11 | The presence hint: when Masora is present and ZERO facts rendered for the response, exactly one capability line renders (§6 wording), at most once per response, never as knowledge or advice | A test asserting the hint renders once on a zero-fact response (masora present, flag on); a test per absent-mode (no binary, flag off, base unresolvable) asserting NO hint renders |
+| 12 | The build writes `symbol_format` into the store meta (the symbol identity format is versioned like the schema — see the identity section above) | A freshly built store's meta carries the `symbol_format` row; a format change and its `symbol_format` bump land in the same commit |

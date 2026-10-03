@@ -10,6 +10,18 @@
 
 ### Added
 
+- **Symbol-format version gate** — the symbol identity format (the exact
+  shape of `symbols.symbol`, the spine of the masora↔cppgraph coupling:
+  anchors embed it verbatim into the base's event files) is now VERSIONED
+  like the store schema: cppgraph declares it in a store meta row
+  (`symbol_format`, the cppgraph-side write is the §9 ritual's business);
+  masora's `_open_graph` gates on it exactly like `schema_version` — absent
+  row = legacy = accepted (format 1), mismatch or unparsable row refuses
+  with a reason naming direction and both numbers, degrading to anchor-
+  `unknown` / `W-IDX-GRAPH`, never a guess. Governance rule in the contract:
+  changing the identity format without bumping `symbol_format` in the same
+  change is a cppgraph bug. (+6 tests.)
+
 - **Facts contract: batched symbol matching (the injection-surface request)**
   — `masora facts --symbol` is REPEATABLE: one spawn matches N symbols
   (OR-semantics over the verbatim anchor rule, `anchors_matched` accumulating

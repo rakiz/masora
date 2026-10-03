@@ -37,6 +37,11 @@ from .index import normalize_source
 from .sync import git_env, run_git
 
 SCHEMA_VERSION = 5
+# The symbol-identity format is the spine of the masora<->cppgraph coupling:
+# anchors embed these strings verbatim into the base's event files, which
+# outlive any graph rebuild, so the format is versioned exactly like the store
+# schema. Format 1 = the legacy format (every store predating the meta row).
+SYMBOL_FORMAT = 1
 RESOLVE_CAP = 8
 _LIKE_ESCAPES = str.maketrans({"\\": "\\\\", "%": "\\%", "_": "\\_"})
 
@@ -181,6 +186,30 @@ def _open_graph(db: Path) -> tuple[GraphHandle | None, str | None]:
             f" build reads schema {SCHEMA_VERSION} exactly) — re-index with cppgraph;"
             " code anchors report unknown"
         )
+    # Symbol-identity format gate: the anchor identities embedded in the
+    # base's event files are matched verbatim against `symbols.symbol`, so a
+    # format this reader was not learned against must not pass silently. A
+    # missing row is a legacy store — always format 1 (existing graphs in the
+    # wild carry no such row and must keep reading).
+    raw_format = meta.get("symbol_format")
+    if raw_format is not None:
+        try:
+            seen_format = int(raw_format)
+        except ValueError:
+            conn.close()
+            return None, (
+                f"{db} has an unparsable symbol_format {raw_format!r} (this build reads symbol"
+                f" format {SYMBOL_FORMAT} exactly) — re-index with cppgraph; code anchors"
+                " report unknown"
+            )
+        if seen_format != SYMBOL_FORMAT:
+            conn.close()
+            direction = "newer" if seen_format > SYMBOL_FORMAT else "older"
+            return None, (
+                f"{db} was built with a {direction} symbol format (store symbol_format"
+                f" {seen_format}, this build reads format {SYMBOL_FORMAT} exactly) —"
+                " re-index with cppgraph; code anchors report unknown"
+            )
     return GraphHandle(db=db, conn=conn, meta=meta), None
 
 

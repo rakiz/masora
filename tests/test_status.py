@@ -61,7 +61,7 @@ def test_status_prints_tool_versions_and_exits_zero(masora_home, capsys):
     out = capsys.readouterr().out
     assert "masora status" in out
     assert "format_version: 1" in out
-    assert "facts contract_version: 2" in out
+    assert "facts contract_version: 3" in out
     assert "index schema_version: 6" in out
     assert "update check unavailable (offline)" in out
 

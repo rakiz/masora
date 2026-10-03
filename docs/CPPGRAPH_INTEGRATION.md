@@ -56,14 +56,17 @@ How cppgraph detects Masora: the presence of the `masora` binary on `PATH`
 (e.g. `shutil.which`) is the only detection signal; if it is absent, cppgraph
 makes zero change (the §7 zero-change guarantee already covers this).
 
-## 3. Output contract — version 2
+## 3. Output contract — version 3
 
 ```json
 {
-  "contract_version": 2,
+  "contract_version": 3,
   "repo_head": "1a1a8e1f4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c",
   "graph_commit": "0e5f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f",
   "stale_warning": false,
+  "lineages_examined": 3,
+  "lineages_matched": 3,
+  "presence_hint": null,
   "facts": [
     {
       "lineage": "01J8Z3K0000000000000000000",
@@ -80,6 +83,7 @@ makes zero change (the §7 zero-change guarantee already covers this).
       "anchors_matched": [
         "scip-clang cxx . . mongo/ResumeTokenData#makeResumeToken()."
       ],
+      "anchor_leaf": "makeResumeToken",
       "established_relation": "in_line",
       "established_commit": "1a1a8e1f4e5a",
       "off_version": false,
@@ -100,6 +104,7 @@ makes zero change (the §7 zero-change guarantee already covers this).
       "anchors_matched": [
         "scip-clang cxx . . mongo/Engine#commitShard()."
       ],
+      "anchor_leaf": "commitShard",
       "established_relation": "out_of_line",
       "established_commit": "9f8e7d6c5b4a",
       "off_version": true,
@@ -116,6 +121,7 @@ makes zero change (the §7 zero-change guarantee already covers this).
       "effort": null,
       "anchors": ["scip-clang cxx . . mongo/Util#tick()."],
       "anchors_matched": ["scip-clang cxx . . mongo/Util#tick()."],
+      "anchor_leaf": "tick",
       "established_relation": null,
       "established_commit": null,
       "off_version": false,
@@ -129,10 +135,13 @@ Field semantics (types, nullability, enums):
 
 | Field | Type | Meaning |
 |---|---|---|
-| `contract_version` | integer | `2`; §3's shape IS version 2's shape — any field addition or change lands as a new major `contract_version`, and producers never enrich a shipped shape in place; a major-version change means an incompatible shape — cppgraph rejects unknown major versions and renders nothing; checked as a strict integer: a JSON boolean is invalid even where the language conflates bool and int (e.g. Python `True == 1`) |
+| `contract_version` | integer | `3`; §3's shape IS version 3's shape — any field addition or change lands as a new major `contract_version`, and producers never enrich a shipped shape in place; a major-version change means an incompatible shape — cppgraph rejects unknown major versions and renders nothing; checked as a strict integer: a JSON boolean is invalid even where the language conflates bool and int (e.g. Python `True == 1`) |
 | `repo_head` | string \| null | code repo HEAD the statuses were resolved against, or `null` (not a git checkout) |
 | `graph_commit` | string \| null | cppgraph-indexed commit that served the code fingerprints, or `null` (no usable graph store) |
 | `stale_warning` | bool \| null | `true` when the base or code state moved since the index was built, OR events were written after it (filesystem freshness — an uncommitted note moves no git HEAD; the build moment is compared against the base tree's newest event-file mtime with a ~2 s tolerance); `false` current; `null` when not comparable |
+| `lineages_examined` | integer | the number of lineages the document pipeline walked (the population the matching loop iterates, BEFORE matching) — 0 on an empty base |
+| `lineages_matched` | integer | how many of the examined lineages are present in `facts` (always `== len(facts)`); `0` when the filter matched nothing |
+| `presence_hint` | string \| null | masora's capability line, rendered by cppgraph VERBATIM when zero facts render and zero lineages were examined (§6's zero-fact rule); masora owns the wording (including the tool names — cppgraph never hardcodes them); `null` whenever facts exist or lineages were examined (cppgraph then derives its own staleness line from the counters) |
 | `facts` | array | zero or more facts, one per matching lineage; may be empty |
 | `facts[].lineage` | string | lineage id — stable across versions; use it for dedup/caching |
 | `facts[].summary` | string | one line, ≤ 120 chars — rendered verbatim |
@@ -144,14 +153,16 @@ Field semantics (types, nullability, enums):
 | `facts[].effort` | string \| null | the declared LLM effort (`low` \| `medium` \| `high`), or `null` unless the version was written by an llm with an effort recorded |
 | `facts[].anchors` | string[] | the effective version's FULL anchor-identity list (not only the ones matched by `--symbol`) — the anchor leg of the SPEC evidence envelope |
 | `facts[].anchors_matched` | string[] | the effective version's anchor identities the query matched; for `resolution: "none"` they come from the newest version (displayed version is null); with a repeatable `--symbol`, the identities matched across ALL passed flags accumulate here (deduplicated, in call order); empty when no `--symbol` was passed |
+| `facts[].anchor_leaf` | string \| null | the SHORT leaf of the FIRST matched anchor identity (in call order — a RENDERING INPUT consumed by §6's multi-symbol rule), derived by masora because masora owns the identity format: take the segment after the last `#` in the identity, up to but excluding the `(` disambiguation hash (when the identity has no `#`, the segment after the last `/` instead), then strip a trailing `.` — e.g. `…mongo/Engine#commitShard().` → `commitShard`; `null` when no `--symbol` was passed (single-symbol-era responses and full enumeration keep the response symbol-centered or unbound, so no leaf is needed) |
 | `facts[].established_relation` | string \| null | Masora-EVALUATED relation of the **displayed** version's establishing commit against the asking checkout's HEAD: `in_line` (ancestor-or-equal of HEAD, HEAD-equal included) \| `ahead` (proper descendant of HEAD, below the branch's upstream ref as present locally — never fetched) \| `out_of_line` (provably neither) \| `unknown` (proven not in_line, but the ahead test could not finish); `null` when nothing displays (`resolution: "none"` — the summary then comes from the newest version) or the context was unprovable (shallow clone, missing object, probe budget). A qualification, never a validity input (§6) |
 | `facts[].established_commit` | string \| null | the displayed version's establishing commit, SHORT (12 hex chars) — presentation-only: a pointer for the rendered context, never an input to any comparison (cppgraph cannot derive ancestry from it, by design); `null` when no version displays (`resolution: "none"`) or the displayed version is unstamped (no recorded commit); present even when context is unprovable (`established_relation` is null) |
 | `facts[].off_version` | bool | `true` when the shown version is the no-match fallback whose anchors are definitively absent here (`not_found`) AND provably `out_of_line` — the claim is not applicable to THIS checkout; never silently read as current |
 | `facts[].context_ordering` | string | `exact` \| `degraded` — `degraded` means some version's git context was unprovable and, if it became provable, what displays, the shadow decision or the restored decision could change; the served selection stays readable but its context is incomplete. Per LINEAGE (it qualifies the selection, not one version) |
 
-The v2 shape is version 1's shape PLUS the four context fields — nothing was
-removed; the v2 fields are required in v2 (a fact missing one is a shape
-violation, §7 fail-closed).
+The v3 shape is version 2's shape PLUS the three multi-symbol rendering
+fields (`anchor_leaf`, the two counters, `presence_hint`) — nothing was
+removed; the v2 fields are required in v3 (a fact missing one is a shape
+violation, §7 fail-closed), and so are the v3 fields on the document.
 
 ## Beta release note — contract version 2 only, no dual-version window
 
@@ -200,9 +211,15 @@ command handles it.
   `what_it_calls`) spawn with the one symbol they center on; the
   multi-symbol responses `find` and `outline` inject too, with ONE batched
   spawn for all the response's result symbols (one `--symbol` flag per
-  symbol, §2's OR-matching). The budget below is per RESPONSE, not per
-  symbol: at most 2 facts and ≤ 60 tokens total across all symbols of the
-  response, and the visible-truncation rule is unchanged.
+  symbol, §2). On a multi-symbol response, each fact renders as
+  `masora: <summary> [status] — <anchor_leaf>` when the fact's
+  `anchor_leaf` is non-null — the leaf disambiguates WHICH queried symbol
+  the fact answers for (a fact with a null `anchor_leaf` renders the plain
+  single-symbol form); single-symbol responses are unchanged. The budget
+  below is per RESPONSE, not per symbol: at most 2 facts and ≤ 60 tokens
+  total across all symbols of the response — the `anchor_leaf` suffix and
+  the presence hint count inside that envelope — and the
+  visible-truncation rule is unchanged.
 - Attach at most **2 facts** by default (the fact count is configurable — a
   `CPPGRAPH_MASORA_MAX_FACTS` value; higher is allowed), one terse line each,
   appended to the response of the symbol they anchor. Budget guidance: ≤ 60
@@ -310,16 +327,23 @@ command handles it.
   it NEVER treats the stamps as a validity judgment — a `stale` fact with
   `established_relation: "in_line"` stays stale.
 - Never turn a fact into an instruction: label + summary + status only.
-- **The presence hint**: when Masora is PRESENT for the checkout (the binary
-  found, the flag on, the root resolvable, the contract parsed) and ZERO
-  facts rendered for the response, cppgraph renders exactly ONE capability
-  line — suggested wording:
-  `masora: present for this checkout — the masora search / explain / list_stale MCP tools recall recorded knowledge.`
-  The line is a capability notice, NEVER knowledge and NEVER code advice: it
-  carries no claim, no status and no context. It renders at most once per
-  response, whatever the number of symbols queried. The zero-change
+- **The zero-fact rendering is DIFFERENTIATED by the counters** — Masora is
+  present (the binary found, the flag on, the root resolvable, the contract
+  parsed) and ZERO facts rendered, in either flavor:
+  - `lineages_examined == 0` → cppgraph renders `presence_hint` VERBATIM
+    (budget-checked, §6's token envelope): the exact string Masora shipped —
+    masora owns the wording (including the tool names, so a tool rename is a
+    masora-side change, never a cppgraph literal drift):
+    `masora: present for this checkout — the masora search / explain / list_stale MCP tools recall recorded knowledge.`
+  - `lineages_examined > 0` → cppgraph renders the DERIVED staleness line
+    `masora: <lineages_examined> lineage(s) examined, none matched — the base may predate this rebuild.`
+    — cppgraph derives it from the counters; it names NO tools.
+  Either line renders at most once per response, whatever the number of
+  symbols queried; both are capability/absence notices, NEVER knowledge and
+  NEVER code advice — no claim, no status, no context. The zero-change
   guarantee otherwise stands: without Masora installed, with the flag off,
-  or with the base unresolvable, nothing renders — not even the hint.
+  with the base unresolvable, or on any non-zero exit (nothing on stdout —
+  §5), nothing renders — not even a hint.
 
 ## Input hygiene (cppgraph side)
 
@@ -451,3 +475,4 @@ verify it (a behavior or a test shape). An unchecked item is missing work.
 | 10 | Multi-symbol spawn: `find`/`outline` inject with ONE batched `masora facts` spawn carrying all result symbols (`--symbol` repeated); OR-matching per §2; `anchors_matched` per lineage; the ≤ 2-fact / ≤ 60-token budget is per RESPONSE and the truncation line stays visible | A test per covered tool asserting a single subprocess for a multi-symbol response (spawn-count assert) and that facts from different lineages of the batched symbols all render; a test that two symbols anchoring the SAME lineage render one fact once; a >budget-facts test showing the visible truncation |
 | 11 | The presence hint: when Masora is present and ZERO facts rendered for the response, exactly one capability line renders (§6 wording), at most once per response, never as knowledge or advice | A test asserting the hint renders once on a zero-fact response (masora present, flag on); a test per absent-mode (no binary, flag off, base unresolvable) asserting NO hint renders |
 | 12 | The build writes `symbol_format` into the store meta (the symbol identity format is versioned like the schema — see the identity section above) | A freshly built store's meta carries the `symbol_format` row; a format change and its `symbol_format` bump land in the same commit |
+| 13 | The v3 surface: `contract_version` emitted as strict integer `3`; the counters (`lineages_examined` / `lineages_matched`) present on the document and `lineages_matched == len(facts)`; `presence_hint` carried (non-null exactly when zero facts AND zero examined); per-fact `anchor_leaf` present, non-null only with `--symbol` passed, rendered as the `— <anchor_leaf>` suffix on multi-symbol responses (§6); the zero-fact rendering differentiated (hint verbatim at 0 examined, the derived no-tools staleness line above 0); the hint/leaf tokens inside the ≤ 2-facts / ≤ 60-token envelope | A parser test pinning `contract_version == 3` (bool rejected); a document test asserting both counters and `presence_hint is null` on a fact-bearing response, the exact hint string on an empty base, the derived line (no tool names) on a filtered no-match query; an `anchor_leaf` test per derivation case (`#` + hash, no `#`, trailing dot, first-of-several in call order, null without `--symbol`); a budget test with leaf suffixes and a hint inside 60 tokens |

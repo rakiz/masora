@@ -13,6 +13,7 @@ from helpers import OMIT, ULID_L2, make_claim, make_doubt, make_verify, write_ev
 
 from masora.cli import main
 from masora.config import bases_root
+from masora.facts import PRESENCE_HINT, _anchor_leaf
 from masora.index import build_index, index_db_path
 from masora.providers import cppgraph_registry
 from masora.sync import git_env
@@ -166,7 +167,7 @@ def test_facts_happy_path_with_symbol(tmp_path, base, capsys):
     code, document, err = facts(capsys, repo, symbol=SYM_A)
 
     assert code == 0 and err == ""
-    assert document["contract_version"] == 2
+    assert document["contract_version"] == 3
     assert document["repo_head"] == head
     assert document["graph_commit"] == head
     assert document["stale_warning"] is False
@@ -181,6 +182,7 @@ def test_facts_happy_path_with_symbol(tmp_path, base, capsys):
     assert fact["effort"] is None
     assert fact["anchors"] == [SYM_A]
     assert fact["anchors_matched"] == [SYM_A]
+    assert fact["anchor_leaf"] == "start"
     # v2 context stamps: a fact established at HEAD is in_line, exact, no
     # fallback — the quiet case cppgraph renders without a context label
     assert fact["established_relation"] == "in_line"
@@ -535,7 +537,7 @@ def test_facts_shape_is_untouched_when_questions_present(tmp_path, home, capsys)
     (plain_fact,) = plain_document["facts"]
 
     assert set(fact) == set(plain_fact)
-    assert document["contract_version"] == 2
+    assert document["contract_version"] == 3
     assert "questions" not in json.dumps(document)
 
 
@@ -562,7 +564,7 @@ def test_facts_shape_untouched_when_keywords_present(tmp_path, home, capsys):
     code, document, _err = facts(capsys, repo, symbol=SYM_A)
 
     assert code == 0
-    assert document["contract_version"] == 2
+    assert document["contract_version"] == 3
     (fact,) = document["facts"]
     assert fact["lineage"] == uid
     assert "keywords" not in json.dumps(document)
@@ -720,7 +722,7 @@ def test_facts_repeated_symbol_or_matches_across_lineages(tmp_path, base, capsys
     code, document, _err = facts(capsys, repo, symbols=[SYM_A, SYM_B])
 
     assert code == 0
-    assert document["contract_version"] == 2
+    assert document["contract_version"] == 3
     by_lineage = {fact["lineage"]: fact for fact in document["facts"]}
     assert sorted(by_lineage) == sorted([uid_a, uid_b])
     assert by_lineage[uid_a]["anchors_matched"] == [SYM_A]
@@ -773,10 +775,201 @@ def test_facts_repeated_symbol_keeps_the_v2_document_shape(tmp_path, base, capsy
     _code, single, _err = facts(capsys, repo, symbol=SYM_A)
     _code, multi, _err = facts(capsys, repo, symbols=[SYM_A, SYM_B])
 
-    assert multi["contract_version"] == 2
+    assert multi["contract_version"] == 3
     assert list(multi) == list(single)
     (multi_fact,) = multi["facts"]
     (single_fact,) = single["facts"]
     assert set(multi_fact) == set(single_fact)
     assert multi_fact["anchors_matched"] == [SYM_A, SYM_B]
     assert single_fact["anchors_matched"] == [SYM_A]
+
+
+# ---------------------------------------------------------------------------
+# Contract v3: anchor_leaf, the matching counters, the presence hint
+# ---------------------------------------------------------------------------
+
+SYM_NO_HASH = "scip-clang cxx . . mongo/Engine."
+SYM_NO_PARENS = "scip-clang cxx . . mongo/Util#tick."
+
+
+def test_facts_anchor_leaf_derivation_rules():
+    """The leaf is the segment after the last `#` (or last `/` without one),
+    up to but excluding the `(` hash, trailing `.` stripped."""
+    assert _anchor_leaf("scip-clang cxx . . mongo/Engine#commitShard().") == "commitShard"
+    assert _anchor_leaf(SYM_NO_HASH) == "Engine"
+    assert _anchor_leaf(SYM_NO_PARENS) == "tick"
+    assert _anchor_leaf("scip-clang cxx . . mongo/Util#tick") == "tick"
+
+
+def test_facts_v3_anchor_leaf_without_hash_identity(tmp_path, base, capsys):
+    """An identity without `#` derives its leaf from the last `/` segment."""
+    repo, head = make_repo(tmp_path)
+    write_graph(repo, head, symbols={SYM_NO_HASH: ("mongo/engine.cpp", 1, 2)})
+    uid = "01J8Z3K0000000000000000000"
+    write_event(base, f"2026-09/x/{uid}.claim.md", claim_event(uid, repo, head, [SYM_NO_HASH]))
+    assert build_index(base, repo).errors == []
+
+    code, document, _err = facts(capsys, repo, symbol=SYM_NO_HASH)
+
+    assert code == 0
+    (fact,) = document["facts"]
+    assert fact["anchors_matched"] == [SYM_NO_HASH]
+    assert fact["anchor_leaf"] == "Engine"
+
+
+def test_facts_v3_anchor_leaf_multiple_matched_anchors_first_in_call_order(tmp_path, base, capsys):
+    """Several passed symbols anchor the same lineage: the leaf is the FIRST
+    matched anchor's, in call order (not the anchors list's order)."""
+    repo, head = make_repo(tmp_path)
+    uid = "01J8Z3K0000000000000000000"
+    write_event(base, f"2026-09/x/{uid}.claim.md", claim_event(uid, repo, head, [SYM_A, SYM_B]))
+    assert build_index(base, repo).errors == []
+
+    code, document, _err = facts(capsys, repo, symbols=[SYM_B, SYM_A])
+
+    assert code == 0
+    (fact,) = document["facts"]
+    assert fact["anchors_matched"] == [SYM_B, SYM_A]
+    assert fact["anchor_leaf"] == "stop"
+
+
+def test_facts_v3_anchor_leaf_null_without_symbol(tmp_path, base, capsys):
+    """Full enumeration keeps the unbound shape: no leaf, even though the
+    anchors carry every identity the derivation could consume."""
+    repo, head = make_repo(tmp_path)
+    uid = "01J8Z3K0000000000000000000"
+    write_event(base, f"2026-09/x/{uid}.claim.md", claim_event(uid, repo, head, [SYM_A]))
+    assert build_index(base, repo).errors == []
+
+    code, document, _err = facts(capsys, repo)
+
+    assert code == 0
+    (fact,) = document["facts"]
+    assert fact["anchors"] == [SYM_A]
+    assert fact["anchor_leaf"] is None
+
+
+def test_facts_v3_counters_filtered_query_examined_exceeds_matched(tmp_path, base, capsys):
+    """A filtered query walks the whole lineage table but matches only some —
+    the counters expose the difference cppgraph's zero-fact rule needs."""
+    repo, head = make_repo(tmp_path)
+    uid_a = "01J8Z3K0000000000000000000"
+    uid_b = ULID_L2
+    write_event(base, f"2026-09/x/{uid_a}.claim.md", claim_event(uid_a, repo, head, [SYM_A]))
+    write_event(base, f"2026-09/x/{uid_b}.claim.md", claim_event(uid_b, repo, head, [SYM_B]))
+    assert build_index(base, repo).errors == []
+
+    code, document, _err = facts(capsys, repo, symbol=SYM_A)
+
+    assert code == 0
+    assert document["lineages_examined"] == 2
+    assert document["lineages_matched"] == 1
+    assert document["lineages_matched"] == len(document["facts"])
+
+
+def test_facts_v3_counters_unfiltered_examined_equals_matched(tmp_path, base, capsys):
+    repo, head = make_repo(tmp_path)
+    uid_a = "01J8Z3K0000000000000000000"
+    uid_b = ULID_L2
+    write_event(base, f"2026-09/x/{uid_a}.claim.md", claim_event(uid_a, repo, head, [SYM_A]))
+    write_event(base, f"2026-09/x/{uid_b}.claim.md", claim_event(uid_b, repo, head, [SYM_B]))
+    assert build_index(base, repo).errors == []
+
+    code, document, _err = facts(capsys, repo)
+
+    assert code == 0
+    assert document["lineages_examined"] == 2
+    assert document["lineages_matched"] == 2
+
+
+def test_facts_v3_counters_and_presence_hint_on_empty_base(tmp_path, home, capsys):
+    """An empty base walks nothing: zero examined, and the document carries
+    the exact capability hint cppgraph renders verbatim."""
+    plain_repo = tmp_path / "plain"
+    plain_repo.mkdir()
+    bare_base = make_base(git_init=False)
+    (home / "config.toml").write_text(
+        'default_base = "base"\n\n[bases.base]\nremote = "git@github.internal:org/base.git"\n',
+        encoding="utf-8",
+    )
+    assert build_index(bare_base, plain_repo).errors == []
+
+    code, document, _err = facts(capsys, plain_repo)
+
+    assert code == 0
+    assert document["facts"] == []
+    assert document["lineages_examined"] == 0
+    assert document["lineages_matched"] == 0
+    assert document["presence_hint"] == (
+        "masora: present for this checkout — the masora search / explain /"
+        " list_stale MCP tools recall recorded knowledge."
+    )
+    assert PRESENCE_HINT == document["presence_hint"]
+
+
+def test_facts_v3_presence_hint_null_when_facts_exist(tmp_path, base, capsys):
+    repo, head = make_repo(tmp_path)
+    uid = "01J8Z3K0000000000000000000"
+    write_event(base, f"2026-09/x/{uid}.claim.md", claim_event(uid, repo, head, [SYM_A]))
+    assert build_index(base, repo).errors == []
+
+    code, document, _err = facts(capsys, repo, symbol=SYM_A)
+
+    assert code == 0
+    assert document["facts"]
+    assert document["presence_hint"] is None
+
+
+def test_facts_v3_presence_hint_null_on_error_paths(tmp_path, base, capsys):
+    """The error exits keep today's behavior: nothing on stdout — no
+    document, no hint (E-FACTS-NOINDEX; the other exits share the path)."""
+    repo, _head = make_repo(tmp_path)
+
+    code, document, err = facts(capsys, repo)
+
+    assert code == 1
+    assert "E-FACTS-NOINDEX" in err
+    assert document is None
+    assert PRESENCE_HINT not in capsys.readouterr().out + err
+
+
+def test_facts_v3_doc_shape_v2_fields_still_present(tmp_path, base, capsys):
+    """v3 is v2 PLUS the new fields: every v2 fact key and document key is
+    still there, and the new fields ride alongside."""
+    repo, head = make_repo(tmp_path)
+    uid = "01J8Z3K0000000000000000000"
+    write_event(base, f"2026-09/x/{uid}.claim.md", claim_event(uid, repo, head, [SYM_A]))
+    assert build_index(base, repo).errors == []
+
+    code, document, _err = facts(capsys, repo, symbol=SYM_A)
+
+    assert code == 0
+    assert document["contract_version"] == 3
+    assert set(document) >= {
+        "contract_version",
+        "repo_head",
+        "graph_commit",
+        "stale_warning",
+        "facts",
+        "lineages_examined",
+        "lineages_matched",
+        "presence_hint",
+    }
+    (fact,) = document["facts"]
+    assert set(fact) >= {
+        "lineage",
+        "summary",
+        "resolution",
+        "verification",
+        "flags",
+        "source",
+        "name",
+        "effort",
+        "anchors",
+        "anchors_matched",
+        "established_relation",
+        "established_commit",
+        "off_version",
+        "context_ordering",
+        "anchor_leaf",
+    }

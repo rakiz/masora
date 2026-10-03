@@ -24,6 +24,15 @@ never a validity input), `off_version` (the lineage's fallback flag) and
 (docs/CPPGRAPH_INTEGRATION.md §6) — it never computes ancestry and never
 treats the stamps as validity.
 
+Contract v3 adds, ADDITIVELY (shape change = version bump — no in-place
+enrichment), the multi-symbol rendering inputs: each fact carries
+`anchor_leaf` (the SHORT leaf of the first matched anchor identity — a
+rendering input cppgraph's §6 multi-symbol rule consumes, derived by masora
+because masora owns the identity format), and the document carries the
+matching counters `lineages_examined` / `lineages_matched` plus the
+`presence_hint` capability line (masora owns its wording so tool renames
+never drift cppgraph's literals — docs/CPPGRAPH_INTEGRATION.md §6).
+
 Hard failures exit 1 with a diagnostic on stderr and nothing on stdout; the
 two warning classes are in-band and never errors: `stale_warning` (index
 drift on four axes — base HEAD, code HEAD, graph indexed commit, and
@@ -43,7 +52,14 @@ from .diagnostics import E_FACTS_NO_BASE, E_FACTS_NOINDEX, E_IDX_REPO, Diag
 from .index import IndexingError, _open_index, index_db_path, index_stale
 from .write import WriteError, auto_base, origin_state
 
-CONTRACT_VERSION = 2
+CONTRACT_VERSION = 3
+# Rendered VERBATIM by cppgraph when zero facts render and zero lineages
+# were examined (docs/CPPGRAPH_INTEGRATION.md §6): masora owns the wording so
+# tool renames never drift cppgraph's literals.
+PRESENCE_HINT = (
+    "masora: present for this checkout — the masora search / explain /"
+    " list_stale MCP tools recall recorded knowledge."
+)
 _FLAG_NAMES = ("suspect", "doubted", "pending", "unknown", "unanchored")
 # The index's stored per-version relation (masora/index.py, §6.2) mapped onto
 # the v2 contract enum: `relation_unknown` is reported as `unknown`; a NULL
@@ -74,6 +90,17 @@ def run(repo: Path, symbols: list[str] | None = None) -> int:
 
 def _flags(values: tuple[int, ...]) -> str:
     return ",".join(name for name, value in zip(_FLAG_NAMES, values) if value) or "-"
+
+
+def _anchor_leaf(identity: str) -> str:
+    # The SHORT leaf of an anchor identity: after the last `#` (the
+    # disambiguation separator) or, when the identity has none, after the
+    # last `/`; up to but excluding the `(` hash; a trailing `.` stripped.
+    # Deterministic and masora-owned: masora owns the identity format
+    # (docs/CPPGRAPH_INTEGRATION.md, the symbol identity section).
+    head = identity.rsplit("#", 1)[1] if "#" in identity else identity.rsplit("/", 1)[-1]
+    head = head.split("(", 1)[0]
+    return head.removesuffix(".")
 
 
 def _facts(repo: Path, symbols: list[str] | None) -> dict:
@@ -128,6 +155,7 @@ def _facts(repo: Path, symbols: list[str] | None) -> dict:
         stale = index_stale(db, base_dir, repo)
         meta = dict(conn.execute("SELECT key, value FROM meta").fetchall())
         facts = []
+        lineages_examined = 0
         for row in conn.execute(
             "SELECT lineage, displayed, resolution, verification, off_version,"
             " context_ordering, suspect, doubted, pending, unknown, unanchored"
@@ -142,6 +170,7 @@ def _facts(repo: Path, symbols: list[str] | None) -> dict:
                 ordering,
                 *flag_values,
             ) = row
+            lineages_examined += 1
             effective = displayed
             if effective is None:
                 newest = conn.execute(
@@ -193,6 +222,10 @@ def _facts(repo: Path, symbols: list[str] | None) -> dict:
                     matched = list(dict.fromkeys(s for s in symbols if s in anchor_identities))
             if symbol_set is not None and not matched:
                 continue
+            # The leaf of the FIRST matched anchor (call order) — a rendering
+            # input for cppgraph's multi-symbol responses; null when no
+            # symbols were passed (the document is then symbol-unbound).
+            anchor_leaf = _anchor_leaf(matched[0]) if matched else None
             facts.append(
                 {
                     "lineage": lineage,
@@ -205,6 +238,7 @@ def _facts(repo: Path, symbols: list[str] | None) -> dict:
                     "effort": effort,
                     "anchors": anchor_identities,
                     "anchors_matched": matched,
+                    "anchor_leaf": anchor_leaf,
                     "established_relation": established_relation,
                     "established_commit": established_commit,
                     "off_version": bool(off_version),
@@ -213,10 +247,18 @@ def _facts(repo: Path, symbols: list[str] | None) -> dict:
             )
     finally:
         conn.close()
+    # The hint carries only the empty-and-unexamined case: with facts present
+    # the response is already knowledge, and with examined-but-unmatched
+    # lineages cppgraph derives its own staleness line from the counters
+    # (docs/CPPGRAPH_INTEGRATION.md §6).
+    presence_hint = PRESENCE_HINT if not facts and lineages_examined == 0 else None
     return {
         "contract_version": CONTRACT_VERSION,
         "repo_head": providers.repo_head(repo),
         "graph_commit": meta.get("graph_commit") or None,
         "stale_warning": stale,
+        "lineages_examined": lineages_examined,
+        "lineages_matched": len(facts),
+        "presence_hint": presence_hint,
         "facts": facts,
     }

@@ -10,6 +10,21 @@
 
 ### Added
 
+- **Facts contract v3 (the cppgraph implementer's friction, accepted)** —
+  the shape is v2 PLUS: per-fact `anchor_leaf` (the short leaf of the first
+  matched anchor, masora-derived — the rendering input for multi-symbol
+  responses, which now read `masora: <summary> [status] — <leaf>`), the
+  `lineages_examined`/`lineages_matched` counters, and a masora-owned
+  `presence_hint` field (rendered verbatim by cppgraph when zero facts
+  render and nothing was examined — the tool names live with masora, no
+  more cross-repo literal). §6's zero-fact rendering is now DIFFERENTIATED:
+  nothing examined → the presence hint; lineages examined but none matched
+  (identity drift after a graph re-index) → a counter-derived staleness
+  line naming no tools — the audit's silent-recall-decay risk made visible
+  at recall time. The bump follows the governance rule (shape change =
+  version bump — no in-place enrichment, the v1 precedent not repeated).
+  (+10 tests.)
+
 - **Symbol-format version gate** — the symbol identity format (the exact
   shape of `symbols.symbol`, the spine of the masora↔cppgraph coupling:
   anchors embed it verbatim into the base's event files) is now VERSIONED

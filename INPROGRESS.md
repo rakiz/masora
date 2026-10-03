@@ -3,9 +3,10 @@
 ## Current phase
 
 **Working now:** nothing — the sync selection feature (TODO.md Phase 2.5,
-`--only`/`--exclude`) is done, reviewed (APPROVE, no findings, 764 tests
-green) and waiting for the owner's go to commit. Next task: the first rollout
-(TODO.md).
+`--only`/`--exclude`) is committed (67f3fbb) and eligible for the next release. The owner-facing
+audit is in AUDIT.md (uncommitted): top items = wire the structural proof
+replay, fix the publication-gate deletion bug, freshness automation. Next
+task: run the pre-registered evaluation, then the first rollout (TODO.md).
 
 ## Context the next session needs
 

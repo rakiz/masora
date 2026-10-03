@@ -18,19 +18,95 @@ Settled 2026-09-25 with the design owner — decisions recorded in MASORA_DESIGN
   already decided by gc (tombstones + removed files) always ride. Plan mode
   shows the filtered set, the counts and what was excluded.
 
-## Bug tickets (live-rollout reports)
-
-- [ ] **sync: deletion detection is merge-base-relative** (live-rollout
-  report, 0.7.0, shared-base workstation): event DELETIONS that reached
-  origin/main via the `masora/pending` branch are invisible to a later
-  `masora gc`/sync when the local main is stale — the detection compares
-  against the merge-base (`sync.py:154`), and a behind main hides
-  already-published deletions. Reproduced live; workaround applied there:
-  advance the local main before re-running gc. Fix: the published-set read (`_published_ids`)
-  should compare against `origin/main` as fetched during the sync pipeline,
-  or the gate should refuse when local main is behind.
-
 ## Phases
+
+### Phase 3: correctness sweep (AUDIT.md waves 1-2, ordered 2026-10-03)
+
+Guard the invariants, then make the trust labels honest. Suite green across
+the wave; commit at the wave boundary, nothing pushed.
+
+- [ ] H2 — `sync --push` preserves locally COMMITTED events that the
+  selection excluded: today `update-ref` + `reset --hard` drop them
+  (reflog-only recovery), breaking the `--exclude` promise for committed
+  events. Rebase the local main onto the pushed tree or refuse when main
+  carries unselected commits.
+- [ ] H3 — search hardening: escape/quote the FTS5 MATCH expression
+  (`C++`, `a.b`, apostrophes and friends currently raise), bm25 ranking,
+  result cap + cap reporting (SPEC.md:16's "every cap is reported").
+- [ ] Publication gate — deletion detection reads `origin/main` AFTER the
+  sync fetch (today: merge-base-relative, a stale local main hides
+  published deletions; the live-rollout ticket — absorbed here).
+- [ ] M10 — atomic event writes: temp file + `os.replace` (a concurrent
+  session's check must never see a half-written event, and must never
+  unlink its own valid event because of one).
+- [ ] M9 — gc fetches before judging published-ness (a stale
+  remote-tracking ref resurrects tombstoned lineages at PR merge), and a
+  tombstoned lineage no longer hard-fails every writer's check when
+  another writer appends to it (surface + instruct, don't brick).
+- [ ] M5 — secret scan covers `name`, `unanchored_reason` and
+  `proof_query.args`/`expect`.
+- [ ] H1 (honesty step) — a structural claim's `verified` states explicitly
+  "proof not replayed" (flag/status), and SPEC.md:16's replay promise is
+  amended to the honest two-step (mark now, real replay scoped to the
+  cppgraph integration later). W-REPLAY keeps covering standalone check.
+- [ ] H4 — `source: human` is not writable from the MCP surface (local CLI
+  with interactive confirmation only) — the trust label must not be
+  forgeable by a prompt-injected agent.
+- [ ] Contract amendments: FORMAT.md §4 `lines` — document the real cap and
+  drop the "feeds the off-version guard's evidence" overclaim (nothing
+  reads the stamp); capture a FIXED ref set (HEAD upstream + default
+  branch), not first-16-lexicographic. SPEC.md:20 — v1 anchors are
+  `code` only. M1 — an unavailable graph stores its observed
+  source_commit in a separate meta key (the staleness axis must NOT hide
+  the "graph became usable later" case; `stored.get` is the WRONG fix).
+- [ ] M11 — the ULID wall-clock is the fold's logical clock: document the
+  multi-writer skew policy loudly (warning + ordering caveat), defer any
+  mechanism.
+
+### Phase 4: robustness/perf sweep (AUDIT.md wave 3)
+
+- [ ] M2 — memoize anchor fingerprints per `(provider, identity)` per
+  build (double hashing today).
+- [ ] M3 — shared parse pass in the write path (O(n) per write, not 2-4
+  full parses).
+- [ ] M4 — `timeout=` + `GIT_TERMINAL_PROMPT=0` on every `subprocess.run`
+  (a hung git blocks sync; an MCP call can spend the whole probe budget).
+- [ ] M6 — close the cppgraph sqlite handle in explain.
+- [ ] M7 — deep-YAML `RecursionError` → `E-YAML` diagnostic, not a
+  traceback.
+- [ ] M8 — index identity hashes the base path (basename-only collision).
+- [ ] LOW sweep — fold docstring convergence overpromise; `gh` JSON
+  traceback; missing-git-binary → diagnostic not `FileNotFoundError`;
+  atomic `deleted.toml` append; `auto_base` refuses a matched-but-
+  malformed mapping (wrong-base write risk); MCP index reuse when keyed
+  differently; stdio UTF-8 reconfigure; `explain` on an event ULID
+  resolves to the lineage or refuses; `setup` clone `--` guard; config
+  regeneration keeps comments; unique `.building` tmp per build;
+  `proof_query` float args round-trip.
+
+### Phase 5: evaluation (AUDIT.md wave 4)
+
+- [ ] Run the pre-registered agent-graded evaluation (below) — ONLY after
+  Phase 3's search hardening; it is the go/no-go evidence for the project.
+
+### Phase 6: team life (AUDIT.md wave 5)
+
+- [ ] Freshness automation: SessionStart hook (background pull + re-index +
+  one-line stale summary; silent failure; §10.1 caps).
+- [ ] Multi-writer kit: per-author pending branch (`masora/<author>`),
+  tombstone-union tooling for concurrent gc PRs, reusable CI action
+  running `masora check` on base PRs, `unrefute` MCP tool.
+- [ ] `masora doctor` (clone health, git identity, gh auth, graph store,
+  config) + the refoundation runbook (explicit-confirm `reset
+  --from-origin`; NEVER automatic — tamper evidence stays intact).
+- [ ] Deferred until ×10 base scale: probe-budget scaling (commit-graph
+  ancestry or recency-first with an old-lineage floor), real structural
+  replay scoped to the cppgraph integration, `history`/`recheck` tools.
+
+(The merge-base-relative deletion-detection bug ticket that lived here is
+absorbed into Phase 3.)
+
+## Phases archive
 
 ### Phase 1: v0 core
 

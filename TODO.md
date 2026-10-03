@@ -86,8 +86,18 @@ the wave; commit at the wave boundary, nothing pushed.
 
 ### Phase 5: evaluation (AUDIT.md wave 4)
 
-- [ ] Run the pre-registered agent-graded evaluation (below) — ONLY after
+- [x] Run the pre-registered agent-graded evaluation (below) — ONLY after
   Phase 3's search hardening; it is the go/no-go evidence for the project.
+  RUN 2026-10-03: verdict **FAIL** per the §6 rule (tool-call clause:
+  266 WITH > 249 WITHOUT; the other clauses pass — wrong deductions 1 vs 3,
+  tokens 14.73M vs 15.85M) — with the engagement caveat that the WITH
+  mechanism never fired in 80 runs (0 injections, 0 masora tool calls), so
+  the deltas are paired-run noise. Recorded in the local sheet
+  (~/.local/share/masora/eval-2026-10-03/SHEET.md, off this repo — private
+  base content); the §6 action is fix-recall (Phase 2's UserPromptSubmit
+  hook); adoption is the owner's call. The run also caught, and drove the
+  deployment of, the dead cppgraph injection channel (installed 0.4.5
+  rejected facts contract v2; the fix existed in cppgraph 0.4.8).
 
 ### Phase 6: team life (AUDIT.md wave 5)
 

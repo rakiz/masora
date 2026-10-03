@@ -2,33 +2,30 @@
 
 ## Current phase
 
-**Working now:** Phase 5 (evaluation, AUDIT.md wave 4) — the RUN of the
-pre-registered protocol (docs/EVALUATION.md). Seed-check done 2026-10-03:
-the base masora-mdb is now branched on this machine (setup from
-git@github.com:10gen/masora-mdb; fresh clone = post-refoundation main;
-`masora check` PASSED — the only warning is the known W-REPLAY), the index
-is rebuilt for ~/code/mongo (195 lineages / 309 versions; W-CTX-DEGRADED on
-114 — shallow clone, recorded not fixed), the cppgraph graph for mongo is
-fresh (source_commit = checkout HEAD), and the contamination check is clean
-(no masora trace in the checkout's or the global agent config). The corpus
-is bound: 20 tasks (16 grounded + 4 controls) → claim ULIDs, run order
-shuffled once (seed 20261003), all in the recording sheet at
-~/.local/share/masora/eval-2026-10-03/SHEET.md — OFF this public repo
-(private base content). Steps: [x] seed-check + binding; [ ] harness dry
-run (claude -p, stream-json, per-condition MCP configs); [ ] the 40-run
-batch in seeded order (owner-validated cost before launch); [ ] score
-(a)–(d), join conditions, apply the §6 verdict rule, archive the sheet.
-**The 40-run batch is EXECUTING in the background** (nohup,
-~/.local/share/masora/eval-2026-10-03/run_batch.sh, log batch.log, rows in
-runs.csv; harness validated by an unscored probe). Scoring happens after
-the last run. In parallel (different repo, zero interference — the eval
-uses the installed masora 0.7.0 snapshot):
+**Working now:** nothing — the audit's Phases 5 and 6 are done (2026-10-03).
 
-**Phase 6 (team life, AUDIT.md proposals 5-7), wave 6a in progress:**
-`unrefute` MCP tool, `masora doctor`, `reset --from-origin`
-(plan-then-confirm, never automatic) + the refoundation runbook doc.
-Wave 6b follows: SessionStart hook + auto re-index, per-author pending
-branch, tombstone-union tooling, CI check action. Nothing pushed.
+- **Phase 5 (evaluation)**: the pre-registered protocol RAN on the real base
+  (masora-mdb, branched on this machine via setup; seed-check clean, 20
+  tasks bound to claim ULIDs, seed 20261003, 40 runs over two batches —
+  batch #1 VOID: the installed cppgraph 0.4.5 rejected facts contract v2
+  fail-closed so the WITH injection was dead; deploying the dev repo's
+  v0.4.8 fixed the channel, verified live end-to-end). Verdict per §6:
+  **FAIL** (tool-call clause 266 > 249; wrong deductions 1 < 3 and tokens
+  14.73M < 15.85M pass) — with the recorded engagement fact: the WITH
+  mechanism never fired in 80 runs (0 injections — no scoped query hit a
+  claim-anchored symbol; 0 masora tool calls), so the deltas are paired-run
+  noise. Action: fix recall — the passive channel does not engage under
+  neutral conditions; the pre-seeded lever is Phase 2's UserPromptSubmit
+  hook. Adoption: owner's decision. Full record: the local sheet
+  (~/.local/share/masora/eval-2026-10-03/, OFF this repo).
+- **Phase 6 (team life)**: wave 6a (commit 03769fd) — unrefute MCP tool,
+  masora doctor, guarded reset --from-origin + the refoundation runbook;
+  wave 6b (commit d22d01a) — per-author pending branch, masora union,
+  SessionStart hook, CI check template. Both waves reviewed APPROVE (zero
+  findings), 871 tests green.
+
+Next: the owner rules on adoption (the verdict's action) and whether Phase
+2's UserPromptSubmit hook becomes the recall fix. Nothing pushed.
 
 ## Context the next session needs
 

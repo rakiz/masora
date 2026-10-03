@@ -2,11 +2,19 @@
 
 ## Current phase
 
-**Working now:** nothing — the sync selection feature (TODO.md Phase 2.5,
-`--only`/`--exclude`) is committed (67f3fbb) and eligible for the next release. The owner-facing
-audit is in AUDIT.md (uncommitted): top items = wire the structural proof
-replay, fix the publication-gate deletion bug, freshness automation. Next
-task: run the pre-registered evaluation, then the first rollout (TODO.md).
+**Working now:** nothing — Phase 3 (correctness sweep, AUDIT.md waves 1-2) is
+IMPLEMENTED (uncommitted): H2 sync --push preservation of committed excluded
+events, H3 search hardening (safe MATCH expression, bm25 ranking, 20-hit cap
+with omitted count), the publication gate (origin tombstones applied from the
+post-fetch origin/main; stale local mains neither resurrect nor brick), M10
+atomic event writes, M9 gc fetch + tombstone-remedy wording, M5 secret-scan
+field coverage, H1 "proof not replayed" honesty step, H4 `source: human`
+refused over MCP (E-MCP-HUMAN), the FORMAT/SPEC contract amendments (fixed
+`lines` ref set, code-only v1 anchors, M1 graph staleness meta split), and
+the M11 ULID skew policy documentation. Suite 779 green, ruff clean. Next:
+the orchestrator commits the wave; then Phase 4 (robustness/perf sweep) and
+the pre-registered evaluation. The owner-facing audit is in AUDIT.md
+(uncommitted).
 
 ## Context the next session needs
 

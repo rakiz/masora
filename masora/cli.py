@@ -18,7 +18,8 @@ from .index import (
     build_index,
     index_db_path,
     index_stale_reason,
-    search_index,
+    search_index_capped,
+    search_omitted_line,
     search_result_lines,
 )
 from .init import run as run_init
@@ -624,7 +625,7 @@ def _run_search(base_dir: Path, query: str, repo: Path, any_version: bool = Fals
         return 1
     db = index_db_path(base_dir, repo)
     try:
-        hits = search_index(db, query, any_version=any_version)
+        hits, total = search_index_capped(db, query, any_version=any_version)
     except IndexingError as exc:
         print(f"  {exc.diag.render()}")
         return 2 if exc.diag.code == E_IDX_QUERY else 1
@@ -637,6 +638,9 @@ def _run_search(base_dir: Path, query: str, repo: Path, any_version: bool = Fals
         return 0
     for line in search_result_lines(hits):
         print(line)
+    omitted = total - len(hits)
+    if omitted:
+        print(search_omitted_line(omitted, query))
     return 0
 
 

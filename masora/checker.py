@@ -98,7 +98,10 @@ def check_base(base_dir: Path) -> CheckResult:
                 Diag(
                     "error",
                     E_TOMBSTONED,
-                    f"event id or lineage appears in deleted.toml: {record.id}",
+                    f"event id or lineage appears in deleted.toml: {record.id} — the lineage was"
+                    " collected by `masora gc` and its ULIDs can never return (FORMAT.md §7.10);"
+                    " record the correction as a NEW lineage (a fresh claim with a new ULID),"
+                    " never as an extension of the collected lineage",
                     record.path,
                 )
             )

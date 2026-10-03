@@ -167,7 +167,15 @@ Pipeline (each step's failures abort with exit 1):
 8. **Publication**: one plumbing commit (merged tree, parent = `origin/main`)
    on `masora/pending`, pushed `--force-with-lease`; PR opened or updated via
    `gh`, or the compare URL printed. Idempotent: when the branch already
-   carries the pending set, nothing is pushed.
+   carries the pending set, nothing is pushed. In solo `--push` mode the push
+   goes straight to `origin/main`, and events COMMITTED on local main but
+   excluded from the selection are preserved: main is advanced to a
+   preservation commit (the pushed tree plus the excluded event files), never
+   reset back over them (H2). Deletions already PUBLISHED by another writer
+   (origin/main's post-fetch tombstone table) are applied to the merged tree
+   — a stale local main neither resurrects them nor bricks the sync; a NEW
+   local event on a lineage tombstoned upstream still refuses at the
+   merged-result check (the gc race is surfaced, §7.10).
 
 Between the diff (step 3) and the tampering checks (step 4), the pending CLAIM
 events run through the stacking audit (`masora/audit.py`, MASORA_DESIGN.md
@@ -660,21 +668,25 @@ that repo's origin remote), an unmapped repo is told to run
 never guesses); ULIDs come from
 `ulid.new_ulid()` (monotonic in-process); every event write tool-captures the
 optional `lines` fork-point stamp (FORMAT.md §4, `write.capture_lines()`):
-per known line ref of the CODE checkout — the clone's branch refs (local
-heads + remote-tracking branches, symbolic `…/HEAD` excluded), deduplicated,
-sorted, capped at `write.LINES_CAP` (16) — `git merge-base <establishing
-commit> <ref>`; a ref whose merge-base fails is omitted silently, no success
-at all omits `lines` entirely (absence IS the unknown value). The stamp is
+per ref of the FIXED capture set of the CODE checkout — the HEAD's upstream
+and the repo's default branch (`origin/HEAD`), deduplicated — `git
+merge-base <establishing commit> <ref>`; a ref whose merge-base fails is
+omitted silently, no success at all omits `lines` entirely (absence IS the
+unknown value). The stamp is
 never an agent-facing argument (no write tool accepts one), and CONTEXT only:
 nothing in the fold, the index or gitctx reads it; the event dict is
 pre-validated with
 `schema.validate_event` and secret-scanned — high-confidence credential shapes
-in `summary`/`statement`/`reason`/`evidence` are refused with
+in `summary`/`statement`/`reason`/`name`/`unanchored_reason`/`evidence`, the
+question/keyword items and `proof_query.args`/`expect` (stringified) are
+refused with
 `E-WRITE-SECRET`, nothing written (discussing passwords passes: naming
 fields, short or single-class values) —, then emitted in the canonical block
 style (plain keys,
 quoted identity/hash values, JSON-style control-char escaping —
-`emit_event()`), written to
+`emit_event()`), written ATOMICALLY (temp file in the same directory +
+`os.replace` — a concurrent session's `check` never sees a half-written
+event) to
 `<YYYY-MM>/<slug>-<lineage>/<id>.<kind>.md` — extensions join the lineage's
 existing directory, founders create it in their month — after a shared
 `check_base` pre-check

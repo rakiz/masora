@@ -940,6 +940,16 @@ SPEC.md). Items 6 and 8 remain postponed.
     on its own line fires off-version; undecidable from git; the note
     keeps displaying with its context and only leaves the re-verification
     list).
+    (q) Phase 3 correctness-sweep rulings (2026-10-03, from the validated
+    audit): the `lines` fork-point stamp captures a FIXED ref set — the
+    HEAD's upstream and the repo's default branch only (never a
+    first-16-lexicographic clone scan) — and nothing reads the stamp at all
+    (the "off-version guard's evidence" phrasing is retracted); the ULID
+    wall clock is the fold's logical clock and multi-writer skew is WARNED
+    (W-SKEW + the `targets`-after-`id` warning) with the tier-2 ordering
+    caveat stated — no synchronization mechanism in v1; a structural
+    verification states "proof not replayed" explicitly (the honest two-step,
+    real replay scoped to the cppgraph integration).
 
 Non-blocking refinements recorded from the design review (not Phase 1 scope):
 computed-status presentation matrix (`current + suspect`, `stale + suspect`,

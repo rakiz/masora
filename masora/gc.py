@@ -26,6 +26,7 @@ from .sync import (
     REMOTE,
     EventFile,
     SyncError,
+    _fetch,
     _render_tombstone,
     _scan_events,
     _tombstone_pairs,
@@ -204,10 +205,19 @@ def _build_plan(base_dir: Path, requested: list[str], pre: CheckResult) -> GcPla
 def _origin_tree_paths(base_dir: Path) -> set[str] | None:
     """The file paths of origin/main's tree — the published-ness oracle: a
     lineage is published iff one of its event files is in there. One read-only
-    ls-tree, no fetch (the remote-tracking ref is as of the last one). None
+    ls-tree, preceded by a `git fetch` (M9: judging published-ness against a
+    STALE remote-tracking ref resurrects tombstoned lineages at PR merge —
+    fetch first, same semantics as sync; when the fetch fails — offline, no
+    network — fall back to the last fetched ref rather than guessing). None
     when origin/main does not resolve — no origin remote or no main branch
-    means nothing was ever published. A git failure raises: published-ness is
-    never guessed silently."""
+    means nothing was ever published. A ls-tree failure raises: published-ness
+    is never guessed silently."""
+    try:
+        _fetch(base_dir)
+    except SyncError:
+        # Offline or unreachable remote: the last fetched origin/main is the
+        # best available evidence — read it directly instead of failing.
+        pass
     rev = subprocess.run(
         [
             "git",

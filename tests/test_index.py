@@ -32,6 +32,7 @@ from masora.config import bases_root, indexes_root
 from masora.diagnostics import E_IDX_CORRUPT
 from masora.fold import Event
 from masora.index import (
+    SEARCH_CAP,
     IndexingError,
     build_index,
     file_fingerprint_provider,
@@ -39,6 +40,7 @@ from masora.index import (
     index_stale,
     index_stale_reason,
     search_index,
+    search_index_capped,
 )
 from masora.providers import cppgraph_registry
 from masora.resolve import AnchorData, VersionData, resolve_lineage
@@ -290,33 +292,70 @@ def test_pending_flag_via_origin_diff(git_base, repo, home):
     assert db_rows(result.db_path, "SELECT pending FROM lineages") == [(0,)]
 
 
-def test_fts_query_syntax_error(base, repo, home, capsys):
-    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+def test_fts_previously_failing_query_shapes_no_longer_raise(base, repo, home, capsys):
+    """H3: raw user queries — code identifiers, punctuation, natural language —
+    are escaped into a safe MATCH expression: they return (possibly empty)
+    results instead of an E-IDX-QUERY syntax error."""
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, summary=f"The {TOKES} rotates"))
     main(["index", str(base), "--repo", str(repo)])
-    code = main(["search", str(base), "(unclosed", "--repo", str(repo)])
-    out = capsys.readouterr().out
-    assert code == 2
-    assert "E-IDX-QUERY" in out
-
-
-def test_fts_query_syntax_error_without_fts_marker_in_message(base, repo, home, capsys):
-    write_event(base, CLAIM_REL, make_claim(ULID_L1))
-    main(["index", str(base), "--repo", str(repo)])
-    for query in ('"', "NEAR(x y", "AND", "a OR"):
+    for query in (
+        "(unclosed",
+        '"',
+        "NEAR(x y",
+        "AND",
+        "a OR",
+        "C++",
+        "a.b",
+        "state:foo",
+        "how does it work?",
+        "what's",
+    ):
         code = main(["search", str(base), query, "--repo", str(repo)])
         out = capsys.readouterr().out
-        assert code == 2, f"{query!r}: {out}"
-        assert "E-IDX-QUERY" in out, f"{query!r}: {out}"
-        assert "E-IDX-CORRUPT" not in out
+        assert code == 0, f"{query!r}: {out}"
+        assert "E-IDX-QUERY" not in out, f"{query!r}: {out}"
 
 
-def test_fts_query_syntax_error_without_fts_marker_direct(base, repo, home):
-    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+def test_fts_identifiers_and_natural_language_match_or_return_empty(base, repo, home):
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, summary=f"The {TOKES} rotates"))
     result = build_index(base, repo)
-    for query in ('"', "NEAR(x y", "AND", "a OR"):
-        with pytest.raises(IndexingError) as exc:
-            search_index(result.db_path, query)
-        assert exc.value.diag.code == "E-IDX-QUERY"
+    # identifier prefixes match
+    assert [h.version for h in search_index(result.db_path, "shard")] == [ULID_L1]
+    assert [h.version for h in search_index(result.db_path, "SHARD KEY")] == [ULID_L1]
+    # a natural-language question is a valid (possibly empty) query
+    assert search_index(result.db_path, "how does it work?") == []
+    # punctuation-only queries are empty, not errors
+    assert search_index(result.db_path, "+++ ??") == []
+
+
+def test_fts_or_is_honoured_between_escaped_groups(base, repo, home):
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, summary=f"The {TOKES} rotates"))
+    write_event(base, L2_REL, make_claim(ULID_L2, summary="Le café tourne"))
+    result = build_index(base, repo)
+    assert {h.version for h in search_index(result.db_path, "zzzunfindable OR shard")} == {ULID_L1}
+
+
+def test_search_ranks_by_bm25_best_first(base, repo, home):
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, summary="shard shard shard shard"))
+    write_event(base, L2_REL, make_claim(ULID_L2, summary="mentions shard once"))
+    result = build_index(base, repo)
+    hits = search_index(result.db_path, "shard")
+    assert [h.version for h in hits] == [ULID_L1, ULID_L2]
+
+
+def test_search_caps_results_and_reports_the_omitted_count(base, repo, home, capsys):
+    for i in range(SEARCH_CAP + 3):
+        ulid = f"01J8Z3K{i:019d}"
+        write_event(base, f"2026-09/x/{ulid}.claim.md", make_claim(ulid, summary=f"cap filler {i}"))
+    result = build_index(base, repo)
+
+    hits, total = search_index_capped(result.db_path, "cap filler")
+    assert len(hits) == SEARCH_CAP and total == SEARCH_CAP + 3
+    main(["index", str(base), "--repo", str(repo)])
+    code = main(["search", str(base), "cap filler", "--repo", str(repo)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "... 3 more — masora search 'cap filler'" in out
 
 
 def test_index_dir_not_writable(base, repo, tmp_path, monkeypatch):
@@ -1179,3 +1218,42 @@ def test_cli_search_renders_the_hit_context_suffixes(base, repo, home, capsys):
     assert "[context: degraded]" in lines[2]
     assert "flags: off-version" in lines[2]
     assert "[context: degraded]" not in lines[3]
+
+
+def test_stale_graph_meta_distinguishes_unusable_graph_from_reindex(base, home, tmp_path):
+    """M1: built while the graph store was unusable (behind HEAD) — the
+    observed source_commit lands in a SEPARATE meta key, and the staleness
+    axis does NOT cry wolf when nothing changed."""
+    repo, head = cpp_repo(tmp_path)
+    # A store indexed at an OLD commit → registry unavailable at build time.
+    write_cppgraph(repo, SHA, V1_SYMBOLS, [(SYM_A, SYM_B), (SYM_A, SYM_C)])
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, summary="One line summary"))
+    result = build_index(base, repo)
+    assert result.graph_commit is None  # never usable at build time
+    meta = dict(db_rows(result.db_path, "SELECT key, value FROM meta"))
+    assert meta["graph_commit"] == ""
+    assert meta["graph_seen_commit"] == SHA
+
+    # Nothing moved (the store is the same): no cry-wolf.
+    assert index_stale_reason(result.db_path, base, repo) is None
+
+    # The store is then re-indexed at the current HEAD: the graph became
+    # usable later — a REAL staleness, never hidden.
+    write_cppgraph(repo, head, V1_SYMBOLS, [(SYM_A, SYM_B), (SYM_A, SYM_C)])
+    reason = index_stale_reason(result.db_path, base, repo)
+    assert reason is not None and "became usable" in reason
+
+
+def test_stale_graph_meta_names_reindex_when_built_usable(base, home, tmp_path):
+    repo, head = cpp_repo(tmp_path)
+    write_cppgraph(repo, head, V1_SYMBOLS, [(SYM_A, SYM_B), (SYM_A, SYM_C)])
+    write_event(
+        base,
+        CLAIM_REL,
+        make_claim(ULID_L1, summary="One line summary", anchors=[code_anchor(repo)]),
+    )
+    result = build_index(base, repo)
+    assert result.graph_commit == head
+    write_cppgraph(repo, SHA, V1_SYMBOLS, [(SYM_A, SYM_B), (SYM_A, SYM_C)])
+    reason = index_stale_reason(result.db_path, base, repo)
+    assert reason is not None and "re-indexed" in reason

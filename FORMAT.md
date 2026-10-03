@@ -75,6 +75,14 @@ References between events are always **ULIDs**, never file paths.
 - Lexical ULID order is the deliberate tie-break when folding concurrent events
   (e.g. two verifies targeting one version), not a causality guarantee across
   processes.
+- **Wall-clock policy (multi-writer skew)**: the ULID embeds the writer's wall
+  clock, and that clock is the fold's logical clock. Across writers, clock
+  skew silently reorders events — a late writer with a slow clock loses
+  tier-2 ordering ties and its `targets` may lexically exceed its own `id`.
+  This is WARNED at `check` time (W-SKEW, plus the `targets`-after-`id`
+  warning), never solved: there is no clock synchronization mechanism in v1
+  (MASORA_DESIGN.md §12.16) — the ordering caveat is stated, and any mechanism
+  is deferred.
 
 ## 4. Shared field semantics
 
@@ -93,7 +101,7 @@ References between events are always **ULIDs**, never file paths.
 | `summary` | string | single line, no control characters, ≤ 120 characters |
 | `questions` | list, optional | claims only: 1–5 non-empty single-line strings — the READER QUESTIONS this claim answers (concept names, behaviours, decisions — specific, never generic like "How does this work?"); exact-duplicate strings rejected within a list; no semantics in the fold, the anchors or lineage identity — the index FTS matches a claim through its questions and surfaces the matched question |
 | `keywords` | list, optional | claims only: 1–10 non-empty single-line strings — the ALTERNATE VOCABULARY a reader might query with (synonyms, domain terms, event/test/component names); exact-duplicate strings rejected within a list; no semantics in the fold, the anchors or lineage identity — the index FTS matches a claim through its keywords and surfaces the matched keyword |
-| `evidence` | list | pointers proving a statement (graph query, file range, test name, URL); mandatory and non-empty on `.verify` (it must include the recorded proof replay when the target is structural); optional on `.doubt`/`.undoubt`/`.refute`/`.unrefute`; forbidden on `.claim`; v1 accepts free strings, a structured locator form (`{kind, ref, digest?, range?}`) is reserved for later — the writer normalizes, never the agent's raw prose alone |
+| `evidence` | list | pointers proving a statement (graph query, file range, test name, URL); mandatory and non-empty on `.verify` (for a structural target it includes the recorded proof query plus the tool's explicit `proof not replayed` qualifier — the tool does not execute the proof, see §5.2); optional on `.doubt`/`.undoubt`/`.refute`/`.unrefute`; forbidden on `.claim`; v1 accepts free strings, a structured locator form (`{kind, ref, digest?, range?}`) is reserved for later — the writer normalizes, never the agent's raw prose alone |
 | `anchors` | list | `{provider, identity, fingerprint, snapshot?}`; `snapshot` is provider-typed (code: `{edges, neighbours}`) |
 | `snapshots` | mapping | `.verify` only — this event's own suspect snapshot keyed by anchor identity, same per-anchor value shape as the claim's anchor snapshots |
 
@@ -105,8 +113,9 @@ Timestamps: events carry `recorded_at` / `verified_at` as block mappings
 `graph_commit` is the cppgraph-indexed commit (40-hex): mandatory when code
 anchors or snapshots are present, optional when other event kinds record graph
 context, and `null` when no graph was available. `lines` is the OPTIONAL
-fork-point map: `{branch-name: fork-point SHA}` — for EVERY line ref the tool
-knows at write/verify time, `merge-base(HEAD, <line ref>)` (40-hex). Squash
+fork-point map: `{branch-name: fork-point SHA}` — for the FIXED capture set of
+line refs (the HEAD's upstream and the repo's default branch — never a
+clone-wide scan), `merge-base(HEAD, <line ref>)` (40-hex). Squash
 merges destroy the establishing commit's reachability; the fork point lives ON
 each line and survives it — it is the mechanical, never-guessed record of
 "which lines this note's state connects to, and where it diverged". Captured
@@ -121,9 +130,11 @@ unstamped files beside new stamped ones): a reader consuming only
 `commit`/`graph_commit` is complete — it must accept both the presence and
 the absence of `lines` (`format_version` stays 1, so there is no version to
 branch on), must not require the field, and must treat its absence as
-exactly the unknown value. The map is CONTEXT (rendering,
-cross-line labelling, the off-version guard's evidence) — the resolution
-resolution ranking is defined in MASORA_DESIGN.md §6.2 and never reads it;
+exactly the unknown value. The map is CONTEXT (rendering and cross-line
+labelling only — nothing reads it for the resolution, and the earlier
+"feeds the off-version guard's evidence" claim is retracted: nothing reads
+the stamp at all; MASORA_DESIGN.md §12.16(l)); the resolution
+ranking is defined in MASORA_DESIGN.md §6.2 and never reads it;
 absent `lines` changes nothing in the resolution; a corpus with NO provable
 git relation recalls exactly as the pre-qualification behavior, except for
 the acknowledged displayed-version change under an `unknown` shadow.
@@ -209,7 +220,8 @@ recorded_at:
   commit: "<40hex>"
   graph_commit: "<40hex>"
   lines:                     # optional, TOOL-captured fork-point stamp (§4):
-    "8.0": "<40hex>"         #   per known line ref, merge-base(commit, ref) at
+    "8.0": "<40hex>"         #   FIXED ref set: HEAD upstream + default branch;
+                              #   merge-base(commit, ref) at
     "master": "<40hex>"      #   write time; never an agent argument, omit when unknown
 unanchored: false
 unanchored_reason: null        # must be null or omitted when unanchored: false;
@@ -265,7 +277,8 @@ verified_at:
   commit: "<40hex>"
   graph_commit: "<40hex>"
   lines:                     # optional, TOOL-captured fork-point stamp (§4):
-    "8.0": "<40hex>"         #   per known line ref, merge-base(commit, ref) at
+    "8.0": "<40hex>"         #   FIXED ref set: HEAD upstream + default branch;
+                              #   merge-base(commit, ref) at
     "master": "<40hex>"      #   write time; never an agent argument, omit when unknown
 evidence:                      # mandatory, non-empty; for a structural target, includes the recorded proof replay
   - "cppgraph .calls 01J… replay: 3 edges, expected 3"
@@ -281,6 +294,14 @@ The claim's fingerprint set is **not** repeated: a verify attests to exactly
 the immutable set recorded on the targeted claim version. The snapshot covers
 exactly the claim's anchor identities, same per-anchor shape.
 
+**Structural targets — the honest two-step (proof not replayed)**: the tool
+does not execute the recorded `proof_query` when a verification is recorded
+(replay is scoped to the cppgraph integration). A verify on a `class:
+structural` target therefore carries an explicit `proof not replayed` line in
+its `evidence` — the event itself states that the recorded proof was not
+replayed, instead of implying a machine check that did not happen. The replay
+promise of SPEC.md is amended accordingly: mark now, replay later.
+
 ### 5.3 `.doubt` / `.undoubt`
 
 ```yaml
@@ -295,7 +316,8 @@ recorded_at:
   commit: "<40hex>"
   graph_commit: "<40hex>"
   lines:                     # optional, TOOL-captured fork-point stamp (§4):
-    "master": "<40hex>"      #   per known line ref, merge-base(commit, ref); omit when unknown
+    "master": "<40hex>"      #   FIXED ref set: HEAD upstream + default branch;
+                              #   merge-base(commit, ref); omit when unknown
 reason: "I ran the case X=0; the summary overstates it."
 ```
 
@@ -316,7 +338,8 @@ recorded_at:
   commit: "<40hex>"
   graph_commit: "<40hex>"
   lines:                     # optional, TOOL-captured fork-point stamp (§4):
-    "master": "<40hex>"      #   per known line ref, merge-base(commit, ref); omit when unknown
+    "master": "<40hex>"      #   FIXED ref set: HEAD upstream + default branch;
+                              #   merge-base(commit, ref); omit when unknown
 reason: "Contradicted by replay: the callee list changed in abc123."
 evidence:
   - "cppgraph .calls replay: 0 of 3 edges"

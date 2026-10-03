@@ -334,7 +334,7 @@ def test_note_happy_path_writes_canonical_event(server, code_repo, base):
     data = load_frontmatter(raw, rel)
     assert data["class"] == "semantic" and data["source"] == "llm"
     assert data["summary"] == "Bring-up order: start before stop"
-    assert data["recorded_at"] == {"commit": head, "graph_commit": head, "lines": {"main": head}}
+    assert data["recorded_at"] == {"commit": head, "graph_commit": head}
     assert data["unanchored"] is False
     assert [anchor["identity"] for anchor in data["anchors"]] == [SYM_A, SYM_C]
     first = data["anchors"][0]
@@ -349,17 +349,22 @@ def test_note_happy_path_writes_canonical_event(server, code_repo, base):
 
 def test_note_stamps_lines_fork_points_from_the_code_checkout(server, code_repo, base):
     repo, head = code_repo
-    git(repo, "branch", "8.0", head)
+    # The FIXED capture set (HEAD upstream + default branch, FORMAT.md §4):
+    # provide both refs locally — the fake ssh remote must never be contacted.
+    git(repo, "update-ref", "refs/remotes/origin/main", head)
+    git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+    git(repo, "config", "branch.main.remote", "origin")
+    git(repo, "config", "branch.main.merge", "refs/heads/main")
     server.ready()
     text, is_error = server.tool("note", note_args(repo, base))
     assert is_error is False
     rel = text.splitlines()[0].removeprefix("wrote ")
     raw = (base / rel).read_text(encoding="utf-8")
     data = load_frontmatter(raw, rel)
-    # Tool-captured (FORMAT.md §4): per known line ref, merge-base with the
-    # establishing commit, keys in canonical sorted order, quoted.
-    assert data["recorded_at"]["lines"] == {"8.0": head, "main": head}
-    assert raw.index('"8.0":') < raw.index('"main":')
+    # Tool-captured (FORMAT.md §4): merge-base with the fixed ref set, quoted;
+    # the two refs deduplicate to one line.
+    assert data["recorded_at"]["lines"] == {"origin/main": head}
+    assert '"origin/main":' in raw
     assert check_base(base).errors == []
 
 
@@ -373,20 +378,28 @@ def test_write_tools_expose_no_lines_argument(server):
         assert "lines" not in schemas[name].get("properties", {})
 
 
-def test_note_human_name_from_base_git_config(server, code_repo, base):
+def test_note_human_source_is_refused_from_mcp(server, code_repo, base):
+    """H4: human provenance is a local CLI act with interactive confirmation —
+    a tool call (forgeable by a prompt-injected agent) must not sign it."""
     repo, _head = code_repo
     server.ready()
     text, is_error = server.tool("note", note_args(repo, base, source="human"))
-    assert is_error is False
-    rel = text.splitlines()[0].removeprefix("wrote ")
-    data = load_frontmatter((base / rel).read_text(encoding="utf-8"), rel)
-    assert data["source"] == "human"
-    assert data["name"] == "Masora Test"
-    assert "effort" not in data
+    assert is_error is True
+    assert "E-MCP-HUMAN" in text
+    assert "interactive confirmation" in text
+    assert not list(base.rglob("*.md"))
 
 
-def test_note_human_name_absent_when_git_config_unset(code_repo, env, tmp_path):
+def test_note_human_name_absent_when_git_config_unset(code_repo, env, tmp_path, monkeypatch):
+    """The human self-signing logic (unit level): the MCP surface refuses
+    human; the git-config signing stays with the local CLI write path."""
     repo, _head = code_repo
+    from masora.mcp import _apply_provenance
+
+    data: dict = {"source": "human"}
+    _apply_provenance(data, repo, "human", None, None)
+    assert data.get("name") == "Masora Test"
+
     bare = tmp_path / "bare-base"
     bare.mkdir()
     (bare / "base.toml").write_text('name = "test-base"\ncode_remotes = []\n', encoding="utf-8")
@@ -404,21 +417,12 @@ def test_note_human_name_absent_when_git_config_unset(code_repo, env, tmp_path):
         "-m",
         "init",
     )
-    hermetic = dict(env)
-    hermetic["GIT_CONFIG_GLOBAL"] = "/dev/null"
-    hermetic["GIT_CONFIG_SYSTEM"] = "/dev/null"
-    server_env = Server(hermetic)
-    try:
-        server_env.ready()
-        text, is_error = server_env.tool("note", note_args(repo, bare, source="human"))
-        assert is_error is False
-        rel = text.splitlines()[0].removeprefix("wrote ")
-        data = load_frontmatter((bare / rel).read_text(encoding="utf-8"), rel)
-        assert data["source"] == "human"
-        assert "name" not in data
-    finally:
-        server_env.proc.stdin.close()
-        server_env.proc.wait(timeout=15)
+    # Hermetic read: hide the developer's global git identity.
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", "/dev/null")
+    data: dict = {"source": "human"}
+    _apply_provenance(data, bare, "human", None, None)
+    assert "name" not in data
 
 
 def test_note_llm_name_and_effort_from_tool_params(server, code_repo, base):
@@ -436,13 +440,16 @@ def test_note_llm_name_and_effort_from_tool_params(server, code_repo, base):
 def test_note_effort_on_human_source_refused(server, code_repo, base):
     repo, _head = code_repo
     server.ready()
+    # H4 first: human is refused outright from MCP (before provenance checks).
     text, is_error = server.tool("note", note_args(repo, base, source="human", effort="high"))
     assert is_error is True
-    assert "E-PROVENANCE" in text and "effort" in text
+    assert "E-MCP-HUMAN" in text
     assert not list(base.rglob("*.md"))
 
 
 def test_verify_effort_on_human_source_refused(server, code_repo, base):
+    """Human source is refused at the MCP gate (H4); effort-on-human stays
+    refused at the provenance layer for the local CLI path (unit level)."""
     repo, _head = code_repo
     server.ready()
     note_text, _ = server.tool("note", note_args(repo, base))
@@ -459,8 +466,10 @@ def test_verify_effort_on_human_source_refused(server, code_repo, base):
         },
     )
     assert is_error is True
-    assert "E-PROVENANCE" in text
+    assert "E-MCP-HUMAN" in text
     assert not list(base.rglob("*.verify.md"))
+    # effort-on-human remains refused at the provenance layer (E-PROVENANCE,
+    # pinned in tests/test_schema.py) for the local CLI write path.
 
 
 def test_verify_graph_source_not_writable_via_mcp(server, code_repo, base):
@@ -483,7 +492,9 @@ def test_verify_graph_source_not_writable_via_mcp(server, code_repo, base):
     assert not list(base.rglob("*.verify.md"))
 
 
-def test_verify_human_uses_git_config_name_and_renders_verified_human(server, code_repo, base):
+def test_verify_human_source_is_refused_from_mcp(server, code_repo, base):
+    """H4: a verification is the trust act — `source: human` on it must not be
+    writable by a tool call."""
     repo, _head = code_repo
     server.ready()
     note_text, _ = server.tool("note", note_args(repo, base))
@@ -498,12 +509,12 @@ def test_verify_human_uses_git_config_name_and_renders_verified_human(server, co
             "source": "human",
         },
     )
-    assert is_error is False
-    rel = text.splitlines()[0].removeprefix("wrote ")
-    data = load_frontmatter((base / rel).read_text(encoding="utf-8"), rel)
-    assert data["source"] == "human" and data["name"] == "Masora Test"
-    (status,) = build_index(base, repo).statuses
-    assert status.verification == "verified(human)"
+    assert is_error is True
+    assert "E-MCP-HUMAN" in text
+    assert not list(base.rglob("*.verify.md"))
+    # The verified(human) rendering stays covered at the unit level (the fold):
+    # a hand-made human verify renders verified(human) — see tests/test_index.py.
+    assert not list(base.rglob("*.verify.md"))
 
 
 def test_verify_llm_effort_recorded_and_rendered(server, code_repo, base):
@@ -819,7 +830,7 @@ def test_verify_round_trip_moves_index_status(server, code_repo, base):
     data = load_frontmatter((base / rel).read_text(encoding="utf-8"), rel)
     assert data["targets"] == uid
     assert data["source"] == "llm"
-    assert data["verified_at"] == {"commit": head, "graph_commit": head, "lines": {"main": head}}
+    assert data["verified_at"] == {"commit": head, "graph_commit": head}
     assert sorted(data["snapshots"]) == sorted([SYM_A, SYM_C])
     assert data["snapshots"][SYM_A]["edges"] == digest("\n".join(sorted([SYM_B, SYM_C])))
     result = build_index(base, repo)
@@ -879,7 +890,6 @@ def test_verify_wrong_target_kind_is_arg_error(server, code_repo, base):
             "evidence": ["x"],
             "repo_root": str(repo),
             "base": str(base),
-            "source": "human",
         },
     )
     assert is_error is False
@@ -923,14 +933,13 @@ def test_doubt_round_trip_through_index(server, code_repo, base):
             "reason": "I ran the case; the summary overstates it.",
             "repo_root": str(repo),
             "base": str(base),
-            "source": "human",
         },
     )
     assert is_error is False
     doubt_id = text.splitlines()[1].split()[1]
     rel = text.splitlines()[0].removeprefix("wrote ")
     data = load_frontmatter((base / rel).read_text(encoding="utf-8"), rel)
-    assert data["kind"] == "doubt" and data["targets"] == verify_id and data["source"] == "human"
+    assert data["kind"] == "doubt" and data["targets"] == verify_id and data["source"] == "llm"
     (status,) = build_index(base, repo).statuses
     assert status.doubted is True
     text, is_error = server.tool(
@@ -1087,14 +1096,16 @@ def test_search_freshness_axis_catches_uncommitted_note(server, code_repo, base)
     assert "events written since the index build" in text.splitlines()[0]
 
 
-def test_search_invalid_query_is_tool_error(server, code_repo, base):
+def test_search_invalid_query_is_escaped_not_an_error(server, code_repo, base):
+    """H3: a raw FTS-syntax query is escaped into a safe MATCH expression —
+    a (possibly empty) result, never a tool error."""
     repo, _head = code_repo
     server.ready()
     text, is_error = server.tool(
         "search", {"query": "a AND (", "repo_root": str(repo), "base": str(base)}
     )
-    assert is_error is True
-    assert "E-IDX-QUERY" in text
+    assert is_error is False
+    assert "no results" in text
 
 
 def test_mcp_search_star_enumerates(server, code_repo, base):
@@ -1628,3 +1639,56 @@ def test_search_render_ends_with_the_details_line(server, code_repo, base):
     assert "matched keyword: KeyRotation" in text
     lineage_id = text.splitlines()[1].split()[0]
     assert f"details: masora explain {lineage_id}" in text
+
+
+def test_verify_on_structural_claim_states_proof_not_replayed(server, code_repo, base):
+    """H1 honesty step: the proof_query is NEVER executed by the verify tool —
+    the event and the output say so explicitly."""
+    repo, _head = code_repo
+    server.ready()
+    proof_query = {
+        "tool": "cppgraph.calls",
+        "args": {"symbol": SYM_A},
+        "expect": {"op": "count", "value": 2},
+        "provider_version": "0.4.5",
+    }
+    text, is_error = server.tool(
+        "note", note_args(repo, base, **{"class": "structural", "proof_query": proof_query})
+    )
+    assert is_error is False, text
+    uid = text.splitlines()[1].split()[1]
+    text, is_error = server.tool(
+        "verify",
+        {
+            "id": uid,
+            "evidence": ["replay: 2 edges, expected 2"],
+            "repo_root": str(repo),
+            "base": str(base),
+        },
+    )
+    assert is_error is False, text
+    assert "proof not replayed" in text
+    rel = text.splitlines()[0].removeprefix("wrote ")
+    data = load_frontmatter((base / rel).read_text(encoding="utf-8"), rel)
+    assert any(item.startswith("proof not replayed") for item in data["evidence"])
+
+
+def test_refute_human_source_is_refused_from_mcp(server, code_repo, base):
+    """H4: refutations carry the trust label too — human is a local CLI act."""
+    repo, _head = code_repo
+    server.ready()
+    note_text, _ = server.tool("note", note_args(repo, base))
+    uid = note_text.splitlines()[1].split()[1]
+    text, is_error = server.tool(
+        "refute",
+        {
+            "id": uid,
+            "reason": "contradicted by the code",
+            "repo_root": str(repo),
+            "base": str(base),
+            "source": "human",
+        },
+    )
+    assert is_error is True
+    assert "E-MCP-HUMAN" in text
+    assert not list(base.rglob("*.refute.md"))

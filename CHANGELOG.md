@@ -10,6 +10,48 @@
 
 ### Added
 
+- **Search hardening** — the query is reduced to safe quoted prefix terms
+  (`C++`, `a.b`, apostrophes and natural-language shapes return results
+  instead of FTS5 syntax errors), results rank by bm25 best-first, and a
+  20-hit cap is reported honestly (`... N more`) on CLI and MCP. (`masora/index.py`, `masora/cli.py`, `masora/mcp.py`, tests/test_index.py.)
+- **Structural verifications say "proof not replayed"** — a verify recorded
+  on a `class: structural` claim carries the explicit qualifier in its
+  evidence (the replay is scoped to the cppgraph integration); SPEC.md:16
+  amended to the honest two-step. (`masora/mcp.py`, FORMAT.md, SPEC.md, tests/test_mcp.py.)
+
+### Changed
+
+- **`sync --push` preserves locally committed events the selection
+  excluded** — a preservation commit replaces the `reset --hard` drop; the
+  `--only`/`--exclude` promise now holds for committed events too.
+  (`masora/sync.py`, tests/test_sync.py.)
+- **The publication gate reads origin/main after the fetch** — a stale
+  local main no longer hides already-published deletions; already-published
+  tombstones apply cleanly instead of resurrecting. (`masora/sync.py`, tests/test_sync.py.)
+- **`source: human` is refused from the MCP surface** (`E-MCP-HUMAN`) — the
+  trust label must not be forgeable by a prompt-injected agent; human
+  verifications are a local, interactive act. (`masora/mcp.py`,
+  `masora/diagnostics.py`, docs/TROUBLESHOOTING.md, tests/test_mcp.py.)
+- **gc fetches before judging published-ness** (a stale remote-tracking ref
+  resurrected tombstoned lineages at PR merge) and the `E-TOMBSTONED`
+  message names the exact remedy. (`masora/gc.py`, `masora/checker.py`,
+  docs/TROUBLESHOOTING.md, tests/test_gc.py.)
+- **Atomic event writes** (temp + `os.replace`) — a concurrent session can
+  no longer see a half-written event or unlink its own valid one.
+  (`masora/write.py`, tests/test_write.py.)
+- **The secret scan covers `name`, `unanchored_reason` and
+  `proof_query.args`/`expect`.** (`masora/write.py`, tests/test_write.py.)
+- **The `lines` fork-point stamp captures a FIXED ref set** (HEAD upstream +
+  the default branch — the lexicographic first-16 cap is gone) and
+  FORMAT.md §4 no longer claims it feeds the off-version guard (nothing
+  reads the stamp). **An index built with an unavailable graph stores its
+  observed source_commit** (`graph_seen_commit`) — the staleness axis no
+  longer cries wolf for "built without a graph". **The ULID wall-clock
+  policy is documented** (multi-writer skew: warn + ordering caveat,
+  mechanism deferred). (`masora/write.py`, `masora/index.py`, FORMAT.md,
+  SPEC.md, MASORA_DESIGN.md §12.16(q), tests/test_write.py,
+  tests/test_index.py.)
+
 - **`masora sync --only <ulid…>` / `--exclude <ulid…>`** — publish a SUBSET of
   the pending events: both flags take a list of event ULIDs (full id or unique
   prefix; an ambiguous prefix or a selector matching nothing is refused with

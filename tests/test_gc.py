@@ -402,3 +402,46 @@ def test_gc_unpublished_lineage_without_origin_deletes_locally(tmp_path, capsys)
     assert not (base / REFUTE_REL).exists()
     assert not (base / "deleted.toml").exists()
     assert check_base(base).errors == []
+
+
+def test_gc_fetches_before_judging_publishedness(repo, capsys):
+    """M9: a stale remote-tracking ref must not make a published lineage look
+    unpublished (its tombstone would be skipped and the lineage resurrected at
+    PR merge) — gc fetches first."""
+    base, _origin = repo
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    seed(base)
+    # Roll the remote-tracking ref (and only it) back before the publication
+    # was visible: without the fetch, origin/main's tree lacks the event.
+    stale = git(base, "rev-parse", "refs/remotes/origin/main~1")
+    git(base, "update-ref", "refs/remotes/origin/main", stale)
+
+    code = gc_run(base, [ULID_L1], yes=True)
+
+    assert code == 2  # W-GC-ACTIVE rides the deletion of an active lineage
+    out = capsys.readouterr().out
+    assert "unpublished" not in out
+    assert (base / "deleted.toml").is_file()
+    assert ULID_L1 in (base / "deleted.toml").read_text(encoding="utf-8")
+    assert not (base / CLAIM_REL).exists()
+
+
+def test_gc_falls_back_to_the_stored_ref_when_fetch_fails(repo, monkeypatch, capsys):
+    """Same semantics as sync: a failed fetch (offline) reads the last fetched
+    origin/main directly instead of failing the published-ness judgment."""
+    base, _origin = repo
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    seed(base)
+    from masora import gc as gc_module
+    from masora.diagnostics import E_GIT
+    from masora.sync import Diag, SyncError
+
+    def _failing_fetch(_base_dir):
+        raise SyncError(Diag("error", E_GIT, "git fetch origin failed: offline"))
+
+    monkeypatch.setattr(gc_module, "_fetch", _failing_fetch)
+
+    code = gc_run(base, [ULID_L1], yes=True)
+
+    assert code == 2  # W-GC-ACTIVE rides the deletion of an active lineage
+    assert (base / "deleted.toml").is_file()

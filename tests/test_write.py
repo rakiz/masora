@@ -1,5 +1,6 @@
-"""Tests for the shared write path's lineage directories (FORMAT.md §1 layout)
-and the tool-captured `lines` fork-point stamp (FORMAT.md §4)."""
+"""Tests for the shared write path's lineage directories (FORMAT.md §1 layout),
+the tool-captured `lines` fork-point stamp (FORMAT.md §4, FIXED ref set), the
+atomic event write and the credential guard."""
 
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ import pytest
 from helpers import (
     ULID_D1A,
     ULID_L1,
+    ULID_L2,
     ULID_V1A,
     make_claim,
     make_doubt,
@@ -21,7 +23,13 @@ from helpers import (
 from masora.checker import check_base
 from masora.frontmatter import load_frontmatter
 from masora.sync import git_env
-from masora.write import LINES_CAP, capture_lines, slugify_summary, write_and_check
+from masora.write import (
+    WriteError,
+    capture_lines,
+    scan_for_secrets,
+    slugify_summary,
+    write_and_check,
+)
 
 MONTH = datetime.now(UTC).strftime("%Y-%m")
 
@@ -150,7 +158,7 @@ def test_checker_stays_path_indifferent_to_moved_lineage_directories(base):
     assert (moved / f"{ULID_L1}.claim.md").is_file()
 
 
-# --- the tool-captured `lines` fork-point stamp (FORMAT.md §4) ---------------
+# --- the tool-captured `lines` fork-point stamp (FORMAT.md §4): FIXED set ----
 
 
 def git(repo, *args):
@@ -176,6 +184,19 @@ def code_repo(tmp_path):
     return repo
 
 
+@pytest.fixture
+def remote_repo(code_repo):
+    origin = code_repo.parent / "origin.git"
+    subprocess.run(
+        ["git", "init", "--bare", "-b", "main", str(origin)],
+        capture_output=True,
+        check=True,
+        env=git_env(),
+    )
+    git(code_repo, "remote", "add", "origin", str(origin))
+    return origin
+
+
 def commit_file(repo, name, content="change\n"):
     (repo / name).write_text(content, encoding="utf-8")
     git(repo, "add", "-A")
@@ -187,86 +208,70 @@ def merge_base(repo, a, ref):
     return git(repo, "merge-base", a, ref)
 
 
-def test_capture_lines_returns_sorted_merge_bases(code_repo):
+def test_capture_lines_captures_upstream_and_default_branch_deduped(code_repo, remote_repo):
+    head = commit_file(code_repo, "a.txt")
+    git(code_repo, "push", "-u", "origin", "main")
+    git(code_repo, "remote", "set-head", "origin", "main")
+
+    lines = capture_lines(code_repo, head)
+
+    # Upstream and default branch are the same line: one entry.
+    assert lines == {"origin/main": head}
+
+
+def test_capture_lines_captures_both_refs_when_default_differs_from_upstream(
+    code_repo, remote_repo
+):
     first = commit_file(code_repo, "a.txt")
-    git(code_repo, "branch", "8.0", first)
-    second = commit_file(code_repo, "b.txt")
-    git(code_repo, "branch", "master", second)
-    head = commit_file(code_repo, "c.txt")
+    git(code_repo, "push", "origin", "main:refs/heads/9.0")
+    git(code_repo, "remote", "set-head", "origin", "9.0")
+    head = commit_file(code_repo, "b.txt")
+    git(code_repo, "push", "-u", "origin", "main")
+    assert first
 
     lines = capture_lines(code_repo, head)
 
-    assert list(lines) == ["8.0", "main", "master"]
-    assert lines["8.0"] == merge_base(code_repo, head, "8.0") == first
-    assert lines["master"] == second
-    assert lines["main"] == head
+    assert set(lines) == {"origin/main", "origin/9.0"}
+    assert lines["origin/main"] == head
+    assert lines["origin/9.0"] == merge_base(code_repo, head, "refs/remotes/origin/9.0")
 
 
-def test_capture_lines_includes_remote_tracking_refs_and_skips_symbolic_head(code_repo):
+def test_capture_lines_without_upstream_keeps_the_default_branch(code_repo, remote_repo):
     head = commit_file(code_repo, "a.txt")
-    git(code_repo, "update-ref", "refs/remotes/origin/9.0", head)
-    git(code_repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/9.0")
+    git(code_repo, "push", "origin", "main")
+    git(code_repo, "remote", "set-head", "origin", "main")
+    git(code_repo, "checkout", "--detach", head)
 
     lines = capture_lines(code_repo, head)
 
-    assert lines == {"main": head, "origin/9.0": head}
+    assert lines == {"origin/main": head}
 
 
-def test_capture_lines_omits_unrelated_history(code_repo):
+def test_capture_lines_omits_a_failing_merge_base_silently(code_repo, remote_repo):
     head = commit_file(code_repo, "a.txt")
-    git(code_repo, "checkout", "--orphan", "isolated")
-    commit_file(code_repo, "b.txt")
-    git(code_repo, "checkout", "main")
+    git(code_repo, "push", "-u", "origin", "main")
+    # A dangling default-branch pointer: symbolic-ref resolves the name, the
+    # merge-base fails — the ref is omitted silently, the upstream stays.
+    git(code_repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/ghost")
 
     lines = capture_lines(code_repo, head)
 
-    # The orphan branch has no merge-base with HEAD — omitted silently.
-    proc = subprocess.run(
-        ["git", "-C", str(code_repo), "merge-base", head, "isolated"],
-        capture_output=True,
-        text=True,
-        check=False,
-        env=git_env(),
-    )
-    assert proc.returncode != 0
-    assert lines == {"main": head}
+    assert lines == {"origin/main": head}
 
 
-def test_capture_lines_capped_at_lines_cap(code_repo):
+def test_capture_lines_none_without_any_ref(code_repo):
     head = commit_file(code_repo, "a.txt")
-    for i in range(LINES_CAP + 3):
-        git(code_repo, "branch", f"train-{i:02d}", head)
-
-    lines = capture_lines(code_repo, head)
-
-    assert len(lines) == LINES_CAP
-    assert (
-        list(lines)
-        == sorted(["main", *(f"train-{i:02d}" for i in range(LINES_CAP + 3))])[:LINES_CAP]
-    )
-    assert set(lines.values()) == {head}
-
-
-def test_capture_lines_all_failures_omit_the_stamp(code_repo):
-    """A detached HEAD on an unrelated root commit with no other prober ref →
-    no successful merge-base at all → None (the caller omits `lines`)."""
-    commit_file(code_repo, "a.txt")
-    git(code_repo, "checkout", "--orphan", "isolated")
-    orphan = commit_file(code_repo, "b.txt")
-    git(code_repo, "checkout", "--detach", orphan)
-    git(code_repo, "branch", "-D", "isolated")
-
-    assert capture_lines(code_repo, orphan) is None
+    assert capture_lines(code_repo, head) is None
 
 
 def test_capture_lines_none_on_non_git_directory(tmp_path):
     assert capture_lines(tmp_path, "0" * 40) is None
 
 
-def test_tool_write_stamps_lines_and_check_stays_green(code_repo, base):
+def test_tool_write_stamps_lines_and_check_stays_green(code_repo, remote_repo, base):
     head = commit_file(code_repo, "a.txt")
-    git(code_repo, "branch", "8.0", head)
-    commit_file(code_repo, "b.txt")
+    git(code_repo, "push", "-u", "origin", "main")
+    git(code_repo, "remote", "set-head", "origin", "main")
 
     # The composition the MCP write tools perform (no agent-facing argument):
     # the establishing commit is the code checkout's HEAD at capture time.
@@ -275,7 +280,67 @@ def test_tool_write_stamps_lines_and_check_stays_green(code_repo, base):
     rel, _warnings = write_and_check(base, data)
 
     written = load_frontmatter((base / rel).read_text(encoding="utf-8"), rel)
-    assert written["recorded_at"]["lines"] == {"8.0": head, "main": head}
-    raw = (base / rel).read_text(encoding="utf-8")
-    assert raw.index('"8.0":') < raw.index('"main":')
+    assert written["recorded_at"]["lines"] == {"origin/main": head}
     assert check_base(base).errors == []
+
+
+# --- M10: the atomic event write ---------------------------------------------
+
+
+def test_write_is_atomic_no_temp_files_remain(base):
+    rel, _warnings = write_and_check(base, make_claim(ULID_L1))
+
+    assert (base / rel).is_file()
+    assert (base / rel).read_text(encoding="utf-8").startswith("---")
+    assert not list(base.rglob("*.tmp"))
+    assert check_base(base).errors == []
+
+
+def test_failed_post_check_unlinks_the_event_and_leaves_no_temp(base):
+    first_rel, _ = write_and_check(base, make_claim(ULID_L1))
+    before = (base / first_rel).read_text(encoding="utf-8")
+
+    # Schema-valid but rejected at check: a verify whose lineage disagrees
+    # with its target's (E-LINEAGE).
+    with pytest.raises(WriteError):
+        write_and_check(base, make_verify(ULID_V1A, ULID_L2, ULID_L1))
+
+    assert not list(base.rglob("*.tmp"))
+    assert (base / first_rel).read_text(encoding="utf-8") == before
+    assert check_base(base).errors == []
+
+
+# --- M5: the credential guard's field coverage -------------------------------
+
+
+def test_scan_covers_name_and_unanchored_reason():
+    assert scan_for_secrets(make_claim(ULID_L1, name="token = " + "aB3$xY9#" * 4)) is not None
+    assert (
+        scan_for_secrets(
+            make_claim(ULID_L1, unanchored=True, unanchored_reason="password = " + "aB3$xY9#" * 4)
+        )
+        is not None
+    )
+
+
+def test_scan_covers_proof_query_args_and_expect():
+    query = {
+        "tool": "cppgraph.calls",
+        "args": {"symbol": "x", "filter": "ghp_" + "aB3xY9zK" * 4},
+        "expect": {"op": "count", "value": 3},
+        "provider_version": "1.0",
+    }
+    assert scan_for_secrets(make_claim(ULID_L1, proof_query=query)) is not None
+    query["args"] = {"symbol": "x"}
+    query["expect"] = {"op": "set-equality", "value": ["password = " + "aB3$xY9#" * 4]}
+    assert scan_for_secrets(make_claim(ULID_L1, proof_query=query)) is not None
+
+
+def test_scan_passes_a_clean_proof_query():
+    query = {
+        "tool": "cppgraph.calls",
+        "args": {"symbol": "scip-clang cxx . . example#foo()."},
+        "expect": {"op": "count", "value": 3},
+        "provider_version": "1.0",
+    }
+    assert scan_for_secrets(make_claim(ULID_L1, proof_query=query)) is None

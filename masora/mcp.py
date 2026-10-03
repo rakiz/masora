@@ -23,6 +23,7 @@ from .diagnostics import (
     E_MCP_ARGS,
     E_MCP_DRIFT,
     E_MCP_GRAPH,
+    E_MCP_HUMAN,
     E_MCP_UNKNOWN_ID,
     W_IDX_STALE,
     W_MCP_PROTO,
@@ -36,7 +37,8 @@ from .index import (
     build_index,
     index_db_path,
     index_stale_reason,
-    search_index,
+    search_index_capped,
+    search_omitted_line,
     search_result_lines,
 )
 from .ulid import new_ulid
@@ -134,6 +136,27 @@ def _opt_enum(args: dict, name: str, values: frozenset[str], default: str) -> st
             )
         )
     return value
+
+
+def _refuse_human_source(args: dict) -> None:
+    """H4: `source: human` is refused on the MCP surface.
+
+    Human provenance is a LOCAL act with interactive confirmation — a tool
+    call cannot prove a human wrote the event, and `verified(human)` is the
+    trust label the whole recall story rests on (forgeable by a
+    prompt-injected agent otherwise). No CLI write path exists yet; when one
+    lands it will be the (confirming) route for `human` events.
+    """
+    if args.get("source") == "human":
+        raise WriteError(
+            Diag(
+                "error",
+                E_MCP_HUMAN,
+                "source: human is refused on the MCP surface — human provenance is a LOCAL act"
+                " recorded by the CLI with interactive confirmation; pass source: llm (the"
+                " default) or record the event locally",
+            )
+        )
 
 
 def _require_head(repo_root: Path, kind: str) -> str:
@@ -275,6 +298,7 @@ def _resolve_target(
 
 
 def _tool_note(args: dict) -> str:
+    _refuse_human_source(args)
     statement = _req_str(args, "statement")
     summary = _req_str(args, "summary")
     repo_root = Path(_req_str(args, "repo_root"))
@@ -391,6 +415,7 @@ def _apply_provenance(
 
 
 def _tool_verify(args: dict) -> str:
+    _refuse_human_source(args)
     target_id = _req_str(args, "id")
     evidence = _req_strlist(args, "evidence")
     repo_root = Path(_req_str(args, "repo_root"))
@@ -448,8 +473,20 @@ def _tool_verify(args: dict) -> str:
     lines = capture_lines(repo_root, head)
     if lines:
         data["verified_at"]["lines"] = lines
-    data["evidence"] = evidence
+    data["evidence"] = list(evidence)
     data["snapshots"] = snapshots
+
+    # H1 honesty step: the proof_query of a structural target is NEVER
+    # replayed by this tool — the verify must say so explicitly, on the event
+    # itself (evidence carries the qualifier) and in the tool output. Replay
+    # is scoped to the cppgraph integration (SPEC.md, honest two-step).
+    proof_not_replayed = (
+        "proof not replayed: this verification did not execute the recorded proof_query"
+        " (replay is scoped to the cppgraph integration)"
+    )
+    structural_target = claim.record.claim_class == "structural"
+    if structural_target:
+        data["evidence"].append(proof_not_replayed)
 
     rel, warnings = write_and_check(base_dir, data)
     lines = [
@@ -460,11 +497,16 @@ def _tool_verify(args: dict) -> str:
         f"source {source}",
         f"snapshots {len(snapshots)}",
     ]
+    if structural_target:
+        lines.append(
+            "proof not replayed (structural target — the recorded proof_query was not executed)"
+        )
     lines.extend(f"warning {diag.render()}" for diag in warnings)
     return "\n".join(lines)
 
 
 def _tool_targeted(kind: str, args: dict) -> str:
+    _refuse_human_source(args)
     target_id = _req_str(args, "id")
     reason = _req_str(args, "reason")
     repo_root = Path(_req_str(args, "repo_root"))
@@ -545,7 +587,7 @@ def _tool_search(args: dict) -> str:
     base_dir, repo = _resolve_read_context(args)
     db = _ensure_index(base_dir, repo)
     try:
-        hits = search_index(db, query, any_version=any_version)
+        hits, total = search_index_capped(db, query, any_version=any_version)
     except IndexingError as exc:
         raise WriteError(exc.diag) from exc
     lines = []
@@ -555,6 +597,9 @@ def _tool_search(args: dict) -> str:
     if not hits:
         return "\n".join([*lines, "no results"])
     lines.extend(search_result_lines(hits))
+    omitted = total - len(hits)
+    if omitted:
+        lines.append(search_omitted_line(omitted, query))
     return "\n".join(lines)
 
 
@@ -731,7 +776,7 @@ TOOLS = [
                 "source": {
                     "type": "string",
                     "enum": ["human", "llm"],
-                    "description": "provenance of this event; default llm (graph is reserved for deriving tools, not writable here)",
+                    "description": "provenance of this event; default llm (graph is reserved for deriving tools, not writable here); human is REFUSED over MCP — it is recorded by the local CLI with interactive confirmation",
                 },
                 "name": _str(
                     description="free string when source is llm: the exact model id that produced the verdict, never an agent or tool alias; when source is human the name is self-signed from the base repo's git config"
@@ -782,7 +827,7 @@ TOOLS = [
                 "source": {
                     "type": "string",
                     "enum": ["human", "llm"],
-                    "description": "who ran the verification; default llm",
+                    "description": "who ran the verification; default llm; human is REFUSED over MCP (local CLI act with interactive confirmation)",
                 },
                 "name": _str(
                     description="free string when source is llm: the exact model id that produced the verdict, never an agent or tool alias; when source is human the name is self-signed from the base repo's git config"
@@ -812,7 +857,7 @@ TOOLS = [
                 "source": {
                     "type": "string",
                     "enum": ["human", "llm"],
-                    "description": "default llm",
+                    "description": "default llm; human is REFUSED over MCP (local CLI act with interactive confirmation)",
                 },
                 "evidence": {
                     "type": "array",
@@ -843,7 +888,7 @@ TOOLS = [
                 "source": {
                     "type": "string",
                     "enum": ["human", "llm"],
-                    "description": "default llm",
+                    "description": "default llm; human is REFUSED over MCP (local CLI act with interactive confirmation)",
                 },
                 "evidence": {
                     "type": "array",
@@ -877,7 +922,7 @@ TOOLS = [
                 "source": {
                     "type": "string",
                     "enum": ["human", "llm"],
-                    "description": "default llm",
+                    "description": "default llm; human is REFUSED over MCP (local CLI act with interactive confirmation)",
                 },
                 "evidence": {
                     "type": "array",
@@ -910,7 +955,10 @@ TOOLS = [
         "inputSchema": _schema(
             {
                 "query": _str(
-                    description="FTS5 MATCH query over summaries and statements;"
+                    description="FTS query over summaries and statements — plain words or code"
+                    " identifiers (the expression is built safely: punctuation and FTS"
+                    " operators never raise; terms match as prefixes), ranked best-first and"
+                    " capped at 20 hits with the omitted count reported;"
                     " the '*' sentinel enumerates every indexed lineage"
                 ),
                 "any_version": {

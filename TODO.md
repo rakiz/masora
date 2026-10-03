@@ -25,41 +25,41 @@ Settled 2026-09-25 with the design owner — decisions recorded in MASORA_DESIGN
 Guard the invariants, then make the trust labels honest. Suite green across
 the wave; commit at the wave boundary, nothing pushed.
 
-- [ ] H2 — `sync --push` preserves locally COMMITTED events that the
+- [x] H2 — `sync --push` preserves locally COMMITTED events that the
   selection excluded: today `update-ref` + `reset --hard` drop them
   (reflog-only recovery), breaking the `--exclude` promise for committed
   events. Rebase the local main onto the pushed tree or refuse when main
   carries unselected commits.
-- [ ] H3 — search hardening: escape/quote the FTS5 MATCH expression
+- [x] H3 — search hardening: escape/quote the FTS5 MATCH expression
   (`C++`, `a.b`, apostrophes and friends currently raise), bm25 ranking,
   result cap + cap reporting (SPEC.md:16's "every cap is reported").
-- [ ] Publication gate — deletion detection reads `origin/main` AFTER the
+- [x] Publication gate — deletion detection reads `origin/main` AFTER the
   sync fetch (today: merge-base-relative, a stale local main hides
   published deletions; the live-rollout ticket — absorbed here).
-- [ ] M10 — atomic event writes: temp file + `os.replace` (a concurrent
+- [x] M10 — atomic event writes: temp file + `os.replace` (a concurrent
   session's check must never see a half-written event, and must never
   unlink its own valid event because of one).
-- [ ] M9 — gc fetches before judging published-ness (a stale
+- [x] M9 — gc fetches before judging published-ness (a stale
   remote-tracking ref resurrects tombstoned lineages at PR merge), and a
   tombstoned lineage no longer hard-fails every writer's check when
   another writer appends to it (surface + instruct, don't brick).
-- [ ] M5 — secret scan covers `name`, `unanchored_reason` and
+- [x] M5 — secret scan covers `name`, `unanchored_reason` and
   `proof_query.args`/`expect`.
-- [ ] H1 (honesty step) — a structural claim's `verified` states explicitly
+- [x] H1 (honesty step) — a structural claim's `verified` states explicitly
   "proof not replayed" (flag/status), and SPEC.md:16's replay promise is
   amended to the honest two-step (mark now, real replay scoped to the
   cppgraph integration later). W-REPLAY keeps covering standalone check.
-- [ ] H4 — `source: human` is not writable from the MCP surface (local CLI
+- [x] H4 — `source: human` is not writable from the MCP surface (local CLI
   with interactive confirmation only) — the trust label must not be
   forgeable by a prompt-injected agent.
-- [ ] Contract amendments: FORMAT.md §4 `lines` — document the real cap and
+- [x] Contract amendments: FORMAT.md §4 `lines` — document the real cap and
   drop the "feeds the off-version guard's evidence" overclaim (nothing
   reads the stamp); capture a FIXED ref set (HEAD upstream + default
   branch), not first-16-lexicographic. SPEC.md:20 — v1 anchors are
   `code` only. M1 — an unavailable graph stores its observed
   source_commit in a separate meta key (the staleness axis must NOT hide
   the "graph became usable later" case; `stored.get` is the WRONG fix).
-- [ ] M11 — the ULID wall-clock is the fold's logical clock: document the
+- [x] M11 — the ULID wall-clock is the fold's logical clock: document the
   multi-writer skew policy loudly (warning + ordering caveat), defer any
   mechanism.
 

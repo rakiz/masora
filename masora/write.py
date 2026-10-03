@@ -14,8 +14,10 @@ nothing is written).
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
+import tempfile
 import tomllib
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -104,55 +106,57 @@ def human_name(base_dir: Path) -> str | None:
     return value if proc.returncode == 0 and value else None
 
 
-# Cap on the `lines` fork-point stamp (FORMAT.md §4): a branch-heavy clone
-# (hundreds of stale remote-tracking refs) must not blow the event up, so
-# only the first LINES_CAP refs in sort order are probed. The cap keeps the
-# stamp deterministic — same refs, same map.
-LINES_CAP = 16
-
-
-def capture_lines(repo_root: Path, head: str) -> dict[str, str] | None:
-    """Tool-captured fork-point stamp (FORMAT.md §4): per known line ref of the
-    CODE checkout, `git merge-base <head> <ref>` — the squash-proof record of
-    where this event's state diverged from each line.
-
-    There is deliberately NO agent-facing argument for this: the write path
-    calls it itself (MASORA_DESIGN.md §12.16(m) — never an agent argument,
-    never backfilled; absence IS the unknown value). Line refs are the clone's
-    branch refs — local heads and remote-tracking branches (symbolic
-    `…/HEAD` excluded), deduplicated by short name, sorted, capped at
-    LINES_CAP. A ref whose merge-base fails (missing ref, unrelated history,
-    any git error) is omitted silently; no successful merge-base at all →
-    None, and the caller omits `lines` entirely. Never raises: a stamp is
-    captured context, and a failed capture must not block a write.
-    """
+# The `lines` fork-point stamp (FORMAT.md §4) captures a FIXED ref set: the
+# HEAD's upstream and the repo's default branch — never a clone-wide scan.
+def _default_branch_ref(repo_root: Path) -> str | None:
+    """The default branch as a full remote-tracking refname
+    (`refs/remotes/origin/HEAD`'s target), or None."""
     proc = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(repo_root),
-            "for-each-ref",
-            "--format=%(refname)",
-            "refs/heads/",
-            "refs/remotes/",
-        ],
+        ["git", "-C", str(repo_root), "symbolic-ref", "refs/remotes/origin/HEAD"],
         capture_output=True,
         text=True,
         check=False,
         env=git_env(),
     )
-    if proc.returncode != 0:
-        return None
-    refs: set[str] = set()
-    for refname in proc.stdout.splitlines():
-        refname = refname.strip()
-        if not refname or refname.endswith("/HEAD"):
-            continue
-        short = refname.removeprefix("refs/heads/").removeprefix("refs/remotes/")
-        if short:
-            refs.add(short)
+    ref = proc.stdout.strip()
+    return ref if proc.returncode == 0 and ref else None
+
+
+def _upstream_ref(repo_root: Path) -> str | None:
+    """The current branch's upstream as a full refname, or None (detached HEAD,
+    no upstream, any git failure)."""
+    proc = subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", "--symbolic-full-name", "@{upstream}"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=git_env(),
+    )
+    ref = proc.stdout.strip()
+    return ref if proc.returncode == 0 and ref.startswith("refs/") else None
+
+
+def capture_lines(repo_root: Path, head: str) -> dict[str, str] | None:
+    """Tool-captured fork-point stamp (FORMAT.md §4): per ref of the FIXED
+    capture set, `git merge-base <head> <ref>` — the squash-proof record of
+    where this event's state diverged from each line.
+
+    There is deliberately NO agent-facing argument for this: the write path
+    calls it itself (MASORA_DESIGN.md §12.16(m) — never an agent argument,
+    never backfilled; absence IS the unknown value). The capture set is FIXED,
+    never a clone-wide scan: the HEAD's upstream and the repo's default branch
+    (`origin/HEAD`), deduplicated. A ref whose merge-base fails (missing ref,
+    unrelated history, any git error) is omitted silently; no successful
+    merge-base at all → None, and the caller omits `lines` entirely. Never
+    raises: a stamp is captured context, and a failed capture must not block
+    a write.
+    """
+    refs: list[str] = []
+    for ref in (_upstream_ref(repo_root), _default_branch_ref(repo_root)):
+        if ref is not None and ref not in refs:
+            refs.append(ref)
     lines: dict[str, str] = {}
-    for ref in sorted(refs)[:LINES_CAP]:
+    for ref in refs:
         merge = subprocess.run(
             ["git", "-C", str(repo_root), "merge-base", head, ref],
             capture_output=True,
@@ -162,7 +166,9 @@ def capture_lines(repo_root: Path, head: str) -> dict[str, str] | None:
         )
         sha = merge.stdout.strip()
         if merge.returncode == 0 and SHA_RE.match(sha):
-            lines[ref] = sha
+            short = ref.removeprefix("refs/heads/").removeprefix("refs/remotes/")
+            if short:
+                lines[short] = sha
     return lines or None
 
 
@@ -457,7 +463,13 @@ _ASSIGNED_SECRET_RE = re.compile(
     r"\b(password|passwd|secret|token|api[_-]?key|access[_-]?token)\s*[:=]\s*['\"]?([^\s'\"]{20,})",
     re.IGNORECASE,
 )
-_SECRET_FIELD_NAMES = ("summary", "statement", "reason")
+_SECRET_FIELD_NAMES = (
+    "summary",
+    "statement",
+    "reason",
+    "name",
+    "unanchored_reason",
+)
 
 
 def _high_entropy(value: str) -> bool:
@@ -473,8 +485,10 @@ def _high_entropy(value: str) -> bool:
 
 
 def _secret_scan_texts(data: dict) -> list[tuple[str, str]]:
-    """(field, text) pairs the guard scans: summary, statement, reason, evidence,
-    and every claim question item (free text — same protection)."""
+    """(field, text) pairs the guard scans: summary, statement, reason, name,
+    unanchored_reason, evidence, every claim question/keyword item (free text —
+    same protection), and the structural `proof_query.args`/`proof_query.expect`
+    values (stringified — an args mapping may embed a credential)."""
     texts = [(name, data[name]) for name in _SECRET_FIELD_NAMES if isinstance(data.get(name), str)]
     evidence = data.get("evidence")
     if isinstance(evidence, list):
@@ -485,6 +499,15 @@ def _secret_scan_texts(data: dict) -> list[tuple[str, str]]:
     keywords = data.get("keywords")
     if isinstance(keywords, list):
         texts.extend(("keywords", item) for item in keywords if isinstance(item, str))
+    proof_query = data.get("proof_query")
+    if isinstance(proof_query, dict):
+        for key in ("args", "expect"):
+            value = proof_query.get(key)
+            if value is None or isinstance(value, str):
+                if isinstance(value, str) and value:
+                    texts.append((f"proof_query.{key}", value))
+            else:
+                texts.append((f"proof_query.{key}", json.dumps(value, ensure_ascii=False)))
     return texts
 
 
@@ -542,7 +565,18 @@ def write_and_check(base_dir: Path, data: dict) -> tuple[str, list[Diag]]:
         raise WriteError(exc.diag) from exc
     path = base_dir / rel
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_event(data), encoding="utf-8")
+    # Atomic write (temp file + os.replace in the same directory): a
+    # concurrent session's `check` never sees a half-written event file, and a
+    # failing post-check never leaves a torn file behind that another
+    # session's unlink path could mistake for its own valid event.
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(render_event(data))
+        os.replace(tmp_name, path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
     result = check_base(base_dir)
     if result.errors:
         path.unlink(missing_ok=True)

@@ -166,6 +166,11 @@ def _run_publish(
                     and local_events[event_id].content != origin_events[event_id].content
                 )
             )
+            # Deletion detection (the refusal scan): merge-base-relative — an
+            # event this history KNEW and no longer has. The deletions another
+            # writer already PUBLISHED are detected separately, against
+            # origin/main's post-fetch tombstone table (origin_dead_ids below):
+            # a stale local main must not hide them, nor resurrect them.
             deleted_ids = sorted(set(base_events) - set(local_events))
             print(
                 f"diff vs {REMOTE}/{MAIN_BRANCH} ({origin_main[:12]}): "
@@ -250,6 +255,18 @@ def _run_publish(
                 else None,
                 "origin/main",
             )
+            # Deletions ALREADY PUBLISHED by another writer (origin/main's
+            # post-fetch tombstone table): events whose id the shared ledger
+            # has collected. A stale local main still carries their files; the
+            # merged tree must drop them, not resurrect them (and not brick on
+            # E-TOMBSTONED at the merged check). Events whose id is NOT
+            # tombstoned on origin but whose lineage is (a new doubt on a
+            # collected lineage) are still copied — the merged check refuses
+            # them, surfacing the gc race.
+            origin_dead_ids = {ulid for _lineage, ulid in pairs_origin | de_origin}
+            dead_paths = {
+                event.path for event in local_events.values() if event.id in origin_dead_ids
+            }
             missing = sorted(pairs_base - pairs_local)
             if missing:
                 listing = ", ".join(f"({lineage}, {ulid})" for lineage, ulid in missing)
@@ -310,6 +327,7 @@ def _run_publish(
                     deleted_ids,
                     origin_events,
                     skip_paths={local_events[event_id].path for event_id in excluded_ids},
+                    dead_paths=dead_paths,
                 )
                 merged = check_base(merged_dir)
                 print(
@@ -324,8 +342,17 @@ def _run_publish(
                 print(f"FAILED: {len(errors)} error(s)")
                 return 1
 
+            # Events the shared ledger already tombstoned but this (possibly
+            # stale) clone still carries: applying them counts as pending work,
+            # so sync proceeds and the push/reset lands the pruned state.
+            applied_upstream = sorted(
+                event_id for event_id in local_events if event_id in origin_dead_ids
+            )
             has_pending = (
-                bool(selected_added) or bool(pairs_local - pairs_base) or bool(de_local - de_base)
+                bool(selected_added)
+                or bool(pairs_local - pairs_base)
+                or bool(de_local - de_base)
+                or bool(applied_upstream)
             )
             if not has_pending:
                 print("no pending events: nothing to sync")
@@ -346,11 +373,20 @@ def _run_publish(
             commit, tree = _commit_tree(base_dir, merged_dir, origin_main)
             if push:
                 _git(base_dir, "push", REMOTE, f"{commit}:refs/heads/{MAIN_BRANCH}")
-                _git(base_dir, "update-ref", f"refs/heads/{MAIN_BRANCH}", commit)
+                local_main = _preserve_committed_excluded(
+                    base_dir, commit, origin_main, excluded_ids, local_events
+                )
+                _git(base_dir, "update-ref", f"refs/heads/{MAIN_BRANCH}", local_main)
                 if _head_branch(base_dir) == MAIN_BRANCH:
-                    _git(base_dir, "reset", "--hard", commit)
+                    _git(base_dir, "reset", "--hard", local_main)
+                preserved_note = (
+                    " (excluded committed event(s) preserved on local main)"
+                    if local_main != commit
+                    else ""
+                )
                 print(
-                    f"pushed {commit[:12]} to {REMOTE}/{MAIN_BRANCH} (solo mode, direct push); local {MAIN_BRANCH} advanced"
+                    f"pushed {commit[:12]} to {REMOTE}/{MAIN_BRANCH} (solo mode, direct push);"
+                    f" local {MAIN_BRANCH} advanced{preserved_note}"
                 )
             else:
                 current = _optional_rev(base_dir, f"refs/heads/{PENDING_BRANCH}")
@@ -387,6 +423,8 @@ def _run_publish(
     tombstone_note = (
         " + tombstone additions" if (pairs_local - pairs_base) or (de_local - de_base) else ""
     )
+    if applied_upstream:
+        tombstone_note += f" + {len(applied_upstream)} upstream-published deletion(s) applied"
     print(f"synced: {len(selected_added)} pending event(s){tombstone_note}")
     return 0
 
@@ -543,6 +581,12 @@ def _deletion_diags(
     tombstoned: set[str],
     event_tombstones: set[tuple[str, str]],
 ) -> list[Diag]:
+    """Refusals for local deletions the shared repo still knows: the diff
+    baseline is the merge-base (an event this history knew and no longer
+    has), and each refusal additionally requires the event to still exist on
+    origin/main — a published deletion is never re-refused here. A deletion
+    survives only when the lineage was gc'd (whole-lineage) or the event id
+    is tombstoned."""
     if not deleted_ids:
         return []
     lineage_ids: dict[str, set[str]] = {}
@@ -657,6 +701,59 @@ def _render_deleted_events(pairs: set[tuple[str, str]]) -> str:
     return _render_blocks(pairs, "deleted_events")
 
 
+def _preserve_committed_excluded(
+    base_dir: Path,
+    pushed_commit: str,
+    origin_main: str,
+    excluded_ids: set[str],
+    local_events: dict[str, EventFile],
+) -> str:
+    """The commit local main must point at after a solo `--push`.
+
+    The pushed commit's tree is origin/main + the selected events only. When
+    the selection EXCLUDED events that are already COMMITTED on local main,
+    advancing main to the pushed commit (then `reset --hard`) would drop them
+    from the branch and the work tree (reflog-only recovery) — breaking the
+    --exclude promise for committed events. Instead this builds a preservation
+    commit ON TOP of the pushed commit: the pushed tree plus the excluded
+    event files taken verbatim from the work tree. Local main and the work
+    tree keep the excluded events; origin/main never sees them (their commits
+    are superseded by one local preservation commit). Without committed
+    excluded events, the pushed commit is returned unchanged.
+    """
+    head = _optional_rev(base_dir, f"refs/heads/{MAIN_BRANCH}")
+    if head is None or head == pushed_commit:
+        return pushed_commit
+    paths = [
+        local_events[event_id].path for event_id in sorted(excluded_ids) if event_id in local_events
+    ]
+    committed = [rel for rel in paths if _tree_has_path(base_dir, head, rel)]
+    if not committed:
+        return pushed_commit
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp) / "preserved"
+        _materialize(base_dir, pushed_commit, work)
+        for rel in committed:
+            src = base_dir / rel
+            dst = work / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+        return _commit_tree(base_dir, work, pushed_commit, "masora sync: preserve excluded events")[
+            0
+        ]
+
+
+def _tree_has_path(base_dir: Path, commit: str, rel: str) -> bool:
+    proc = subprocess.run(
+        ["git", "-C", str(base_dir), "ls-tree", "--", commit, rel],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=git_env(),
+    )
+    return proc.returncode == 0 and bool(proc.stdout.strip())
+
+
 def _build_merged(
     origin_dir: Path,
     base_dir: Path,
@@ -668,9 +765,11 @@ def _build_merged(
     deleted_ids: list[str],
     origin_events: dict[str, EventFile],
     skip_paths: set[str] | None = None,
+    dead_paths: set[str] | None = None,
 ) -> None:
     shutil.copytree(origin_dir, merged_dir)
     dropped_paths = skip_paths or set()
+    dead_paths = dead_paths or set()
     for path in sorted(base_dir.rglob("*")):
         if ".git" in path.parts or not path.is_file():
             continue
@@ -681,6 +780,10 @@ def _build_merged(
             # An --only/--exclude selection: the excluded pending events stay
             # out of the published tree so the merged result is validated —
             # and published — without them.
+            continue
+        if str(rel) in dead_paths:
+            # Already tombstoned on origin/main (another writer's published
+            # deletion): never resurrect it from a stale clone.
             continue
         dest = merged_dir / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -1164,7 +1267,9 @@ def _materialize(base_dir: Path, commit: str, dest: Path) -> None:
         tar.extractall(dest, filter="data")
 
 
-def _commit_tree(base_dir: Path, work_tree: Path, parent: str) -> tuple[str, str]:
+def _commit_tree(
+    base_dir: Path, work_tree: Path, parent: str, message: str = COMMIT_MESSAGE
+) -> tuple[str, str]:
     git_dir = _git(base_dir, "rev-parse", "--absolute-git-dir")
     with tempfile.TemporaryDirectory() as tmp:
         env = git_env() | {
@@ -1186,4 +1291,4 @@ def _commit_tree(base_dir: Path, work_tree: Path, parent: str) -> tuple[str, str
         _plumb("read-tree", "--empty")
         _plumb("add", "-A")
         tree = _plumb("write-tree")
-        return _plumb("commit-tree", tree, "-p", parent, "-m", COMMIT_MESSAGE), tree
+        return _plumb("commit-tree", tree, "-p", parent, "-m", message), tree

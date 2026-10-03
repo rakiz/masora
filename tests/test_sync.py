@@ -1127,3 +1127,54 @@ def test_sync_gates_run_on_the_filtered_set(repo, capsys):
     assert "E-SYNC-STACKED" not in out
     tree = git(origin, "ls-tree", "-r", "--name-only", "masora/pending")
     assert OTHER_REL in tree and CLAIM_REL not in tree
+
+
+def test_sync_push_preserves_committed_excluded_events(repo, capsys):
+    """H2: events already COMMITTED on local main but excluded from the
+    selection survive the solo push — on main and in the work tree."""
+    base, origin = repo
+    other_rel = "2026-09/x/01J8Z3K0000000000000000006.claim.md"
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    write_event(base, other_rel, make_claim(ULID_L2, summary="Second claim about locking"))
+    git(base, "add", "-A")
+    git(base, "commit", "-m", "two events")
+
+    code = sync_run(base, exclude=[ULID_L2], yes=True, push=True)
+
+    assert code == 0
+    origin_tree = git(origin, "ls-tree", "-r", "--name-only", "refs/heads/main")
+    assert CLAIM_REL in origin_tree and other_rel not in origin_tree
+    main_tree = git(base, "ls-tree", "-r", "--name-only", "refs/heads/main")
+    assert other_rel in main_tree
+    assert (base / other_rel).is_file()
+    assert (base / CLAIM_REL).is_file()
+
+
+def test_sync_applies_already_published_deletions_from_a_stale_main(repo, tmp_path, capsys):
+    """Publication gate: the deletion evidence comes from origin/main AFTER the
+    fetch — a stale local main must not resurrect another writer's published
+    (gc + tombstone) deletion."""
+    base, origin = repo
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    seed(base)
+    worker = tmp_path / "worker"
+    subprocess.run(
+        ["git", "clone", str(origin), str(worker)], capture_output=True, check=True, env=git_env()
+    )
+    git(worker, "config", "user.name", "Other Author")
+    git(worker, "config", "user.email", "other@example.invalid")
+    (worker / CLAIM_REL).unlink()
+    (worker / "deleted.toml").write_text(tombstone(ULID_L1, [ULID_L1]), encoding="utf-8")
+    seed(worker, "gc lineage")
+    # The base stays stale: it never pulls, its work tree still has the event.
+    assert (base / CLAIM_REL).is_file()
+
+    code = sync_run(base, yes=True, push=True)
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "upstream-published deletion(s) applied" in out
+    assert not (base / CLAIM_REL).exists()
+    assert ULID_L1 in (base / "deleted.toml").read_text(encoding="utf-8")
+    origin_tree = git(origin, "ls-tree", "-r", "--name-only", "refs/heads/main")
+    assert CLAIM_REL not in origin_tree

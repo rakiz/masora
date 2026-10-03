@@ -99,11 +99,11 @@ SELECT search.lineage, search.version, search.summary, lineages.displayed,
        lineages.resolution, lineages.verification, lineages.suspect,
        lineages.doubted, lineages.pending, lineages.unknown, lineages.unanchored,
        versions.refuted, versions.relation, lineages.off_version,
-       lineages.context_ordering
+       lineages.context_ordering, bm25(search)
 FROM search JOIN lineages ON lineages.lineage = search.lineage
 JOIN versions ON versions.version = search.version
 WHERE search MATCH ?
-ORDER BY search.lineage, search.version
+ORDER BY bm25(search), search.lineage, search.version
 """
 
 QUESTIONS_SQL = """
@@ -121,7 +121,7 @@ SELECT search.lineage, search.version, search.summary, lineages.displayed,
        lineages.resolution, lineages.verification, lineages.suspect,
        lineages.doubted, lineages.pending, lineages.unknown, lineages.unanchored,
        versions.refuted, versions.relation, lineages.off_version,
-       lineages.context_ordering
+       lineages.context_ordering, NULL
 FROM search JOIN lineages ON lineages.lineage = search.lineage
 JOIN versions ON versions.version = search.version
 WHERE search.version = ?
@@ -132,7 +132,7 @@ SELECT search.lineage, search.version, search.summary, lineages.displayed,
        lineages.resolution, lineages.verification, lineages.suspect,
        lineages.doubted, lineages.pending, lineages.unknown, lineages.unanchored,
        versions.refuted, versions.relation, lineages.off_version,
-       lineages.context_ordering
+       lineages.context_ordering, NULL
 FROM lineages JOIN search ON search.version = COALESCE(
     lineages.displayed,
     (SELECT versions.version FROM versions WHERE versions.lineage = lineages.lineage
@@ -174,17 +174,59 @@ def _hit_from_row(
         relation=row[12],
         off_version=bool(row[13]),
         context_ordering=row[14],
+        rank=row[15] if isinstance(row[15], float) else float("inf"),
         matched_questions=matched_questions,
         matched_keywords=matched_keywords,
     )
 
 
+# Word characters only, unicode-aware: everything an FTS5 MATCH expression
+# treats as syntax (quotes, parens, `*`, `:`, `^`, `-`, `+`, …) is dropped.
+_TERM_RE = re.compile(r"\w+", re.UNICODE)
+
+# Maximum number of terms taken from one user query (a wall of text becomes a
+# giant AND — every term matching nothing kills the whole query).
+MAX_QUERY_TERMS = 16
+
+
+def _fts_group_expression(query: str) -> str:
+    """One OR-group: word tokens as quoted prefix terms (implicit AND)."""
+    return " ".join(f'"{token}"*' for token in _TERM_RE.findall(query)[:MAX_QUERY_TERMS])
+
+
+def fts_match_expression(query: str) -> str:
+    """Build the FTS5 MATCH expression for a user query SAFELY.
+
+    The query is reduced to its word tokens (`C++` → `c`, `a.b` → `a b`,
+    apostrophes and FTS syntax characters dropped) and each token becomes a
+    quoted prefix term (`"tok"*`) — an implicit AND of prefix matches. Quoting
+    makes every remaining token syntax-free (`"AND"`, `"OR"` are literals), so
+    an ordinary natural-language or code-identifier query can never raise; a
+    group with no word tokens matches nothing. A top-level ` OR ` (case-
+    insensitive) is honoured as the FTS operator between escaped groups — the
+    one operator kept, because hiding it silently ANDs the alternatives. A
+    query with no searchable terms yields an empty expression — the caller
+    returns no hits instead of raising.
+    """
+    groups = [
+        _fts_group_expression(group) for group in re.split(r"\s+OR\s+", query, flags=re.IGNORECASE)
+    ]
+    return " OR ".join(group for group in groups if group)
+
+
 def search_index(db: Path, query: str, any_version: bool = False) -> list[SearchHit]:
+    """The capped, ranked hits of `search_index_capped` (the common case)."""
+    return search_index_capped(db, query, any_version)[0]
+
+
+def search_index_capped(
+    db: Path, query: str, any_version: bool = False
+) -> tuple[list[SearchHit], int]:
     """Run the FTS query over THREE tables — the content (summary + statement),
     the per-question and the per-keyword tables — and union the hits by
-    version; raises IndexingError for missing/corrupt index or bad query
-    syntax. Every hit carries the distinct matched questions and keywords
-    (ordinal order), the hit version's own git relation and its lineage's
+    version; raises IndexingError for missing/corrupt index. Every hit carries
+    the distinct matched questions and keywords (ordinal order), the hit
+    version's own git relation and its lineage's
     `off_version`/`context_ordering` stamps. The DEFAULT result filter keeps
     hits on the lineage's effective version (the displayed version, the newest
     for `none` lineages — negative knowledge stays findable, §6.2); the
@@ -194,7 +236,16 @@ def search_index(db: Path, query: str, any_version: bool = False) -> list[Search
     archaeology belongs to a future history tool). The `*` query is the
     match-all sentinel: it bypasses FTS and enumerates every indexed lineage
     once as its effective version (mode-independent), with no matched
-    questions/keywords."""
+    questions/keywords.
+
+    The user query is never passed to FTS raw — `fts_match_expression` builds
+    a quoted prefix-term expression from it (a natural-language or
+    code-identifier query degrades to a possibly-empty match, never a syntax
+    error). Results are ranked by bm25 (best first; question/keyword-only hits
+    rank after content hits), CAPPED at `SEARCH_CAP` hits and the returns are
+    `(hits, total_matches)` — the caller reports the omitted count (SPEC:
+    every cap is reported).
+    """
     if not query.strip():
         raise IndexingError(Diag("error", E_IDX_QUERY, "empty FTS query"))
     if not db.is_file():
@@ -210,13 +261,17 @@ def search_index(db: Path, query: str, any_version: bool = False) -> list[Search
                 # the sentinel query itself is fixed and valid — any DB failure
                 # here is corruption, not query syntax
                 raise IndexingError(_corrupt_diag(db, str(exc))) from exc
-            return sorted(
+            hits = sorted(
                 (_hit_from_row(r, ()) for r in rows), key=lambda h: (h.lineage, h.version)
             )
+            return hits, len(hits)
+        expression = fts_match_expression(query)
+        if not expression:
+            return [], 0
         try:
-            rows = conn.execute(SEARCH_SQL, (query,)).fetchall()
-            question_rows = conn.execute(QUESTIONS_SQL, (query,)).fetchall()
-            keyword_rows = conn.execute(KEYWORDS_SQL, (query,)).fetchall()
+            rows = conn.execute(SEARCH_SQL, (expression,)).fetchall()
+            question_rows = conn.execute(QUESTIONS_SQL, (expression,)).fetchall()
+            keyword_rows = conn.execute(KEYWORDS_SQL, (expression,)).fetchall()
         except sqlite3.OperationalError as exc:
             raise IndexingError(Diag("error", E_IDX_QUERY, f"invalid FTS query: {exc}")) from exc
         except sqlite3.DatabaseError as exc:
@@ -250,7 +305,8 @@ def search_index(db: Path, query: str, any_version: bool = False) -> list[Search
             hits = {v: h for v, h in hits.items() if h.version == effective.get(h.lineage)}
     finally:
         conn.close()
-    return sorted(hits.values(), key=lambda h: (h.lineage, h.version))
+    ranked = sorted(hits.values(), key=lambda h: (h.rank, h.lineage, h.version))
+    return ranked[:SEARCH_CAP], len(ranked)
 
 
 class IndexingError(Exception):
@@ -316,6 +372,7 @@ class SearchHit:
     relation: str | None = None
     off_version: bool = False
     context_ordering: str = "exact"
+    rank: float = float("inf")
     matched_questions: tuple[str, ...] = ()
     matched_keywords: tuple[str, ...] = ()
 
@@ -342,6 +399,15 @@ class SearchHit:
         version's context. The lineage's degraded ordering renders once, on
         the lineage header (`search_result_lines`), not per hit."""
         return f" [established: {self.relation}]" if self.relation else ""
+
+
+# Search result cap (SPEC: results may be capped, but every cap is reported).
+SEARCH_CAP = 20
+
+
+def search_omitted_line(omitted: int, query: str) -> str:
+    """The cap report appended to CLI/MCP search output when hits were cut."""
+    return f"... {omitted} more — masora search '{query}'"
 
 
 def search_result_lines(hits: list[SearchHit]) -> list[str]:
@@ -456,6 +522,7 @@ def build_index(
     parsed = _parse_events(base_dir, diags)
     tombstoned = _tombstone_ulids(base_dir)
     graph_commit: str | None = None
+    graph_seen_commit: str | None = None
     graph_db: Path | None = None
     registry = None
     if fingerprints is None:
@@ -465,6 +532,11 @@ def build_index(
         if registry.available:
             graph_commit = registry.graph_commit
             graph_db = registry.db
+        # M1: the observed graph source_commit is stored even when the registry
+        # is UNAVAILABLE (graph behind HEAD, schema mismatch, …) — under a
+        # separate meta key, so the staleness axis can distinguish "built
+        # without a usable graph" from "the graph was re-indexed since".
+        graph_seen_commit = registry.graph_commit
         fingerprints = {"file": file_fingerprint_provider(repo), "code": registry.fingerprints}
         if edge_snapshots is None:
             edge_snapshots = {"code": registry.edges}
@@ -499,7 +571,17 @@ def build_index(
         )
     head = _base_head(base_dir)
     try:
-        _write_db(db, entries, head, repo_head(repo), base_dir, repo, graph_commit, graph_db)
+        _write_db(
+            db,
+            entries,
+            head,
+            repo_head(repo),
+            base_dir,
+            repo,
+            graph_commit,
+            graph_db,
+            graph_seen_commit,
+        )
     except OSError as exc:
         raise IndexingError(
             Diag("error", E_IDX_WRITE, f"index location {db.parent} is not writable: {exc}")
@@ -591,14 +673,31 @@ def _stale_reason(
             if handle is not None:
                 current_graph = handle.source_commit
                 handle.conn.close()
-                if "graph_commit" in stored and current_graph:
-                    moved = stored["graph_commit"] != current_graph
-                    checks.append(
-                        (
-                            moved,
-                            "base or code state moved since the index build (the graph store was re-indexed)",
-                        )
-                    )
+                if current_graph:
+                    built_usable = stored.get("graph_commit") or ""
+                    if built_usable:
+                        # Built WITH a usable graph: compare it against the
+                        # current one directly.
+                        if built_usable != current_graph:
+                            checks.append(
+                                (
+                                    True,
+                                    "base or code state moved since the index build (the graph store was re-indexed)",
+                                )
+                            )
+                    else:
+                        # Built WITHOUT a usable graph: the observed
+                        # source_commit (separate meta key) tells "the graph
+                        # became usable (or was re-indexed) later" apart from
+                        # "no graph then, same store now" — the latter never
+                        # cries wolf.
+                        seen = stored.get("graph_seen_commit") or ""
+                        if seen != current_graph:
+                            reason = (
+                                "the graph store changed since the index build "
+                                "(built without a usable graph — it became usable or was re-indexed since)"
+                            )
+                            checks.append((True, reason))
     built = _built_at_epoch(stored)
     if built is not None:
         newest = _newest_event_mtime(base_dir)
@@ -885,6 +984,7 @@ def _write_db(
     repo: Path,
     graph_commit: str | None = None,
     graph_db: Path | None = None,
+    graph_seen_commit: str | None = None,
 ) -> None:
     db.parent.mkdir(parents=True, exist_ok=True)
     tmp = db.with_name(db.name + ".building")
@@ -959,6 +1059,12 @@ def _write_db(
                 ("base_head", head or ""),
                 ("repo_head", repo_head or ""),
                 ("graph_commit", graph_commit or ""),
+                # The DISCOVERED graph store's source_commit even when the
+                # registry was unusable at build time (behind HEAD, schema
+                # mismatch) — separate from `graph_commit` (the usable graph's
+                # commit) so staleness can tell "built without a usable graph"
+                # from "re-indexed since" (MASORA_DESIGN.md §12.16).
+                ("graph_seen_commit", graph_seen_commit or ""),
                 ("graph_db", str(graph_db) if graph_db else ""),
                 ("built_at", datetime.now(UTC).replace(microsecond=0).isoformat()),
             ],

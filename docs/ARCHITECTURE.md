@@ -370,11 +370,14 @@ the effective version's summary/statement/questions, the anchors with their
 current match state (matched/changed/not_found/unknown), the full event
 chain in ULID order (each event one line: id, kind, writer, what it does
 via the targets chain, `[established: …]`/`[refuted]`/`[inactive]` markers)
-and the ACTIVE verify's evidence in full. An unknown id is
+and the ACTIVE verify's evidence in full. An EVENT ULID (a non-lineage id —
+a verify, doubt, refute, …) resolves to the lineage carrying it: the story
+is the lineage's, never an empty render. An unknown id is
 `E-EXPLAIN-UNKNOWN` (a clean diagnostic naming the lineage-ULID rule).
-Nothing is written, ever. This promotes `explain (evidence-chain trace)`
-out of the TODO's out-of-scope list — the remaining advanced tools are
-`unrefute`, `recheck` and `history`.
+Nothing is written, ever. The graph registry's sqlite handle (opened for
+the anchor states) is closed when the story is built. This promotes
+`explain (evidence-chain trace)` out of the TODO's out-of-scope list — the
+remaining advanced tools are `unrefute`, `recheck` and `history`.
 
 ## Index and resolution (`masora/index.py`, `masora/gitctx.py`, `masora/resolve.py`, MASORA_DESIGN.md §6.2, §5.4, §8)
 
@@ -383,18 +386,28 @@ The index turns the fold into the **computed status tuple** (`resolution`,
 and adds FTS5 search. Section references are to MASORA_DESIGN.md.
 
 - **Location** — one index per base × code repo (TODO: rebuild triggers):
-  `<masora_home>/indexes/<base-slug>/<repo-slug>-<path-hash12>.db`, where the
-  hash is sha256 of the resolved repo path; slugs are the canonical
-  `masora/config.py:slug()` shared with `setup` (`masora/config.py:indexes_root()`,
-  `MASORA_HOME` relocates it like everything else).
+  `<masora_home>/indexes/<base-slug>-<base-path-hash12>/<repo-slug>-<repo-path-hash12>.db`,
+  where each hash is sha256 of the ABSOLUTE resolved path (base path and repo
+  path alike — two same-named bases in different homes never share an index);
+  slugs are the canonical `masora/config.py:slug()` shared with `setup`
+  (`masora/config.py:indexes_root()`, `MASORA_HOME` relocates it like
+  everything else). The base-path hash changed the directory names: indexes
+  built before that change remain on disk as orphans, are never read again
+  (a missing index is "no index": `E-IDX-NOINDEX` / an auto rebuild) and can
+  be deleted at will.
 - **Full rebuild only** (§8: disposable, git is the single durable store): the
-  build writes a fresh DB (WAL mode) next to the target and `os.replace`s it
+  build writes a fresh DB (WAL mode) under a UNIQUE temp name next to the
+  target (pid + uuid — no cross-build unlink races) and `os.replace`s it
   in; a corrupt or foreign-schema existing DB is discarded with `W-IDX-CORRUPT`
   on `index` and refused with `E-IDX-CORRUPT` on `search` (read-only surface —
   rebuild instead). Deleting the DB at any time is always safe; `search`
   without one is `E-IDX-NOINDEX`.
 - **Gate**: `build_index` runs `check_base()` first — a base with errors is
   refused (the check's own diagnostics are reported); warnings ride along.
+  The build's provider registries are memoized per
+  `(provider, identity)` (M2): the fingerprint/edge evaluation of
+  `compose_outcomes` (run for the degraded counterfactual AND again inside
+  `resolve_lineage`) hits the underlying graph store once per anchor.
 - **Git relation adapter** (`masora/gitctx.py`, §6.2): once per build, the
   asking line is resolved from the `--repo` checkout with three LOCAL git
   reads and no fetch (`asking_line`: HEAD, current branch, the branch's
@@ -653,7 +666,7 @@ context per call — the server does no repo discovery):
 | `doubt` | `id`, `reason`, `repo_root`; optional `base`, `source`, `evidence[]`, `name`, `effort` | Targets a `.verify` ULID, or a lineage → the active verify of its displayed version; none → `E-MCP-UNKNOWN-ID`. |
 | `undoubt` | same params as `doubt` | Targets the doubt event's ULID only (no lineage form). |
 | `refute` | same params as `doubt` | Targets any event ULID, or a lineage → its displayed version. |
-| `search` | `query`; optional `any_version`, `base`, `repo_root` | FTS over the index (auto-**built when missing**, never rebuilt when merely stale — the SessionStart hook owns freshness); `W-IDX-STALE` is surfaced in the result text; statuses rendered per lineage. Default filter: the displayed version of each matching lineage (the newest for `none` lineages); `any_version` searches ALL ACTIVE versions, each hit with its own git relation — refuted versions are never searched (a future `history` tool owns refuted archaeology). |
+| `search` | `query`; optional `any_version`, `base`, `repo_root` | FTS over the index (auto-**built when missing**, never rebuilt when merely stale — the SessionStart hook owns freshness); a call WITHOUT `repo_root` reuses an existing code-repo-keyed index for the base when one exists (no duplicate base-keyed index, no second probe budget); `W-IDX-STALE` is surfaced in the result text; statuses rendered per lineage. Default filter: the displayed version of each matching lineage (the newest for `none` lineages); `any_version` searches ALL ACTIVE versions, each hit with its own git relation — refuted versions are never searched (a future `history` tool owns refuted archaeology). |
 | `list_stale` | optional `base`, `repo_root` | Two labeled lists (§12.16(f)/(g)): `re-check (N):` — stale/restored/unknown lineages plus `degraded` context ordering (actionable: worth re-verifying on this checkout) — and `not applicable here (N):` — off-version lineages (the knowledge lives on another version line); `no stale lineages` when both are empty. |
 | `explain` | `lineage`; optional `base`, `repo_root` | The fresh one-lineage story (E-EXPLAIN-UNKNOWN on an unknown id); with a repo the git context is re-derived live with a fresh probe budget and surfaced — the `off-version:` field, the `context:` ordering line and per-claim `[established: <relation>]` markers. |
 
@@ -690,11 +703,20 @@ event) to
 `<YYYY-MM>/<slug>-<lineage>/<id>.<kind>.md` — extensions join the lineage's
 existing directory, founders create it in their month — after a shared
 `check_base` pre-check
-(nothing is written onto an invalid base), and followed by a full post-write
-`check_base` — a post-check failure unlinks the just-written file and reports
-the diagnostics, so a tool never returns success on an invalid tree (FORMAT.md
-§6 atomicity). Every git spawn goes through `sync.git_env()`; `MASORA_HOME`
-relocates config, bases and indexes as everywhere else.
+(nothing is written onto an invalid base), and followed by a post-write
+validation — incremental (M3): ONE shared full-base pass per write (the MCP
+write tools compute a single `write.checked()` result for target resolution
+AND the pre-check), and the post-check validates the written file re-parsed
+from disk plus the global invariants one new event can break (duplicate ids,
+tombstone conflicts, the new record's references against the target files);
+a post-check failure unlinks the just-written file and reports the
+diagnostics, so a tool never returns success on an invalid tree (FORMAT.md
+§6 atomicity). Every git spawn goes through `sync.git_env()` (which also
+sets `GIT_TERMINAL_PROMPT=0`) and `sync.run_git()` — a mandatory timeout
+(short for local ops, longer for fetch/clone, per-call constants in
+`sync.py`) with `TimeoutExpired` and a missing binary (`FileNotFoundError`)
+mapped into the caller's E-GIT-family diagnostic, never a traceback, never a
+hang; `MASORA_HOME` relocates config, bases and indexes as everywhere else.
 
 ## Facts command (`masora/facts.py`, docs/CPPGRAPH_INTEGRATION.md)
 

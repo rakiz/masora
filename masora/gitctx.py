@@ -43,13 +43,12 @@ would change the fold's observable result (displayed, shadow, restored).
 from __future__ import annotations
 
 import enum
-import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 from .fold import TIER1_RELATIONS, Event, VersionContext, fold_lineage
-from .sync import git_env
+from .sync import git_env, run_git
 
 # One shared probe budget per index build (MASORA_DESIGN.md §6.2): the cap on
 # `git merge-base --is-ancestor` spawns. Sized to fully resolve a base of
@@ -98,14 +97,13 @@ def asking_line(repo: Path) -> AskingLine:
 
 
 def _git_text(repo: Path, *args: str) -> str | None:
-    proc = subprocess.run(
+    proc = run_git(
         ["git", "-C", str(repo), *args],
         capture_output=True,
         text=True,
-        check=False,
         env=git_env(),
     )
-    return proc.stdout.strip() if proc.returncode == 0 else None
+    return proc.stdout.strip() if proc is not None and proc.returncode == 0 else None
 
 
 class RelationProber:
@@ -140,14 +138,17 @@ class RelationProber:
         if self.used >= self.budget:
             return Answer.BLOCKED
         self.used += 1
-        proc = subprocess.run(
+        proc = run_git(
             ["git", "-C", str(self.repo), "merge-base", "--is-ancestor", a, b],
             capture_output=True,
             text=True,
-            check=False,
             env=git_env(),
         )
-        answer = {0: Answer.YES, 1: Answer.NO}.get(proc.returncode, Answer.FAILED)
+        if proc is None:
+            # Timeout or missing git binary: the probe FAILED (never a no).
+            answer = Answer.FAILED
+        else:
+            answer = {0: Answer.YES, 1: Answer.NO}.get(proc.returncode, Answer.FAILED)
         self._memo[key] = answer
         return answer
 

@@ -113,9 +113,14 @@ def sel(versions: Iterable[str], contexts: Mapping[str, VersionContext]) -> str 
 
 
 def resolve_activity(events: list[Event], *, order: str | list[str] = "desc") -> dict[str, bool]:
-    """Fixed-point evaluation of event activity; converges on the acyclic
-    reference graph that `check` enforces (FORMAT.md §3), raises
-    FoldCycleError when the update never settles (mutual refutation cycles)."""
+    """Fixed-point evaluation of event activity. Convergence is guaranteed on
+    the ACYCLIC reference domain — the case `masora check` enforces (FORMAT.md
+    §3: the targets graph is a DAG), where the update pass reaches its fixed
+    point and the dict is returned. The FoldCycleError branch is the guard for
+    inputs OUTSIDE that enforced domain (hand-built or injected event lists
+    with a mutual-refutation cycle): when the updates have not settled within
+    the pass bound, the caller gets the error instead of a lie — it is never
+    raised for a base that passed check."""
     events = sorted(events, key=lambda e: e.id)
     if len({e.id for e in events}) != len(events):
         raise ValueError("duplicate event ids in fold input")

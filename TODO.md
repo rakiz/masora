@@ -65,17 +65,17 @@ the wave; commit at the wave boundary, nothing pushed.
 
 ### Phase 4: robustness/perf sweep (AUDIT.md wave 3)
 
-- [ ] M2 — memoize anchor fingerprints per `(provider, identity)` per
+- [x] M2 — memoize anchor fingerprints per `(provider, identity)` per
   build (double hashing today).
-- [ ] M3 — shared parse pass in the write path (O(n) per write, not 2-4
+- [x] M3 — shared parse pass in the write path (O(n) per write, not 2-4
   full parses).
-- [ ] M4 — `timeout=` + `GIT_TERMINAL_PROMPT=0` on every `subprocess.run`
+- [x] M4 — `timeout=` + `GIT_TERMINAL_PROMPT=0` on every `subprocess.run`
   (a hung git blocks sync; an MCP call can spend the whole probe budget).
-- [ ] M6 — close the cppgraph sqlite handle in explain.
-- [ ] M7 — deep-YAML `RecursionError` → `E-YAML` diagnostic, not a
+- [x] M6 — close the cppgraph sqlite handle in explain.
+- [x] M7 — deep-YAML `RecursionError` → `E-YAML` diagnostic, not a
   traceback.
-- [ ] M8 — index identity hashes the base path (basename-only collision).
-- [ ] LOW sweep — fold docstring convergence overpromise; `gh` JSON
+- [x] M8 — index identity hashes the base path (basename-only collision).
+- [x] LOW sweep — fold docstring convergence overpromise; `gh` JSON
   traceback; missing-git-binary → diagnostic not `FileNotFoundError`;
   atomic `deleted.toml` append; `auto_base` refuses a matched-but-
   malformed mapping (wrong-base write risk); MCP index reuse when keyed

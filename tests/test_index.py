@@ -37,6 +37,7 @@ from masora.index import (
     build_index,
     file_fingerprint_provider,
     index_db_path,
+    index_dir_for,
     index_stale,
     index_stale_reason,
     search_index,
@@ -1257,3 +1258,89 @@ def test_stale_graph_meta_names_reindex_when_built_usable(base, home, tmp_path):
     write_cppgraph(repo, SHA, V1_SYMBOLS, [(SYM_A, SYM_B), (SYM_A, SYM_C)])
     reason = index_stale_reason(result.db_path, base, repo)
     assert reason is not None and "re-indexed" in reason
+
+
+# --- Phase 4: M2 (per-build fingerprint memo), M8 (base-path identity),
+# --- the unique .building temp name ------------------------------------------
+
+
+def test_fingerprint_provider_called_once_per_anchor_per_build(base, repo, home):
+    """M2: compose_outcomes runs for the degraded counterfactual AND again
+    inside resolve_lineage — the memo shares one provider call per
+    (provider, identity)."""
+    calls: list[str] = []
+
+    def counting(kind: str, identity: str) -> str | None:
+        calls.append(identity)
+        return FP
+
+    write_event(
+        base,
+        CLAIM_REL,
+        make_claim(ULID_L1, anchors=[anchor(identity=IDENT_MAIN)]),
+    )
+    result = build_index(
+        base,
+        repo,
+        fingerprints={"code": counting},
+        edge_snapshots={"code": lambda kind, identity: None},
+    )
+    assert result.exit_code() == 0
+    # Two anchor evaluations per build WITHOUT the memo (compose +
+    # resolve_lineage); with it: exactly one per anchor.
+    assert calls == [IDENT_MAIN]
+
+
+def test_memoized_helper_caches_per_provider_identity():
+    from masora.resolve import AnchorData, VersionData, compose_outcomes, memoized
+
+    calls: list[str] = []
+
+    def fp(kind: str, identity: str) -> str | None:
+        calls.append(identity)
+        return "f" * 8
+
+    wrapped, _edges = memoized({"code": fp})
+    versions = [VersionData(id="v", anchors=(AnchorData("code", "sym", "f" * 8),))]
+    assert compose_outcomes(versions, wrapped) == {"v": "match"}
+    assert compose_outcomes(versions, wrapped) == {"v": "match"}
+    assert calls == ["sym"]
+
+
+def test_index_identity_hashes_the_base_path(home, tmp_path):
+    """M8: two same-named bases in different homes must never share an index
+    directory — the base's ABSOLUTE path is hashed into the name."""
+    first = tmp_path / "a" / "base"
+    second = tmp_path / "b" / "base"
+    for path in (first, second):
+        path.mkdir(parents=True)
+    assert index_dir_for(first) != index_dir_for(second)
+
+
+def test_missing_index_after_rename_is_no_index(base, repo, home):
+    """M8: the index filename changed — an old on-disk index becomes an
+    orphan, and the rebuild path treats the new (absent) path as 'no index'."""
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    result = build_index(base, repo)
+    assert result.db_path.is_file()
+    assert index_db_path(base, repo) == result.db_path
+
+
+def test_building_temp_name_is_unique_per_build(base, repo, home, monkeypatch):
+    """No cross-build unlink races: two builds in flight use different temp
+    names (pid + uuid), and neither unlinks the other's file."""
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    names: list[str] = []
+    real_connect = sqlite3.connect
+
+    def spy_connect(path, *args, **kwargs):
+        if str(path).endswith(".building"):
+            names.append(str(path))
+        return real_connect(path, *args, **kwargs)
+
+    monkeypatch.setattr("masora.index.sqlite3.connect", spy_connect)
+    first = build_index(base, repo)
+    second = build_index(base, repo)
+    assert first.exit_code() == 0 and second.exit_code() == 0
+    assert len(names) == 2 and names[0] != names[1]
+    assert not list(home.rglob("*.building"))

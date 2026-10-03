@@ -21,13 +21,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import gitctx
+from . import gitctx, resolve
 from .checker import _parse_event_file, check_base, discover_event_files
 from .diagnostics import E_EXPLAIN_UNKNOWN, Diag
 from .fold import Event, fold_lineage, resolve_activity
 from .frontmatter import load_frontmatter
 from .index import file_fingerprint_provider
-from .providers import cppgraph_registry
+from .providers import CppgraphRegistry, cppgraph_registry
 from .resolve import AnchorData, VersionData, compose_outcomes, resolve_lineage
 from .schema import EventRecord
 
@@ -44,7 +44,12 @@ def explain_lineage(base_dir: Path, lineage_id: str, repo: Path | None = None) -
     in ULID order and the active verify's evidence in full. With a repo the
     git context is re-derived live (fresh budget) and surfaced. Raises
     ExplainError (E-NOT-A-BASE, other base errors, E-EXPLAIN-UNKNOWN);
-    nothing is ever written."""
+    nothing is ever written.
+
+    An EVENT ULID (a non-lineage id) resolves to the lineage carrying it —
+    the story is the lineage's, never an empty render. The graph registry's
+    sqlite handle is closed when the story is built (M6).
+    """
     pre = check_base(base_dir)
     if pre.errors:
         raise ExplainError(*pre.errors)
@@ -59,7 +64,31 @@ def explain_lineage(base_dir: Path, lineage_id: str, repo: Path | None = None) -
                 " lineage",
             )
         )
-    fingerprints, edge_snapshots = _registries(repo)
+    # An event ULID (verify, doubt, refute, …) names its lineage: resolve it,
+    # never render an empty story for a well-formed id that exists.
+    if not any(record.kind == "claim" and record.id == lineage_id for record in records):
+        lineage_id = records[0].lineage
+        records = _lineage_records(base_dir, lineage_id)
+    registry_repo: CppgraphRegistry | None = cppgraph_registry(repo) if repo is not None else None
+    try:
+        fingerprints, edge_snapshots = _registries(registry_repo, repo)
+        # M2: one provider evaluation per anchor across the outcome
+        # composition, the resolution and the render's anchor lines.
+        fingerprints, edge_snapshots = resolve.memoized(fingerprints, edge_snapshots)
+        return _explain(base_dir, lineage_id, records, repo, fingerprints, edge_snapshots)
+    finally:
+        if registry_repo is not None:
+            registry_repo.close()
+
+
+def _explain(
+    base_dir: Path,
+    lineage_id: str,
+    records,
+    repo: Path | None,
+    fingerprints: dict,
+    edge_snapshots: dict,
+) -> str:
     by_id = {record.id: record for record in records}
     fold_events = [_fold_event(record) for record in records]
     claims = [record for record in records if record.kind == "claim"]
@@ -152,10 +181,11 @@ def _record_anchors(base_dir: Path, record: EventRecord) -> tuple[AnchorData, ..
     )
 
 
-def _registries(repo: Path | None) -> tuple[dict, dict]:
+def _registries(registry, repo: Path | None) -> tuple[dict, dict]:
+    """The fingerprint/edge mappings; the registry handle (with its sqlite
+    connection) is owned and closed by `explain_lineage` (M6)."""
     if repo is None:
         return {}, {}
-    registry = cppgraph_registry(repo)
     return (
         {"file": file_fingerprint_provider(repo), "code": registry.fingerprints},
         {"file": None, "code": registry.edges},

@@ -92,14 +92,26 @@ def load_frontmatter(text: str, path: str) -> dict:
         node = loader.get_single_node()
     except yaml.YAMLError as exc:
         raise CheckFailure(Diag("error", E_YAML, f"invalid YAML: {exc}", path)) from exc
+    except RecursionError as exc:
+        # Deeply nested YAML (e.g. a wall of `[`): the composer recurses per
+        # level — the failure is the file's, reported as E-YAML (M7), never a
+        # traceback escaping the checker.
+        raise CheckFailure(
+            Diag("error", E_YAML, "YAML is nested too deeply to parse", path)
+        ) from exc
     if node is None:
         raise CheckFailure(Diag("error", E_FRONTMATTER, "frontmatter is empty", path))
     if loader.alias_seen:
         raise CheckFailure(Diag("error", E_CANON_ALIAS, "anchors and aliases are rejected", path))
     if loader.explicit_tag_seen:
         raise CheckFailure(Diag("error", E_CANON_TAG, "explicit tags are rejected", path))
-    _walk_node(node, "", path, parent_key=None, opaque=False)
-    data = loader.construct_document(node)
+    try:
+        _walk_node(node, "", path, parent_key=None, opaque=False)
+        data = loader.construct_document(node)
+    except RecursionError as exc:
+        raise CheckFailure(
+            Diag("error", E_YAML, "YAML is nested too deeply to parse", path)
+        ) from exc
     if not isinstance(data, dict):
         raise CheckFailure(
             Diag(

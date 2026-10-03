@@ -14,7 +14,6 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-import subprocess
 import tomllib
 import urllib.request
 from collections.abc import Callable
@@ -27,7 +26,7 @@ from . import config
 from .facts import CONTRACT_VERSION
 from .index import SCHEMA_VERSION, _stored_meta, index_dir_for, index_stale_reason
 from .schema import SUPPORTED_FORMAT_VERSION
-from .sync import git_env
+from .sync import git_env, run_git
 from .write import base_dir_for_name
 
 RELEASES_URL = "https://api.github.com/repos/rakiz/masora/releases/latest"
@@ -114,14 +113,13 @@ def _print_base(name: str, entry: dict, data: dict) -> None:
 
 
 def _origin(clone: Path) -> str:
-    proc = subprocess.run(
+    proc = run_git(
         ["git", "-C", str(clone), "remote", "get-url", "origin"],
         capture_output=True,
         text=True,
-        check=False,
         env=git_env(),
     )
-    return proc.stdout.strip() if proc.returncode == 0 else ""
+    return proc.stdout.strip() if proc is not None and proc.returncode == 0 else ""
 
 
 def _entry_remote(entry: dict) -> str:

@@ -291,3 +291,40 @@ def test_explain_reports_degraded_ordering(tmp_path, capsys):
     assert "  off-version: no" in out
     assert f"displayed version: {ULID_L1}" in out
     assert f"{ULID_L1} claim (llm) — founder: One line summary [established: in_line]" in out
+
+
+# --- Phase 4: an event ULID resolves to its lineage; the registry handle closes
+
+
+def test_explain_on_an_event_ulid_tells_the_lineage_story(story_base, capsys):
+    """LOW: a verify/doubt/refute ULID names its lineage — the story is the
+    lineage's, never an empty render."""
+    code = main(["explain", str(story_base), VB])
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert f"lineage {ULID_L1}" in out
+    assert f"displayed version: {V2}" in out
+    assert "events (6, oldest first):" in out
+
+
+def test_explain_closes_the_graph_registry_handle(story_base, monkeypatch):
+    """M6: the cppgraph sqlite handle opened for the anchor render is closed
+    when the story is built."""
+    from masora import explain as explain_mod
+
+    closed = {"n": 0}
+
+    class SpyRegistry:
+        available = True
+        graph_commit = None
+        fingerprints = None
+        edges = None
+
+        def close(self):
+            closed["n"] += 1
+
+    monkeypatch.setattr(explain_mod, "cppgraph_registry", lambda repo: SpyRegistry())
+    story = explain_mod.explain_lineage(story_base, ULID_L1, repo=Path("."))
+    assert "lineage " in story
+    assert closed["n"] == 1

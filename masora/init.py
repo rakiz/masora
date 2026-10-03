@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 
 from .checker import check_base
@@ -16,7 +15,7 @@ from .diagnostics import (
     E_INIT_WRITE,
     Diag,
 )
-from .sync import git_env
+from .sync import git_env, run_git
 
 COMMIT_MESSAGE = "masora init: base {name}"
 
@@ -141,7 +140,13 @@ def _check_tree(target: Path) -> None:
 
 
 def _git(args: list[str], what: str) -> str:
-    proc = subprocess.run(args, capture_output=True, text=True, check=False, env=git_env())
+    proc = run_git(
+        args,
+        capture_output=True,
+        text=True,
+        env=git_env(),
+        error=lambda msg: InitError(Diag("error", E_INIT_GIT, f"{what} failed: {msg}")),
+    )
     if proc.returncode != 0:
         stderr = proc.stderr.strip() or proc.stdout.strip()
         raise InitError(Diag("error", E_INIT_GIT, f"{what} failed: {stderr}"))

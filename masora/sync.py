@@ -44,6 +44,15 @@ PR_TITLE = "masora sync"
 COMMIT_MESSAGE = "masora sync"
 PLAN_EXIT = 3
 
+# Subprocess timeouts (M4): a hung git/gh spawn must never block a sync or
+# spend an MCP call's whole budget. Local operations get a short budget,
+# network operations a longer one; the forge CLI is interactive-ish but
+# non-essential (its failure is always just a note).
+GIT_TIMEOUT_S = 60
+FETCH_TIMEOUT_S = 300
+NETWORK_TIMEOUT_S = 600
+GH_TIMEOUT_S = 30
+
 REPO_LOCATION_ENV_VARS = (
     "GIT_DIR",
     "GIT_WORK_TREE",
@@ -56,11 +65,35 @@ REPO_LOCATION_ENV_VARS = (
 
 
 def git_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
-    """Return env (or os.environ) without repo-location GIT_* variables."""
+    """Return env (or os.environ) without repo-location GIT_* variables, with
+    `GIT_TERMINAL_PROMPT=0` — a git spawn must fail fast when it would ask for
+    credentials, never hang waiting for a terminal that is not there (M4)."""
     result = dict(os.environ if env is None else env)
     for name in REPO_LOCATION_ENV_VARS:
         result.pop(name, None)
+    result["GIT_TERMINAL_PROMPT"] = "0"
     return result
+
+
+def run_git(cmd: list[str], *, timeout: int = GIT_TIMEOUT_S, error=None, **kwargs):
+    """A `subprocess.run` for git/gh spawns with a mandatory timeout (M4).
+
+    `subprocess.TimeoutExpired` and `FileNotFoundError` (missing binary) are
+    mapped through `error` — a callable `str -> Exception` carrying the
+    site's E-GIT-family diagnostic — when given, and the process returns None
+    when it is not (sites whose contract already treats a git failure as
+    "unavailable"). kwargs must not set `timeout` or `check`.
+    """
+    try:
+        return subprocess.run(cmd, timeout=timeout, check=False, **kwargs)
+    except subprocess.TimeoutExpired as exc:
+        if error is None:
+            return None
+        raise error(f"{cmd[0]} timed out after {timeout}s") from exc
+    except FileNotFoundError as exc:
+        if error is None:
+            return None
+        raise error(f"{cmd[0]} is not available on PATH — install it and retry") from exc
 
 
 class SyncError(Exception):
@@ -744,14 +777,13 @@ def _preserve_committed_excluded(
 
 
 def _tree_has_path(base_dir: Path, commit: str, rel: str) -> bool:
-    proc = subprocess.run(
+    proc = run_git(
         ["git", "-C", str(base_dir), "ls-tree", "--", commit, rel],
         capture_output=True,
         text=True,
-        check=False,
         env=git_env(),
     )
-    return proc.returncode == 0 and bool(proc.stdout.strip())
+    return proc is not None and proc.returncode == 0 and bool(proc.stdout.strip())
 
 
 def _build_merged(
@@ -845,7 +877,9 @@ def _lenient_frontmatter(content: bytes, name: str) -> dict | None:
         return None
     try:
         data = yaml.safe_load(raw)
-    except yaml.YAMLError:
+    except (yaml.YAMLError, RecursionError):
+        # RecursionError: deeply nested YAML — the lenient scan treats it as
+        # unparsable (M7's E-YAML fires on the validating paths).
         return None
     return data if isinstance(data, dict) else None
 
@@ -1046,20 +1080,23 @@ def _close_pr(base_dir: Path) -> None:
         return
     if existing:
         number, pr_url = existing
-        proc = subprocess.run(
+        proc = run_git(
             [gh, "pr", "close", str(number), "--repo", slug],
             capture_output=True,
             text=True,
-            check=False,
+            timeout=GH_TIMEOUT_S,
+            env=git_env(),
         )
-        if proc.returncode == 0:
+        if proc is None:
+            print(f"note: could not close PR {pr_url} (gh unavailable or timed out)")
+        elif proc.returncode == 0:
             print(f"closed PR {pr_url}")
         else:
             print(f"note: could not close PR {pr_url}: {proc.stderr.strip()}")
 
 
 def _gh_pr_list(gh: str, slug: str) -> tuple[int, str] | None:
-    proc = subprocess.run(
+    proc = run_git(
         [
             gh,
             "pr",
@@ -1075,17 +1112,37 @@ def _gh_pr_list(gh: str, slug: str) -> tuple[int, str] | None:
         ],
         capture_output=True,
         text=True,
-        check=False,
+        timeout=GH_TIMEOUT_S,
+        env=git_env(),
     )
-    if proc.returncode != 0:
-        print(f"note: could not list open pull requests ({proc.stderr.strip()})")
+    if proc is None or proc.returncode != 0:
+        reason = "timed out" if proc is None else proc.stderr.strip()
+        print(f"note: could not list open pull requests ({reason})")
         return None
-    items = json.loads(proc.stdout or "[]")
+    try:
+        items = json.loads(proc.stdout or "[]")
+    except json.JSONDecodeError as exc:
+        # Malformed forge output is a note, never a traceback (LOW sweep).
+        print(f"note: could not parse the forge CLI's pull-request list: {exc}")
+        return None
+    if not isinstance(items, list):
+        print("note: could not parse the forge CLI's pull-request list (not a JSON array)")
+        return None
     return (items[0]["number"], items[0]["url"]) if items else None
 
 
 def _gh_run(gh: str, args: list[str], body: str) -> str:
-    proc = subprocess.run([gh, *args], input=body, capture_output=True, text=True, check=False)
+    proc = run_git(
+        [gh, *args],
+        input=body,
+        capture_output=True,
+        text=True,
+        timeout=GH_TIMEOUT_S,
+        env=git_env(),
+    )
+    if proc is None:
+        print(f"note: gh {' '.join(args[:2])} timed out or is unavailable")
+        return ""
     if proc.returncode != 0:
         print(f"note: gh {' '.join(args[:2])} failed: {proc.stderr.strip()}")
         return ""
@@ -1120,12 +1177,12 @@ def _github_slug(url: str) -> str | None:
 
 
 def _remote_url(base_dir: Path) -> str:
-    proc = subprocess.run(
+    proc = run_git(
         ["git", "-C", str(base_dir), "remote", "get-url", REMOTE],
         capture_output=True,
         text=True,
-        check=False,
         env=git_env(),
+        error=lambda msg: SyncError(Diag("error", E_GIT, f"git remote get-url {REMOTE}: {msg}")),
     )
     if proc.returncode != 0 or not proc.stdout.strip():
         raise SyncError(
@@ -1139,19 +1196,20 @@ def _remote_url(base_dir: Path) -> str:
 
 
 def _fetch(base_dir: Path) -> None:
-    proc = subprocess.run(
+    proc = run_git(
         ["git", "-C", str(base_dir), "fetch", REMOTE, "--prune"],
         capture_output=True,
         text=True,
-        check=False,
+        timeout=FETCH_TIMEOUT_S,
         env=git_env(),
+        error=lambda msg: SyncError(Diag("error", E_GIT, f"git fetch {REMOTE} failed: {msg}")),
     )
     if proc.returncode != 0:
         raise SyncError(Diag("error", E_GIT, f"git fetch {REMOTE} failed: {proc.stderr.strip()}"))
 
 
 def _origin_main(base_dir: Path) -> str:
-    proc = subprocess.run(
+    proc = run_git(
         [
             "git",
             "-C",
@@ -1162,8 +1220,10 @@ def _origin_main(base_dir: Path) -> str:
         ],
         capture_output=True,
         text=True,
-        check=False,
         env=git_env(),
+        error=lambda msg: SyncError(
+            Diag("error", E_GIT, f"git rev-parse {REMOTE}/{MAIN_BRANCH}: {msg}")
+        ),
     )
     if proc.returncode != 0:
         raise SyncError(
@@ -1177,12 +1237,12 @@ def _origin_main(base_dir: Path) -> str:
 
 
 def _merge_base(base_dir: Path) -> str:
-    proc = subprocess.run(
+    proc = run_git(
         ["git", "-C", str(base_dir), "merge-base", "HEAD", f"refs/remotes/{REMOTE}/{MAIN_BRANCH}"],
         capture_output=True,
         text=True,
-        check=False,
         env=git_env(),
+        error=lambda msg: SyncError(Diag("error", E_GIT, f"git merge-base: {msg}")),
     )
     if proc.returncode != 0:
         raise SyncError(
@@ -1196,34 +1256,32 @@ def _merge_base(base_dir: Path) -> str:
 
 
 def _optional_rev(base_dir: Path, rev: str) -> str | None:
-    proc = subprocess.run(
+    proc = run_git(
         ["git", "-C", str(base_dir), "rev-parse", "--verify", rev],
         capture_output=True,
         text=True,
-        check=False,
         env=git_env(),
     )
-    return proc.stdout.strip() if proc.returncode == 0 else None
+    return proc.stdout.strip() if proc is not None and proc.returncode == 0 else None
 
 
 def _head_branch(base_dir: Path) -> str | None:
-    proc = subprocess.run(
+    proc = run_git(
         ["git", "-C", str(base_dir), "symbolic-ref", "--short", "HEAD"],
         capture_output=True,
         text=True,
-        check=False,
         env=git_env(),
     )
-    return proc.stdout.strip() if proc.returncode == 0 else None
+    return proc.stdout.strip() if proc is not None and proc.returncode == 0 else None
 
 
 def _git(base_dir: Path, *args: str) -> str:
-    proc = subprocess.run(
+    proc = run_git(
         ["git", "-C", str(base_dir), *args],
         capture_output=True,
         text=True,
-        check=False,
         env=git_env(),
+        error=lambda msg: SyncError(Diag("error", E_GIT, f"git {' '.join(args)} failed: {msg}")),
     )
     if proc.returncode != 0:
         raise SyncError(Diag("error", E_GIT, f"git {' '.join(args)} failed: {proc.stderr.strip()}"))
@@ -1243,21 +1301,22 @@ def _require_repo_root(base_dir: Path) -> None:
 
 
 def _git_show_optional(base_dir: Path, rev: str) -> bytes | None:
-    proc = subprocess.run(
+    proc = run_git(
         ["git", "-C", str(base_dir), "show", rev],
         capture_output=True,
-        check=False,
         env=git_env(),
     )
-    return proc.stdout if proc.returncode == 0 else None
+    return proc.stdout if proc is not None and proc.returncode == 0 else None
 
 
 def _materialize(base_dir: Path, commit: str, dest: Path) -> None:
-    proc = subprocess.run(
+    proc = run_git(
         ["git", "-C", str(base_dir), "archive", "--format=tar", commit],
         capture_output=True,
-        check=False,
         env=git_env(),
+        error=lambda msg: SyncError(
+            Diag("error", E_GIT, f"git archive {commit[:12]} failed: {msg}")
+        ),
     )
     if proc.returncode != 0:
         stderr = proc.stderr.decode(errors="replace").strip()
@@ -1279,8 +1338,15 @@ def _commit_tree(
         }
 
         def _plumb(*args: str) -> str:
-            proc = subprocess.run(
-                ["git", *args], cwd=work_tree, env=env, capture_output=True, text=True, check=False
+            proc = run_git(
+                ["git", *args],
+                cwd=work_tree,
+                env=env,
+                capture_output=True,
+                text=True,
+                error=lambda msg: SyncError(
+                    Diag("error", E_GIT, f"git {' '.join(args)} failed: {msg}")
+                ),
             )
             if proc.returncode != 0:
                 raise SyncError(

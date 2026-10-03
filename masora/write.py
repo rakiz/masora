@@ -16,18 +16,35 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import tempfile
 import tomllib
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
 from . import config
-from .checker import check_base
-from .diagnostics import E_MCP_NO_BASE, E_WRITE_SECRET, CheckFailure, Diag
+from .checker import (
+    ALLOWED_TARGET_KINDS,
+    CheckResult,
+    _parse_event_file,
+    check_base,
+)
+from .diagnostics import (
+    E_ANCHOR,
+    E_DUP_ID,
+    E_LINEAGE,
+    E_MCP_NO_BASE,
+    E_TARGET_KIND,
+    E_TOMBSTONED,
+    E_WRITE_SECRET,
+    W_DANGLING,
+    W_REPLAY,
+    W_SKEW,
+    CheckFailure,
+    Diag,
+)
 from .index import ParsedEvent, _parse_events
-from .schema import SHA_RE, validate_event
-from .sync import git_env
+from .schema import SHA_RE, EventRecord, validate_event
+from .sync import git_env, run_git
 
 
 class WriteError(Exception):
@@ -56,16 +73,16 @@ def load_user_config() -> dict:
 
 
 def origin_remote(repo: Path) -> str | None:
-    """The code repo's `origin` URL, or None (git spawns sanitized by `git_env`)."""
-    proc = subprocess.run(
+    """The code repo's `origin` URL, or None (git spawns sanitized by `git_env`,
+    timeout- and missing-binary-safe)."""
+    proc = run_git(
         ["git", "-C", str(repo), "remote", "get-url", "origin"],
         capture_output=True,
         text=True,
-        check=False,
         env=git_env(),
     )
-    value = proc.stdout.strip()
-    return value if proc.returncode == 0 and value else None
+    value = proc.stdout.strip() if proc is not None else ""
+    return value if value else None
 
 
 def origin_state(repo: Path) -> tuple[str, str | None]:
@@ -73,14 +90,13 @@ def origin_state(repo: Path) -> tuple[str, str | None]:
     `not_git_worktree` (the path is not inside a git worktree),
     `git_without_origin` (a worktree whose origin is missing or unreadable) or
     `origin` (readable)."""
-    proc = subprocess.run(
+    proc = run_git(
         ["git", "-C", str(repo), "rev-parse", "--git-dir"],
         capture_output=True,
         text=True,
-        check=False,
         env=git_env(),
     )
-    if proc.returncode != 0:
+    if proc is None or proc.returncode != 0:
         return "not_git_worktree", None
     remote = origin_remote(repo)
     if remote is None:
@@ -95,15 +111,14 @@ def human_name(base_dir: Path) -> str | None:
     base-repo git config (the commits are the trust path); None when unset —
     the field is then simply absent from the event.
     """
-    proc = subprocess.run(
+    proc = run_git(
         ["git", "-C", str(base_dir), "config", "user.name"],
         capture_output=True,
         text=True,
-        check=False,
         env=git_env(),
     )
-    value = proc.stdout.strip()
-    return value if proc.returncode == 0 and value else None
+    value = proc.stdout.strip() if proc is not None else ""
+    return value if value else None
 
 
 # The `lines` fork-point stamp (FORMAT.md §4) captures a FIXED ref set: the
@@ -111,29 +126,27 @@ def human_name(base_dir: Path) -> str | None:
 def _default_branch_ref(repo_root: Path) -> str | None:
     """The default branch as a full remote-tracking refname
     (`refs/remotes/origin/HEAD`'s target), or None."""
-    proc = subprocess.run(
+    proc = run_git(
         ["git", "-C", str(repo_root), "symbolic-ref", "refs/remotes/origin/HEAD"],
         capture_output=True,
         text=True,
-        check=False,
         env=git_env(),
     )
-    ref = proc.stdout.strip()
-    return ref if proc.returncode == 0 and ref else None
+    ref = proc.stdout.strip() if proc is not None else ""
+    return ref if ref else None
 
 
 def _upstream_ref(repo_root: Path) -> str | None:
     """The current branch's upstream as a full refname, or None (detached HEAD,
     no upstream, any git failure)."""
-    proc = subprocess.run(
+    proc = run_git(
         ["git", "-C", str(repo_root), "rev-parse", "--symbolic-full-name", "@{upstream}"],
         capture_output=True,
         text=True,
-        check=False,
         env=git_env(),
     )
-    ref = proc.stdout.strip()
-    return ref if proc.returncode == 0 and ref.startswith("refs/") else None
+    ref = proc.stdout.strip() if proc is not None else ""
+    return ref if ref.startswith("refs/") else None
 
 
 def capture_lines(repo_root: Path, head: str) -> dict[str, str] | None:
@@ -157,15 +170,14 @@ def capture_lines(repo_root: Path, head: str) -> dict[str, str] | None:
             refs.append(ref)
     lines: dict[str, str] = {}
     for ref in refs:
-        merge = subprocess.run(
+        merge = run_git(
             ["git", "-C", str(repo_root), "merge-base", head, ref],
             capture_output=True,
             text=True,
-            check=False,
             env=git_env(),
         )
-        sha = merge.stdout.strip()
-        if merge.returncode == 0 and SHA_RE.match(sha):
+        sha = merge.stdout.strip() if merge is not None else ""
+        if SHA_RE.match(sha):
             short = ref.removeprefix("refs/heads/").removeprefix("refs/remotes/")
             if short:
                 lines[short] = sha
@@ -188,9 +200,10 @@ def base_dir_for_name(data: dict, name: str) -> Path | None:
 def auto_base(repo_root: Path | None) -> Path | None:
     """Mapping match on the code remote, then `default_base` (MASORA_DESIGN.md §9).
 
-    None when nothing matches; WriteError when the config is unreadable or a
-    MATCHED base's checkout is missing — matched-but-broken is never silently
-    skipped. Shared by the MCP write tools and the read-only `masora facts`.
+    None when nothing matches; WriteError when the config is unreadable, a
+    MATCHED base's checkout is missing, or a MATCHED mapping names no usable
+    base — matched-but-broken is never silently skipped. Shared by the MCP
+    write tools and the read-only `masora facts`.
     """
     data = load_user_config()
     remote = origin_remote(repo_root) if repo_root is not None else None
@@ -212,7 +225,21 @@ def auto_base(repo_root: Path | None) -> Path | None:
                     else None
                 )
                 if name is None:
-                    continue
+                    # A mapping whose code_remote MATCHED but that names no usable
+                    # base is a broken config, never a silent fall-through to the
+                    # next mapping or default_base — writing onto the wrong base
+                    # is the one outcome this must never allow (LOW sweep).
+                    raise WriteError(
+                        Diag(
+                            "error",
+                            E_MCP_NO_BASE,
+                            f"mapping {code_remote!r} matches this repo's origin but names no base"
+                            " (its 'bases' is missing, empty or not a list of names) — fix"
+                            " config.toml or pass the base parameter explicitly"
+                            " (MASORA_DESIGN.md §9)",
+                            str(config.config_path()),
+                        )
+                    )
                 path = base_dir_for_name(data, name)
                 if path is None or not path.is_dir():
                     raise WriteError(
@@ -310,14 +337,33 @@ def resolve_base(repo_root: Path | None, base: str | None) -> Path:
     )
 
 
+def checked(base_dir: Path) -> CheckResult:
+    """ONE shared full-base validation pass for a write operation (M3).
+
+    Callers that need the base state before writing (the MCP write tools:
+    fold envelopes for target resolution, id/tombstone sets for the
+    incremental post-check) run this once and thread the result through
+    `envelopes`/`write_and_check` instead of re-running `check_base` per
+    step. Raises WriteError when the base already fails `check`.
+    """
+    result = check_base(base_dir)
+    if result.errors:
+        raise WriteError(*result.errors)
+    return result
+
+
 def records(base_dir: Path) -> dict[str, ParsedEvent]:
     """Validated event records by id (unparsable files are skipped — `check` reports them)."""
     return {pe.record.id: pe for pe in _parse_events(base_dir, [])}
 
 
-def envelopes(base_dir: Path) -> dict[str, dict]:
-    """Fold envelopes by lineage; a base that already fails `check` is refused."""
-    result = check_base(base_dir)
+def envelopes(base_dir: Path, shared: CheckResult | None = None) -> dict[str, dict]:
+    """Fold envelopes by lineage; a base that already fails `check` is refused.
+
+    `shared` (a `checked()` result) reuses one full pass instead of
+    re-validating the whole base (M3).
+    """
+    result = shared if shared is not None else check_base(base_dir)
     if result.errors:
         raise WriteError(*result.errors)
     return {envelope["lineage"]: envelope for envelope in result.envelopes}
@@ -332,6 +378,10 @@ def _scalar(value: object) -> str:
         return "false"
     if isinstance(value, int):
         return str(value)
+    if isinstance(value, float):
+        # Non-string scalars round-trip as YAML numbers, never as stringified
+        # text (a float 1.5 must come back as 1.5, not "1.5").
+        return json.dumps(value)
     return json.dumps(str(value), ensure_ascii=False)
 
 
@@ -551,12 +601,29 @@ def _scan_secrets(data: dict, path: str) -> None:
         )
 
 
-def write_and_check(base_dir: Path, data: dict) -> tuple[str, list[Diag]]:
+def write_and_check(
+    base_dir: Path, data: dict, shared: CheckResult | None = None
+) -> tuple[str, list[Diag]]:
     """Pre-check, pre-validate, secret-scan, write, re-validate; unlink on post-check failure.
+
+    `shared` (a `checked()` result the caller already computed for this
+    operation) replaces the pre-check's own full pass (M3: one shared
+    full-base parse per write). The post-check validates the touched
+    lineage + the global invariants one new event file can break
+    (`_post_check`) — the guarantee is unchanged: a write that leaves the
+    base invalid raises and unlinks, so a returned write implies a valid
+    base; the full-check semantics stay pinned by `check_base`'s own tests.
 
     Returns the base-relative path and the checker warnings (they ride along).
     """
-    precheck(base_dir)
+    if shared is not None:
+        pre = shared if not shared.errors else None
+        if pre is None:
+            raise WriteError(*shared.errors)
+    else:
+        pre = check_base(base_dir)
+        if pre.errors:
+            raise WriteError(*pre.errors)
     rel = event_relpath(data, base_dir)
     try:
         validate_event(data, data["kind"], rel)
@@ -577,8 +644,181 @@ def write_and_check(base_dir: Path, data: dict) -> tuple[str, list[Diag]]:
     except BaseException:
         Path(tmp_name).unlink(missing_ok=True)
         raise
-    result = check_base(base_dir)
-    if result.errors:
+    extra = _post_check(base_dir, data, rel, pre)  # raises WriteError (unlink first)
+    return rel, _post_warnings(data, pre, extra)
+
+
+def _post_warnings(data: dict, pre: CheckResult, extra: list[Diag]) -> list[Diag]:
+    """The warnings a full post-write check would report: the pre-check's
+    (unchanged by one appended event) plus the new record's own reference
+    warnings (W_DANGLING/W_SKEW) and the W_REPLAY arithmetic when the new
+    event is a structural claim."""
+    warnings = list(pre.warnings) + extra
+    if data.get("kind") == "claim" and data.get("class") == "structural":
+        count = pre.structural_count + 1
+        warnings.append(
+            Diag(
+                "warning",
+                W_REPLAY,
+                f"proof replay not wired in standalone check: {count} structural claim(s)"
+                " not replayed, outcome unknown",
+            )
+        )
+    return warnings
+
+
+def _post_check(base_dir: Path, data: dict, rel: str, pre: CheckResult) -> list[Diag]:
+    """Incremental post-write validation (M3): the written file re-parsed from
+    disk, plus the global invariants ONE new event file can break —
+    duplicate ids, tombstone conflicts and the new record's references
+    (checked against the single target file each). A valid base plus one
+    valid, well-referenced event cannot break any other invariant (a new
+    event's reference edges point at existing events — no new cycle; the
+    fold's per-lineage state is recomputed from the whole tree on the next
+    full check and every consumer of the envelope treats the write path's
+    return as "written", never as a fold). Any failure unlinks the
+    just-written file first — nothing invalid is ever left behind. Returns
+    the new record's own warnings (they ride along)."""
+    diags: list[Diag] = []
+    path = base_dir / rel
+    record = _parse_event_file(path, rel, diags)
+    if record is None:
         path.unlink(missing_ok=True)
-        raise WriteError(*result.errors)
-    return rel, result.warnings
+        raise WriteError(*diags)
+    if record.id in pre.event_ids and pre.event_ids[record.id] != rel:
+        path.unlink(missing_ok=True)
+        raise WriteError(
+            Diag(
+                "error",
+                E_DUP_ID,
+                f"event id {record.id} already defined by {pre.event_ids[record.id]}",
+                rel,
+            )
+        )
+    if (
+        record.id in pre.tombstoned_lineages
+        or record.lineage in pre.tombstoned_lineages
+        or record.id in pre.tombstoned_events
+    ):
+        path.unlink(missing_ok=True)
+        raise WriteError(
+            Diag(
+                "error",
+                E_TOMBSTONED,
+                f"event id or lineage appears in deleted.toml: {record.id} — the lineage was"
+                " collected by `masora gc` and its ULIDs can never return (FORMAT.md §7.10);"
+                " record the correction as a NEW lineage (a fresh claim with a new ULID),"
+                " never as an extension of the collected lineage",
+                record.path,
+            )
+        )
+    errors, warnings = _new_record_reference_checks(record, base_dir, pre)
+    if errors:
+        path.unlink(missing_ok=True)
+        raise WriteError(*errors)
+    return warnings
+
+
+def _new_record_reference_checks(
+    record: EventRecord, base_dir: Path, pre: CheckResult
+) -> tuple[list[Diag], list[Diag]]:
+    """Reference checks for the ONE new record (targets/contradicts), against
+    the target files themselves. Dangling targets and clock skew keep the
+    checker's warning severity — they ride along, they never refuse."""
+    errors: list[Diag] = []
+    warnings: list[Diag] = []
+    for attr in ("targets", "contradicts"):
+        target_id = getattr(record, attr)
+        if target_id is None:
+            continue
+        target_rel = pre.event_ids.get(target_id)
+        if target_rel is None:
+            warnings.append(
+                Diag(
+                    "warning",
+                    W_DANGLING,
+                    f"{attr} ULID {target_id} does not resolve to a valid event",
+                    record.path,
+                )
+            )
+            continue
+        target = _parse_event_file(base_dir / target_rel, target_rel, [])
+        if target is None:
+            # The target file was fine at pre-check but no longer parses
+            # (concurrent modification): the full check would error too.
+            errors.append(
+                Diag(
+                    "error",
+                    E_TARGET_KIND,
+                    f"{attr} target {target_id} no longer parses",
+                    record.path,
+                )
+            )
+            continue
+        if attr == "targets":
+            allowed = ALLOWED_TARGET_KINDS.get(record.kind)
+            if allowed is not None and target.kind not in allowed:
+                errors.append(
+                    Diag(
+                        "error",
+                        E_TARGET_KIND,
+                        f"{record.kind} must target {sorted(allowed)}, got {target.kind}",
+                        record.path,
+                    )
+                )
+            if target.lineage != record.lineage:
+                errors.append(
+                    Diag(
+                        "error",
+                        E_LINEAGE,
+                        f"lineage mismatch: targets {target.id} in lineage {target.lineage},"
+                        f" event in lineage {record.lineage}",
+                        record.path,
+                    )
+                )
+            if (
+                record.kind == "verify"
+                and target.kind == "claim"
+                and set(record.snapshot_keys) != set(target.anchor_identities)
+            ):
+                errors.append(
+                    Diag(
+                        "error",
+                        E_ANCHOR,
+                        f"snapshots keys must equal the target's anchor-identity set:"
+                        f" expected {sorted(target.anchor_identities)},"
+                        f" got {sorted(record.snapshot_keys)}",
+                        record.path,
+                    )
+                )
+            if target_id > record.id:
+                warnings.append(
+                    Diag(
+                        "warning",
+                        W_SKEW,
+                        f"targets ULID {target_id} is lexically greater than event id"
+                        f" {record.id} (clock skew tolerated)",
+                        record.path,
+                    )
+                )
+        else:
+            if target.kind != "claim":
+                errors.append(
+                    Diag(
+                        "error",
+                        E_TARGET_KIND,
+                        f"contradicts must resolve to a claim version, got {target.kind}",
+                        record.path,
+                    )
+                )
+            if target.lineage != record.lineage:
+                errors.append(
+                    Diag(
+                        "error",
+                        E_LINEAGE,
+                        f"contradicts must resolve to a claim version in the same lineage"
+                        f" {record.lineage}, got {target.lineage}",
+                        record.path,
+                    )
+                )
+    return errors, warnings

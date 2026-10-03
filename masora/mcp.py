@@ -34,8 +34,10 @@ from .explain import ExplainError, explain_lineage
 from .index import (
     IndexingError,
     _open_index,
+    _stored_meta,
     build_index,
     index_db_path,
+    index_dir_for,
     index_stale_reason,
     search_index_capped,
     search_omitted_line,
@@ -45,6 +47,7 @@ from .ulid import new_ulid
 from .write import (
     WriteError,
     capture_lines,
+    checked,
     envelopes,
     human_name,
     records,
@@ -231,18 +234,19 @@ def _resolve_anchors(registry: providers.CppgraphRegistry, refs: list[str]) -> l
 
 
 def _resolve_target(
-    base_dir: Path, parsed: dict, id_str: str, tool: str, wants: str
+    base_dir: Path, parsed: dict, id_str: str, tool: str, wants: str, envs: dict[str, dict]
 ) -> tuple[str, str]:
     """Event id or lineage → (target ULID, lineage); lineage rides the fold (FORMAT.md §6).
 
-    A lineage id — including the founding claim's, whose id equals the
-    lineage — resolves to the lineage's DISPLAYED version for verify/refute,
-    and to the active verify of that version for doubt. A non-lineage event id
-    must be the kind the tool targets (claim for verify, verify for doubt,
-    doubt for undoubt, any for refute).
+    `envs` are the fold envelopes computed by the caller's ONE shared check
+    pass (M3). A lineage id — including the founding claim's, whose id equals
+    the lineage — resolves to the lineage's DISPLAYED version for
+    verify/refute, and to the active verify of that version for doubt. A
+    non-lineage event id must be the kind the tool targets (claim for verify,
+    verify for doubt, doubt for undoubt, any for refute).
     """
     if any(pe.record.lineage == id_str for pe in parsed.values()):
-        envelope = envelopes(base_dir).get(id_str)
+        envelope = envs.get(id_str)
         if envelope is None:
             raise WriteError(
                 Diag(
@@ -388,7 +392,11 @@ def _tool_note(args: dict) -> str:
     if keywords:
         data["keywords"] = keywords
 
-    rel, warnings = write_and_check(base_dir, data)
+    # M3: ONE shared full-base pass — the pre-check the write reuses; the
+    # post-check validates the touched lineage + the global invariants.
+    shared = checked(base_dir)
+
+    rel, warnings = write_and_check(base_dir, data, shared=shared)
     lines = [f"wrote {rel}", f"id {uid}", f"lineage {uid}", f"anchors {len(anchors)}"]
     lines.extend(f"warning {diag.render()}" for diag in warnings)
     return "\n".join(lines)
@@ -424,8 +432,12 @@ def _tool_verify(args: dict) -> str:
     source = _opt_enum(args, "source", schema.WRITABLE_SOURCE_VALUES, "llm")
     name = _opt_str(args, "name")
 
+    # M3: ONE shared full-base pass serves the envelope resolution below AND
+    # the write's pre-check; the target records come from their own parse.
+    shared = checked(base_dir)
+    envs = envelopes(base_dir, shared)
     parsed = records(base_dir)
-    target, lineage = _resolve_target(base_dir, parsed, target_id, "verify", "claim")
+    target, lineage = _resolve_target(base_dir, parsed, target_id, "verify", "claim", envs)
     claim = parsed[target]
 
     snapshots: dict = {}
@@ -488,7 +500,7 @@ def _tool_verify(args: dict) -> str:
     if structural_target:
         data["evidence"].append(proof_not_replayed)
 
-    rel, warnings = write_and_check(base_dir, data)
+    rel, warnings = write_and_check(base_dir, data, shared=shared)
     lines = [
         f"wrote {rel}",
         f"id {uid}",
@@ -516,9 +528,12 @@ def _tool_targeted(kind: str, args: dict) -> str:
     evidence = _opt_strlist(args, "evidence")
     name = _opt_str(args, "name")
 
+    # M3: ONE shared full-base pass serves target resolution + the pre-check.
+    shared = checked(base_dir)
+    envs = envelopes(base_dir, shared)
     parsed = records(base_dir)
     wants = {"doubt": "verify", "undoubt": "doubt", "refute": "any"}[kind]
-    target, lineage = _resolve_target(base_dir, parsed, target_id, kind, wants)
+    target, lineage = _resolve_target(base_dir, parsed, target_id, kind, wants, envs)
 
     graph_commit = None
     registry = providers.cppgraph_registry(repo_root)
@@ -545,7 +560,7 @@ def _tool_targeted(kind: str, args: dict) -> str:
     if evidence:
         data["evidence"] = evidence
 
-    rel, warnings = write_and_check(base_dir, data)
+    rel, warnings = write_and_check(base_dir, data, shared=shared)
     lines = [f"wrote {rel}", f"id {uid}", f"lineage {lineage}", f"target {target}"]
     lines.extend(f"warning {diag.render()}" for diag in warnings)
     return "\n".join(lines)
@@ -581,11 +596,45 @@ def _ensure_index(base_dir: Path, repo: Path) -> Path:
     return db
 
 
+def _reusable_index(base_dir: Path) -> tuple[Path, Path] | None:
+    """An existing index built for THIS base against a real code repo (LOW sweep).
+
+    When a tool call omits `repo_root`, the fallback repo is the base dir
+    itself — keying a SECOND index by the base directory and spending a
+    duplicate probe budget, when one keyed by the actual code checkout
+    already exists. This scans the base's index directory for a DB whose
+    meta names this base_path and a living repo_path; the first match wins
+    (one index per base × code repo). None when no such index exists — the
+    caller keeps the legacy (base-keyed) behavior.
+    """
+    base_path = str(base_dir.resolve())
+    for db in sorted(index_dir_for(base_dir).glob("*.db")):
+        meta = _stored_meta(db)
+        if meta.get("base_path") != base_path:
+            continue
+        repo_path = meta.get("repo_path") or ""
+        if repo_path and Path(repo_path).is_dir():
+            return db, Path(repo_path)
+    return None
+
+
+def _read_index_context(args: dict) -> tuple[Path, Path]:
+    """(base_dir, repo, db) resolution for the read tools: an existing
+    code-repo-keyed index is reused when the call omitted repo_root."""
+    base_dir, repo = _resolve_read_context(args)
+    if _opt_str(args, "repo_root") is None:
+        reused = _reusable_index(base_dir)
+        if reused is not None:
+            return reused[0], reused[1]
+    db = _ensure_index(base_dir, repo)
+    return db, repo
+
+
 def _tool_search(args: dict) -> str:
     query = _req_str(args, "query")
     any_version = _opt_bool(args, "any_version") or False
     base_dir, repo = _resolve_read_context(args)
-    db = _ensure_index(base_dir, repo)
+    db, repo = _read_index_context(args)
     try:
         hits, total = search_index_capped(db, query, any_version=any_version)
     except IndexingError as exc:
@@ -615,8 +664,7 @@ def _tool_explain(args: dict) -> str:
 
 
 def _tool_list_stale(args: dict) -> str:
-    base_dir, repo = _resolve_read_context(args)
-    db = _ensure_index(base_dir, repo)
+    db, _repo = _read_index_context(args)
     conn = _open_index(db)
     try:
         rows = conn.execute(
@@ -1123,9 +1171,18 @@ def _handle_line(line: str) -> dict | None:
 
 
 def serve(stdin=None, stdout=None) -> int:
-    """Read newline-delimited JSON-RPC from stdin, write responses to stdout, until EOF."""
+    """Read newline-delimited JSON-RPC from stdin, write responses to stdout, until EOF.
+
+    The stdio streams are reconfigured to UTF-8 (locale-independent — a C/POSIX
+    locale must never make a non-ASCII line raise); injected test streams are
+    left untouched (they may not support reconfigure).
+    """
     stream_in = stdin if stdin is not None else sys.stdin
     stream_out = stdout if stdout is not None else sys.stdout
+    if stdin is None and hasattr(stream_in, "reconfigure"):
+        stream_in.reconfigure(encoding="utf-8")
+    if stdout is None and hasattr(stream_out, "reconfigure"):
+        stream_out.reconfigure(encoding="utf-8")
     for raw in stream_in:
         line = raw.strip()
         if not line:

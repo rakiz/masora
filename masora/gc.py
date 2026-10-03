@@ -7,10 +7,11 @@ tombstone rows: the shared ledger records only what the shared repo knew.
 
 from __future__ import annotations
 
-import subprocess
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from uuid import uuid4
 
 from .checker import CheckResult, check_base
 from .diagnostics import (
@@ -31,6 +32,7 @@ from .sync import (
     _scan_events,
     _tombstone_pairs,
     git_env,
+    run_git,
 )
 from .ulid import is_ulid
 
@@ -218,7 +220,7 @@ def _origin_tree_paths(base_dir: Path) -> set[str] | None:
         # Offline or unreachable remote: the last fetched origin/main is the
         # best available evidence — read it directly instead of failing.
         pass
-    rev = subprocess.run(
+    rev = run_git(
         [
             "git",
             "-C",
@@ -229,17 +231,31 @@ def _origin_tree_paths(base_dir: Path) -> set[str] | None:
         ],
         capture_output=True,
         text=True,
-        check=False,
         env=git_env(),
+        error=lambda msg: GcError(
+            Diag(
+                "error",
+                E_GIT,
+                f"git rev-parse {REMOTE}/{MAIN_BRANCH}: {msg} — "
+                "published-ness cannot be determined, gc blocked",
+            )
+        ),
     )
     if rev.returncode != 0:
         return None
-    proc = subprocess.run(
+    proc = run_git(
         ["git", "-C", str(base_dir), "ls-tree", "-r", "--name-only", rev.stdout.strip()],
         capture_output=True,
         text=True,
-        check=False,
         env=git_env(),
+        error=lambda msg: GcError(
+            Diag(
+                "error",
+                E_GIT,
+                f"git ls-tree {REMOTE}/{MAIN_BRANCH} failed: {msg} — "
+                "published-ness cannot be determined, gc blocked",
+            )
+        ),
     )
     if proc.returncode != 0:
         raise GcError(
@@ -275,7 +291,15 @@ def _append_tombstone(base_dir: Path, pairs: set[tuple[str, str]]) -> None:
     if text and not text.endswith("\n"):
         text += "\n"
     text += _render_tombstone(pairs)
-    path.write_text(text, encoding="utf-8")
+    # Atomic append (tmp + os.replace): a concurrent session's check must
+    # never read a half-written tombstone table (same rule as event writes, M10).
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _prune_empty_dirs(base_dir: Path, directory: Path) -> None:

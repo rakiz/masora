@@ -445,3 +445,34 @@ def test_gc_falls_back_to_the_stored_ref_when_fetch_fails(repo, monkeypatch, cap
 
     assert code == 2  # W-GC-ACTIVE rides the deletion of an active lineage
     assert (base / "deleted.toml").is_file()
+
+
+# --- Phase 4: atomic deleted.toml append -------------------------------------
+
+
+def test_tombstone_append_is_atomic_and_leaves_no_temp(base, monkeypatch):
+    """gc's deleted.toml append goes through tmp + os.replace — a concurrent
+    session's check never reads a half-written tombstone table."""
+    import os
+    from uuid import uuid4
+
+    from masora.gc import _append_tombstone
+
+    seen_paths: list[str] = []
+    real_replace = os.replace
+
+    def spy(src, dst):
+        seen_paths.append(str(src))
+        real_replace(src, dst)
+
+    monkeypatch.setattr("masora.gc.os.replace", spy)
+    _append_tombstone(base, {("01J8Z3K0000000000000000000", "01J8Z3K0000000000000000000")})
+
+    text = (base / "deleted.toml").read_text(encoding="utf-8")
+    assert "01J8Z3K0000000000000000000" in text
+    assert len(seen_paths) == 1
+    assert seen_paths[0].endswith(".tmp")
+    assert not list(base.glob("*.tmp"))
+    # The tmp file lived in the same directory (the replace is atomic on the
+    # same filesystem) and carried a unique name.
+    assert uuid4().hex not in seen_paths[0]

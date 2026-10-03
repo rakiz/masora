@@ -328,3 +328,21 @@ def test_base_toml_and_git_ignored(base):
     (git_dir / "01J8Z3K0000000000000000000.claim.md").write_text("garbage")
     result = check_base(base)
     assert result.exit_code() == 0
+
+
+# --- Phase 4: M7 — deep-YAML RecursionError becomes an E-YAML diagnostic -----
+
+
+def test_deeply_nested_yaml_is_e_yaml_not_a_traceback(base):
+    """M7: a wall of flow-sequence opens recurses the YAML composer past the
+    interpreter limit — the checker reports E-YAML, never a traceback."""
+    deep = "---\n" + "key: " + "[" * 200_000 + "\n---\n"
+    (base / "2026-01" / "x").mkdir(parents=True)
+    (base / "2026-01" / "x" / "01J8Z3K0000000000000000000.claim.md").write_text(
+        deep, encoding="utf-8"
+    )
+
+    result = check_base(base)
+
+    assert "E-YAML" in codes(result)
+    assert any("too deeply" in d.message for d in result.diags)

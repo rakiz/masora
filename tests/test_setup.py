@@ -377,3 +377,58 @@ def test_setup_output_points_at_the_skill_and_writes_nothing_into_the_origin(
     assert "masora skill print" in out
     assert git(origin, "status", "--porcelain") == before
     assert not (origin / "docs").exists()
+
+
+# --- Phase 4: clone `--` guard + comment-preserving config regeneration ------
+
+
+def test_setup_clone_passes_dash_dash_before_the_url(masora_home: Path, origin: Path, monkeypatch):
+    """LOW: a URL beginning with `-` can never be read as an option."""
+    from masora import setup as setup_mod
+
+    seen: list[list[str]] = []
+    real = setup_mod.run_git
+
+    def spy(args, **kwargs):
+        seen.append(list(args))
+        return real(args, **kwargs)
+
+    monkeypatch.setattr(setup_mod, "run_git", spy)
+    assert setup_run(f"file://{origin}") == 0
+    clone = next(args for args in seen if args[:2] == ["git", "clone"])
+    assert "--" in clone
+    assert clone[clone.index("--") + 1 :] == [f"file://{origin}", clone[-1]]
+
+
+def test_setup_config_regeneration_preserves_comments(masora_home: Path, origin: Path) -> None:
+    """LOW: comments in an existing config.toml survive a setup that rewrites
+    it — attached to the section they preceded (parse-and-reattach)."""
+    config_path().parent.mkdir(parents=True, exist_ok=True)
+    config_path().write_text(
+        "# my personal bases\n"
+        "\n"
+        "[bases]\n"
+        "# the team base lives here\n"
+        "[[mappings]]\n"
+        'code_remote = "https://github.com/MongoDB/Mongo.git"\n'
+        "bases = []\n",
+        encoding="utf-8",
+    )
+
+    assert setup_run(f"file://{origin}") == 0
+
+    text = config_path().read_text(encoding="utf-8")
+    assert "# my personal bases" in text
+    assert "# the team base lives here" in text
+    # The section comment precedes the (dotted) table header it belongs to.
+    assert text.index("# my personal bases") < text.index("# the team base lives here")
+    assert text.index("# the team base lives here") < text.index("[bases.")
+
+
+def test_setup_config_regeneration_without_comments_is_unchanged(
+    masora_home: Path, origin: Path
+) -> None:
+    assert setup_run(f"file://{origin}") == 0
+    first = config_path().read_text(encoding="utf-8")
+    assert setup_run(f"file://{origin}") == 0
+    assert config_path().read_text(encoding="utf-8") == first

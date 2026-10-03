@@ -1178,3 +1178,83 @@ def test_sync_applies_already_published_deletions_from_a_stale_main(repo, tmp_pa
     assert ULID_L1 in (base / "deleted.toml").read_text(encoding="utf-8")
     origin_tree = git(origin, "ls-tree", "-r", "--name-only", "refs/heads/main")
     assert CLAIM_REL not in origin_tree
+
+
+# --- Phase 4: M4 (timeouts + missing-binary diagnostics), gh JSON hygiene ----
+
+
+def test_git_env_sets_terminal_prompt_off(monkeypatch):
+    """M4: a git spawn must never hang waiting for a credential prompt."""
+    env = git_env({"PATH": "/usr/bin"})
+    assert env["GIT_TERMINAL_PROMPT"] == "0"
+    assert "GIT_DIR" not in env
+
+
+def test_git_timeout_maps_to_the_e_git_diagnostic(monkeypatch):
+    """M4: a hung git surfaces as E-GIT (the site's own error family), never
+    blocks forever."""
+    from masora import sync as sync_mod
+
+    def hung(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="git", timeout=60)
+
+    monkeypatch.setattr(sync_mod.subprocess, "run", hung)
+    with pytest.raises(sync_mod.SyncError) as excinfo:
+        sync_mod._git(Path("/tmp/nowhere"), "status")
+    assert excinfo.value.diag.code == "E-GIT"
+    assert "timed out" in excinfo.value.diag.message
+
+
+def test_missing_git_binary_maps_to_a_diagnostic_not_a_traceback(monkeypatch):
+    """LOW: FileNotFoundError from a missing binary is mapped into the same
+    error surface as the timeouts."""
+    from masora import sync as sync_mod
+
+    def missing(*args, **kwargs):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(sync_mod.subprocess, "run", missing)
+    with pytest.raises(sync_mod.SyncError) as excinfo:
+        sync_mod._git(Path("/tmp/nowhere"), "status")
+    assert excinfo.value.diag.code == "E-GIT"
+    assert "PATH" in excinfo.value.diag.message
+
+
+def test_optional_git_reads_stay_optional_on_timeout(monkeypatch):
+    """Sites whose contract treats a git failure as 'unavailable' keep that
+    contract on a timeout (None, never a raise)."""
+    from masora import sync as sync_mod
+
+    def hung(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="git", timeout=60)
+
+    monkeypatch.setattr(sync_mod.subprocess, "run", hung)
+    assert sync_mod._optional_rev(Path("/tmp/nowhere"), "HEAD") is None
+    assert sync_mod._head_branch(Path("/tmp/nowhere")) is None
+    assert sync_mod._git_show_optional(Path("/tmp/nowhere"), "HEAD") is None
+
+
+def test_gh_pr_list_malformed_json_is_a_note(monkeypatch, capsys):
+    """LOW: malformed forge output is caught and reported — no traceback."""
+    from masora import sync as sync_mod
+
+    class Fake:
+        returncode = 0
+        stdout = "not json at all"
+        stderr = ""
+
+    monkeypatch.setattr(sync_mod.subprocess, "run", lambda *a, **k: Fake())
+    assert sync_mod._gh_pr_list("gh", "org/proj") is None
+    assert "could not parse" in capsys.readouterr().out
+
+
+def test_gh_timeout_is_a_note(monkeypatch, capsys):
+    from masora import sync as sync_mod
+
+    def hung(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="gh", timeout=30)
+
+    monkeypatch.setattr(sync_mod.subprocess, "run", hung)
+    assert sync_mod._gh_pr_list("gh", "org/proj") is None
+    assert "timed out" in capsys.readouterr().out
+    assert sync_mod._gh_run("gh", ["pr", "list"], "body") == ""

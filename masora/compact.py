@@ -22,10 +22,11 @@ buckets, renaming directories only — nothing is deleted by rehoming.
 
 from __future__ import annotations
 
-import subprocess
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from uuid import uuid4
 
 from .checker import (
     FILENAME_RE,
@@ -38,7 +39,7 @@ from .diagnostics import E_COMPACT_CHECK, E_COMPACT_DIVERGE, Diag
 from .fold import Event, LineageFold, VersionContext, fold_lineage, resolve_activity
 from .gc import _prune_empty_dirs
 from .schema import EventRecord
-from .sync import _optional_rev, _render_deleted_events, git_env
+from .sync import _optional_rev, _render_deleted_events, git_env, run_git
 from .ulid import is_ulid
 from .write import slugify_summary
 
@@ -450,28 +451,26 @@ def _known_ids(base_dir: Path) -> set[str] | None:
     if origin_main is None:
         return None
     known = _tree_ulids(base_dir, origin_main)
-    proc = subprocess.run(
+    proc = run_git(
         ["git", "-C", str(base_dir), "merge-base", "HEAD", origin_main],
         capture_output=True,
         text=True,
-        check=False,
         env=git_env(),
     )
-    if proc.returncode == 0:
+    if proc is not None and proc.returncode == 0:
         known |= _tree_ulids(base_dir, proc.stdout.strip())
     return known
 
 
 def _tree_ulids(base_dir: Path, commit: str) -> set[str]:
-    proc = subprocess.run(
+    proc = run_git(
         ["git", "-C", str(base_dir), "ls-tree", "-r", "--name-only", commit],
         capture_output=True,
         text=True,
-        check=False,
         env=git_env(),
     )
     ids: set[str] = set()
-    if proc.returncode != 0:
+    if proc is None or proc.returncode != 0:
         return ids
     for name in proc.stdout.splitlines():
         match = FILENAME_RE.match(name.rsplit("/", 1)[-1])
@@ -486,7 +485,15 @@ def _append_deleted_events(base_dir: Path, pairs: set[tuple[str, str]]) -> None:
     if text and not text.endswith("\n"):
         text += "\n"
     text += _render_deleted_events(pairs)
-    path.write_text(text, encoding="utf-8")
+    # Atomic append (tmp + os.replace): a concurrent session's check must
+    # never read a half-written tombstone table (same rule as event writes, M10).
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _print_plan(plan: CompactPlan, rehome: bool = False) -> None:

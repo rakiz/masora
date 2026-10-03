@@ -19,6 +19,42 @@ FingerprintFn = Callable[[str, str], str | None]
 EdgeSnapshotFn = Callable[[str, str], dict | None]
 
 
+def memoized(
+    fingerprints: Mapping[str, FingerprintFn | None],
+    edge_snapshots: Mapping[str, EdgeSnapshotFn | None] | None = None,
+) -> tuple[dict[str, FingerprintFn | None], dict[str, EdgeSnapshotFn | None]]:
+    """Per-build memo over the provider registries (M2).
+
+    One index build (or one explain) evaluates every anchor fingerprint at
+    least TWICE — `compose_outcomes` for the degraded counterfactual and
+    again inside `resolve_lineage` — plus the render's anchor lines. This
+    wraps each registry callable with a cache keyed by identity within its
+    provider (equivalently `(provider, identity)` across the whole mapping),
+    so the underlying provider (a SQLite graph store, a file read) is hit
+    once per anchor. Pure functions in, pure values out — memoizing is
+    observationally neutral for the provider contract (deterministic within
+    one build, MASORA_DESIGN.md §5.2).
+    """
+
+    def _wrap(fn):
+        cache: dict[str, object] = {}
+
+        def wrapper(kind: str, identity: str):
+            if identity not in cache:
+                cache[identity] = fn(kind, identity)
+            return cache[identity]
+
+        return wrapper
+
+    wrapped_fp = {kind: None if fn is None else _wrap(fn) for kind, fn in fingerprints.items()}
+    wrapped_edges = {}
+    if edge_snapshots is not None:
+        wrapped_edges = {
+            kind: None if fn is None else _wrap(fn) for kind, fn in edge_snapshots.items()
+        }
+    return wrapped_fp, wrapped_edges
+
+
 @dataclass(frozen=True)
 class AnchorData:
     provider: str

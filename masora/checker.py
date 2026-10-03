@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .diagnostics import (
@@ -48,6 +48,14 @@ class CheckResult:
     envelopes: list[dict]
     file_count: int
     lineage_count: int
+    # Shared-pass consumers (write.py M3): the per-id map (id → path), the
+    # tombstone id sets and the structural-claim count let the write path's
+    # incremental post-check reproduce the global invariants without a second
+    # full parse. All carry defaults so ad-hoc constructions stay valid.
+    event_ids: dict[str, str] = field(default_factory=dict)
+    tombstoned_lineages: frozenset[str] = frozenset()
+    tombstoned_events: frozenset[str] = frozenset()
+    structural_count: int = 0
 
     @property
     def errors(self) -> list[Diag]:
@@ -157,6 +165,10 @@ def check_base(base_dir: Path) -> CheckResult:
         envelopes=envelopes,
         file_count=len(files),
         lineage_count=len({r.lineage for r in valid}),
+        event_ids=seen_ids,
+        tombstoned_lineages=frozenset(tombstoned),
+        tombstoned_events=frozenset(event_tombstoned),
+        structural_count=structural_count,
     )
 
 

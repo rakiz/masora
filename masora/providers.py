@@ -28,14 +28,13 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
-import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote
 
 from .index import normalize_source
-from .sync import git_env
+from .sync import git_env, run_git
 
 SCHEMA_VERSION = 5
 RESOLVE_CAP = 8
@@ -114,15 +113,15 @@ def discover_graph_db(repo: Path) -> Path | None:
 
 
 def repo_head(repo: Path) -> str | None:
-    """`git rev-parse HEAD` over the sanitized git environment; None when not a checkout."""
-    proc = subprocess.run(
+    """`git rev-parse HEAD` over the sanitized git environment; None when not
+    a checkout, git is missing, or the spawn times out (M4)."""
+    proc = run_git(
         ["git", "-C", str(repo), "rev-parse", "HEAD"],
         capture_output=True,
         text=True,
-        check=False,
         env=git_env(),
     )
-    return proc.stdout.strip() if proc.returncode == 0 else None
+    return proc.stdout.strip() if proc is not None and proc.returncode == 0 else None
 
 
 def open_graph(db: Path) -> GraphHandle | None:

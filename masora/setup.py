@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import math
 import re
-import subprocess
 import tomllib
 from pathlib import Path, PurePosixPath
 
@@ -20,7 +19,7 @@ from .diagnostics import (
     E_SETUP_WRITE,
     Diag,
 )
-from .sync import git_env
+from .sync import GIT_TIMEOUT_S, NETWORK_TIMEOUT_S, git_env, run_git
 
 _BARE_KEY_RE = re.compile(r"[A-Za-z0-9_-]+")
 
@@ -105,8 +104,15 @@ def _slug(remote: str) -> str:
     return slug(name)
 
 
-def _git(args: list[str], what: str) -> str:
-    proc = subprocess.run(args, capture_output=True, text=True, check=False, env=git_env())
+def _git(args: list[str], what: str, timeout: int = GIT_TIMEOUT_S) -> str:
+    proc = run_git(
+        args,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=git_env(),
+        error=lambda msg: SetupError(Diag("error", E_SETUP_CLONE, f"{what} failed: {msg}")),
+    )
     if proc.returncode != 0:
         stderr = proc.stderr.strip() or proc.stdout.strip()
         raise SetupError(Diag("error", E_SETUP_CLONE, f"{what} failed: {stderr}"))
@@ -124,8 +130,11 @@ def _clone(remote: str, dest: Path, path: str | None) -> None:
         _reuse_or_fail(remote, dest)
     else:
         _git(
-            ["git", "clone", "--filter=blob:none", "--sparse", remote, str(dest)],
+            # `--` before the operands: a URL beginning with `-` can never be
+            # read as an option (LOW sweep).
+            ["git", "clone", "--filter=blob:none", "--sparse", "--", remote, str(dest)],
             f"git clone {remote}",
+            timeout=NETWORK_TIMEOUT_S,
         )
     if path:
         _git(
@@ -325,11 +334,80 @@ def _write_config(config: dict) -> None:
     path = config_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_emit_toml(config), encoding="utf-8")
+        previous = path.read_text(encoding="utf-8") if path.is_file() else ""
+        text = _emit_toml(config)
+        if previous:
+            text = _reattach_comments(previous, text)
+        path.write_text(text, encoding="utf-8")
     except OSError as exc:
         raise SetupError(
             Diag("error", E_SETUP_WRITE, f"cannot write {path}: {exc}", "config.toml")
         ) from exc
+
+
+_HEADER_LINE_RE = re.compile(
+    r"^\s*\[\[\s*([^\]\s][^\]]*?)\s*\]\]\s*$|^\s*\[\s*([^\]\s][^\]]*?)\s*\]\s*$"
+)
+
+
+def _comment_sections(text: str) -> tuple[list[str], dict[str, list[str]]]:
+    """The full-line comments of an existing config.toml, grouped by the table
+    header they precede (comments before the first header are preamble).
+
+    Chosen approach for comment preservation (LOW sweep): a minimal
+    parse-and-reattach — comments are harvested from the old file and
+    re-emitted before their header in the regenerated text. Comments inside a
+    table body and INLINE comments are not tracked (they are lost on
+    regeneration); a comment whose header no longer exists is dropped.
+    """
+    preamble: list[str] = []
+    sections: dict[str, list[str]] = {}
+    current: list[str] | None = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            (current if current is not None else preamble).append(stripped)
+            continue
+        match = _HEADER_LINE_RE.match(line)
+        if match:
+            key = " ".join((match.group(1) or match.group(2)).split())
+            current = sections.setdefault(key, [])
+    return preamble, sections
+
+
+def _reattach_comments(old: str, new: str) -> str:
+    preamble, sections = _comment_sections(old)
+    if not preamble and not sections:
+        return new
+    consumed: set[str] = set()
+
+    def comments_for(key: str) -> list[str]:
+        # Exact header first, then the closest ancestor section: a comment
+        # written before `[bases]` follows the table when regeneration emits
+        # it as dotted `[bases.<slug>]` children.
+        parts = key.split(".")
+        for width in range(len(parts), 0, -1):
+            candidate = ".".join(parts[:width])
+            comments = sections.get(candidate)
+            if comments and candidate not in consumed:
+                consumed.add(candidate)
+                return comments
+        return []
+
+    out: list[str] = list(preamble)
+    if preamble:
+        out.append("")
+    for line in new.splitlines():
+        match = _HEADER_LINE_RE.match(line)
+        if match:
+            key = " ".join((match.group(1) or match.group(2)).split())
+            comments = comments_for(key)
+            if comments:
+                if out and out[-1] != "":
+                    out.append("")
+                out.extend(comments)
+        out.append(line)
+    return "\n".join(out) + "\n"
 
 
 def _emit_toml(data: dict) -> str:

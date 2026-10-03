@@ -1692,3 +1692,72 @@ def test_refute_human_source_is_refused_from_mcp(server, code_repo, base):
     assert is_error is True
     assert "E-MCP-HUMAN" in text
     assert not list(base.rglob("*.refute.md"))
+
+
+# --- Phase 4: MCP index reuse without repo_root; stdio UTF-8 ------------------
+
+
+def test_search_without_repo_root_reuses_the_code_repo_index(server, code_repo, base, home):
+    """LOW: a search/list_stale call that omits repo_root must reuse the
+    index keyed by the code repo (one probe budget), never build a duplicate
+    base-keyed index alongside it."""
+    repo, _head = code_repo
+    server.ready()
+    _note_text, is_error = server.tool("note", note_args(repo, base))
+    assert is_error is False
+    text, is_error = server.tool(
+        "search", {"query": "start", "repo_root": str(repo), "base": str(base)}
+    )
+    assert is_error is False
+    assert "match" in text
+    dbs = list(home.rglob("*.db"))
+    assert len(dbs) == 1
+
+    text, is_error = server.tool("search", {"query": "start", "base": str(base)})
+    assert is_error is False
+    assert "1 match" in text or "match(es)" in text
+    # No duplicate index was built for the base-dir key.
+    assert list(home.rglob("*.db")) == dbs
+
+    text, is_error = server.tool("list_stale", {"base": str(base)})
+    assert is_error is False
+    assert list(home.rglob("*.db")) == dbs
+
+
+def test_stdio_streams_reconfigured_to_utf8(monkeypatch):
+    """LOW: the stdio server is locale-independent — stdin/stdout are
+    reconfigured to UTF-8 when they support it."""
+    import io
+
+    from masora import mcp
+
+    class FakeIn(io.StringIO):
+        encoding = "ascii"
+
+        def __init__(self):
+            super().__init__(
+                json.dumps({"jsonrpc": "2.0", "id": 1, "method": "notifications/initialized"})
+                + "\n"
+            )
+            self.reconfigured = None
+
+        def reconfigure(self, **kwargs):
+            self.reconfigured = kwargs
+
+    class FakeOut(FakeIn):
+        def __init__(self):
+            super().__init__()
+            self.lines = []
+
+        def write(self, text):
+            self.lines.append(text)
+
+        def flush(self):
+            pass
+
+    fake_in, fake_out = FakeIn(), FakeOut()
+    monkeypatch.setattr(mcp.sys, "stdin", fake_in)
+    monkeypatch.setattr(mcp.sys, "stdout", fake_out)
+    assert mcp.serve() == 0
+    assert fake_in.reconfigured == {"encoding": "utf-8"}
+    assert fake_out.reconfigured == {"encoding": "utf-8"}

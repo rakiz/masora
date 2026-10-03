@@ -11,12 +11,12 @@ import hashlib
 import os
 import re
 import sqlite3
-import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
+from uuid import uuid4
 
 from . import config, fold, gitctx, resolve
 from .checker import FILENAME_RE, check_base, discover_event_files
@@ -36,7 +36,7 @@ from .diagnostics import (
 from .fold import Event
 from .frontmatter import load_frontmatter
 from .schema import EventRecord, validate_event
-from .sync import SyncError, _tombstone_pairs, git_env
+from .sync import SyncError, _tombstone_pairs, git_env, run_git
 from .ulid import is_ulid
 
 SCHEMA_VERSION = "6"
@@ -437,9 +437,19 @@ def search_result_lines(hits: list[SearchHit]) -> list[str]:
 
 
 def index_dir_for(base_dir: Path) -> Path:
-    """The indexes directory of a base: `indexes/<base-dir-slug>/` — one source
-    of truth shared by `index_db_path` and every reader of the layout."""
-    return config.indexes_root() / (config.slug(base_dir.resolve().name) or "index")
+    """The indexes directory of a base: `indexes/<base-dir-slug>-<path-hash>/`.
+
+    The directory name carries a digest of the base's ABSOLUTE PATH (M8), not
+    just the basename: two same-named bases in different homes must never
+    share (or overwrite) an index. NOTE: the digest changed the directory
+    names — indexes built before this change remain on disk as orphans and
+    are simply never read again (every reader treats a missing index as "no
+    index": E-IDX-NOINDEX / an auto rebuild); the index is disposable, old
+    directories can be deleted at will.
+    """
+    resolved = base_dir.resolve()
+    digest = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:12]
+    return config.indexes_root() / f"{config.slug(resolved.name) or 'index'}-{digest}"
 
 
 def index_db_path(base_dir: Path, repo: Path) -> Path:
@@ -545,11 +555,15 @@ def build_index(
     try:
         line = gitctx.asking_line(repo)
         prober = gitctx.RelationProber(repo, line)
+        # M2: one fingerprint/edge evaluation per (provider, identity) per
+        # build — compose_outcomes runs for the degraded counterfactual AND
+        # again inside resolve_lineage; the memo shares those provider calls.
+        memo_fp, memo_edges = resolve.memoized(dict(fingerprints), dict(edge_snapshots or {}))
         entries = _resolve_all(
             parsed,
             tombstoned,
-            fingerprints,
-            edge_snapshots or {},
+            memo_fp,
+            memo_edges,
             _pending_ids(parsed, base_dir),
             prober,
         )
@@ -854,14 +868,13 @@ def _pending_ids(parsed: list[ParsedEvent], base_dir: Path) -> frozenset[str]:
 
 
 def _published_ids(base_dir: Path) -> set[str] | None:
-    proc = subprocess.run(
+    proc = run_git(
         ["git", "-C", str(base_dir), "ls-tree", "-r", "--name-only", "origin/main"],
         capture_output=True,
         text=True,
-        check=False,
         env=git_env(),
     )
-    if proc.returncode != 0:
+    if proc is None or proc.returncode != 0:
         return None
     ids = set()
     for name in proc.stdout.splitlines():
@@ -872,14 +885,13 @@ def _published_ids(base_dir: Path) -> set[str] | None:
 
 
 def _base_head(base_dir: Path) -> str | None:
-    proc = subprocess.run(
+    proc = run_git(
         ["git", "-C", str(base_dir), "rev-parse", "HEAD"],
         capture_output=True,
         text=True,
-        check=False,
         env=git_env(),
     )
-    return proc.stdout.strip() if proc.returncode == 0 else None
+    return proc.stdout.strip() if proc is not None and proc.returncode == 0 else None
 
 
 @dataclass
@@ -987,7 +999,9 @@ def _write_db(
     graph_seen_commit: str | None = None,
 ) -> None:
     db.parent.mkdir(parents=True, exist_ok=True)
-    tmp = db.with_name(db.name + ".building")
+    # A UNIQUE temp name per build (pid + uuid): two concurrent builds must
+    # never unlink each other's `.building` file (the fixed name did).
+    tmp = db.with_name(f"{db.name}.{os.getpid()}.{uuid4().hex}.building")
     for suffix in ("", "-wal", "-shm"):
         Path(str(tmp) + suffix).unlink(missing_ok=True)
     conn = sqlite3.connect(tmp)

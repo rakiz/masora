@@ -8,6 +8,25 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Robustness/perf sweep (AUDIT.md wave 3)** — anchor fingerprints are
+  memoized per index build (one provider call per anchor, was two); the
+  write path runs ONE full base parse per note (the post-write validation
+  is incremental over the invariants one new event can break); every
+  subprocess call carries a timeout and missing binaries map to
+  diagnostics instead of tracebacks (`GIT_TERMINAL_PROMPT=0` set
+  centrally); the cppgraph handle is closed by `explain`; deep-YAML
+  `RecursionError` reports `E-YAML` instead of crashing; index
+  directories hash the base path (same-basename bases no longer collide)
+  with a unique `.building` tmp per build; `deleted.toml` appends are
+  atomic; `auto_base` refuses a matched-but-malformed mapping instead of
+  silently falling through to `default_base`; MCP search reuses a
+  code-repo-keyed index instead of building a duplicate; stdio is
+  reconfigured UTF-8; `explain` on an event ULID resolves to its
+  lineage's story; `setup` guards the clone URL and preserves config
+  comments; `proof_query` float args round-trip as numbers. (+25 tests.)
+
 ### Added
 
 - **Search hardening** — the query is reduced to safe quoted prefix terms

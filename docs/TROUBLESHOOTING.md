@@ -9,7 +9,7 @@ publication. This table is kept in sync with the code by
 | Code | Meaning | Likely cause | Remedy |
 |---|---|---|---|
 | `E-FRONTMATTER` | Frontmatter block is missing, unterminated, empty, or not a mapping (FORMAT.md §2) | File starts with something else than `---`, or the closing `---` is absent | Wrap the YAML in `---` … `---`; keep it a non-empty mapping |
-| `E-YAML` | Frontmatter is not valid YAML, or the file is not valid UTF-8 | Syntax error; encoding issue | Fix the YAML; re-save the file as UTF-8 |
+| `E-YAML` | Frontmatter is not valid YAML, is nested too deeply to parse, or the file is not valid UTF-8 | Syntax error; encoding issue; pathological nesting | Fix the YAML; re-save the file as UTF-8 |
 | `E-CANON-FLOW` | Flow-style YAML (`{…}`, `[…]`) (FORMAT.md §4) | Hand-written compact YAML | Rewrite in block style |
 | `E-CANON-DUPKEY` | Duplicate key in a mapping (FORMAT.md §4) | Same field written twice | Remove one occurrence |
 | `E-CANON-ALIAS` | YAML anchors or aliases (`&x`, `*x`) (FORMAT.md §4) | Values reused via aliasing | Inline the value literally |

@@ -344,3 +344,103 @@ def test_scan_passes_a_clean_proof_query():
         "provider_version": "1.0",
     }
     assert scan_for_secrets(make_claim(ULID_L1, proof_query=query)) is None
+
+
+# --- Phase 4: M3 (one shared full-base pass per write), auto_base strictness,
+# --- proof_query float round-trip --------------------------------------------
+
+
+def test_write_and_check_runs_one_full_base_pass(base, monkeypatch):
+    """M3: the post-write validation is incremental (touched lineage + the
+    global invariants) — ONE full check_base parse per write, the guarantee
+    (a returned write leaves a valid base) unchanged."""
+    from masora import write as write_mod
+
+    calls = {"n": 0}
+    real = write_mod.check_base
+
+    def counting(base_dir):
+        calls["n"] += 1
+        return real(base_dir)
+
+    monkeypatch.setattr(write_mod, "check_base", counting)
+    rel, _warnings = write_and_check(base, make_claim(ULID_L1))
+    assert calls["n"] == 1
+    assert (base / rel).is_file()
+    assert real(base).errors == []
+
+
+def test_write_and_check_reuses_the_callers_shared_pass(base, monkeypatch):
+    """M3: the MCP write tools compute ONE `checked()` pass for target
+    resolution AND the pre-check — `check_base` must not run again inside."""
+    from masora import write as write_mod
+
+    write_event(base, f"{MONTH}/x/{ULID_L1}.claim.md", make_claim(ULID_L1))
+    calls = {"n": 0}
+    real = write_mod.check_base
+
+    def counting(base_dir):
+        calls["n"] += 1
+        return real(base_dir)
+
+    monkeypatch.setattr(write_mod, "check_base", counting)
+    shared = write_mod.checked(base)
+    _rel, _warnings = write_and_check(base, make_verify(ULID_V1A, ULID_L1, ULID_L1), shared=shared)
+    assert calls["n"] == 1
+    assert real(base).errors == []
+
+
+def test_post_check_refuses_a_tombstoned_lineage_and_unlinks(base):
+    from masora.write import checked
+
+    # A tombstone table with no events left behind is a VALID base.
+    (base / "deleted.toml").write_text(
+        f'[[deleted]]\nlineage = "{ULID_L1}"\nulids = ["{ULID_L1}"]\n', encoding="utf-8"
+    )
+    shared = checked(base)
+
+    with pytest.raises(WriteError) as excinfo:
+        write_and_check(base, make_claim(ULID_L1, summary="Second"), shared=shared)
+
+    assert excinfo.value.diags[0].code == "E-TOMBSTONED"
+    assert not list(base.rglob("*.tmp"))
+    assert list(base.rglob(f"*{ULID_L1}*.claim.md")) == []
+
+
+def test_auto_base_refuses_a_matched_mapping_without_bases(tmp_path, monkeypatch):
+    """LOW: a mapping whose code_remote MATCHED but that names no base is an
+    error — never a silent fall-through to default_base (wrong-base write)."""
+    from masora.write import auto_base
+
+    monkeypatch.setattr("masora.write.origin_remote", lambda repo: "git@github.com:org/proj.git")
+    monkeypatch.setattr(
+        "masora.write.load_user_config",
+        lambda: {
+            "default_base": "fallback",
+            "mappings": [{"code_remote": "git@github.com:org/proj.git", "bases": []}],
+        },
+    )
+
+    with pytest.raises(WriteError) as excinfo:
+        auto_base(tmp_path)
+
+    assert "names no base" in excinfo.value.diags[0].message
+
+
+def test_proof_query_float_args_round_trip(base):
+    """LOW: a float in proof_query.args is emitted as a YAML number and comes
+    back as a float — never silently stringified."""
+    query = {
+        "tool": "cppgraph.calls",
+        "args": {"threshold": 1.5, "symbol": "x"},
+        "expect": {"op": "count", "value": 3},
+        "provider_version": "1.0",
+    }
+    data = make_claim(ULID_L1, **{"class": "structural", "proof_query": query})
+    rel, _warnings = write_and_check(base, data)
+
+    written = load_frontmatter((base / rel).read_text(encoding="utf-8"), rel)
+    args = written["proof_query"]["args"]
+    assert args["threshold"] == 1.5
+    assert isinstance(args["threshold"], float)
+    assert "threshold: 1.5" in (base / rel).read_text(encoding="utf-8")

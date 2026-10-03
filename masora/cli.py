@@ -14,6 +14,7 @@ from .doctor import run as run_doctor
 from .explain import ExplainError, explain_lineage
 from .facts import run as run_facts
 from .gc import run as run_gc
+from .hook import run as run_hook
 from .index import (
     IndexingError,
     build_index,
@@ -32,9 +33,10 @@ from .skill import run as run_skill
 from .status import installed_version
 from .status import run as run_status
 from .sync import run as run_sync
+from .union import run as run_union
 from .write import WriteError, auto_base, origin_state
 
-BASE_COMMANDS = ("check", "gc", "compact", "index", "search", "explain", "reset")
+BASE_COMMANDS = ("check", "gc", "compact", "index", "search", "explain", "reset", "union")
 
 
 def _configured_base_hint() -> Path | None:
@@ -125,8 +127,8 @@ def main(argv: list[str] | None = None) -> int:
         " (local check, the append-only content diff against origin/main per FORMAT.md"
         " §7.9-§7.10, the stacked audit, merged-result validation), prints the readable"
         " pending set and exits 3 — no branch, no push, no PR, no local ref mutation."
-        " --yes publishes: commits the pending set on masora/pending, pushes it and opens or"
-        " updates the single PR. --push is a mode selector, not a confirmation:"
+        " --yes publishes: commits the pending set on masora/<author>, pushes it and opens or"
+        " updates that author's single PR. --push is a mode selector, not a confirmation:"
         " --push --yes pushes the merged result directly to origin/main (solo base), while"
         " --push without --yes plans that push. --drop --yes discards the pending set;"
         " --drop without --yes plans the discard.",
@@ -142,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
     sync.add_argument(
         "--drop",
         action="store_true",
-        help="discard the pending set: close the PR, delete masora/pending locally and"
+        help="discard the pending set: close the PR, delete masora/<author> locally and"
         " remotely; destructive, so without --yes the discard is only planned (exit 3)",
     )
     sync.add_argument(
@@ -486,6 +488,64 @@ def main(argv: list[str] | None = None) -> int:
         help="install: write into every detected agent-framework skills dir; print: the"
         " packaged content to stdout",
     )
+    union = sub.add_parser(
+        "union",
+        help="resolve a CONFLICTED deleted.toml by row union (FORMAT.md §7.10)",
+        description="Exit codes: 0 unioned and re-validated, 1 refused (nothing written)."
+        " Two concurrent gc/compact PRs both appending deleted.toml rows cannot"
+        " TOML-merge in git: after a conflicted pull/rebase, this parses both sides of"
+        " every conflict block and unions the [[deleted]] rows (keyed by lineage) and"
+        " [[deleted_events]] rows (keyed by event ULID), ours first, deduplicated —"
+        " never dropping a row (a malformed row on either side is a refusal). The"
+        " merged file replaces the original ONLY when the post-union masora check"
+        " passes (fail-closed). NEVER runs git: no commit, no stage — review and"
+        " commit the merged file yourself.",
+    )
+    union.add_argument(
+        "base_dir",
+        type=Path,
+        nargs="?",
+        default=None,
+        help="path to the Masora base directory (omitted: resolved from the checkout's"
+        " masora configuration — mappings on the normalized origin remote, then default_base)",
+    )
+    hook = sub.add_parser(
+        "hook",
+        help="install the SessionStart freshness hook (MASORA_DESIGN.md §10.1)",
+        description="install: write the packaged hook script into every detected agent"
+        " home (~/.claude, ~/.config/opencode — other frameworks are skipped silently;"
+        " --target forces one) and register it: Claude Code gets a SessionStart entry"
+        " merged into ~/.claude/settings.json, opencode's plugin format is JS so the"
+        " manual snippet is printed instead. The hook runs in the background with"
+        " SILENT failure: fetch + fast-forward each base clone, rebuild stale indexes"
+        " within the §10.1 budget, print at most one stale-lineage summary line."
+        " Idempotent — re-running is the update path.",
+    )
+    hook.add_argument(
+        "action",
+        choices=["install"],
+        help="install: write the hook script + registration into the detected agent homes",
+    )
+    hook.add_argument(
+        "--target",
+        default=None,
+        choices=["claude", "opencode"],
+        metavar="AGENT",
+        help="install into one agent home only (default: every detected one)",
+    )
+    ci = sub.add_parser(
+        "ci",
+        help="print the reusable CI check workflow template (GitHub Actions workflow_call)",
+        description="print: the packaged CI template (masora/templates/masora-check.yml) to"
+        " stdout, for pasting into the BASE repository's .github/workflows/. Copy-install"
+        " only — CI belongs to the base repo, never to an agent home, so nothing is"
+        " installed automatically.",
+    )
+    ci.add_argument(
+        "action",
+        choices=["print"],
+        help="print: the packaged CI workflow template to stdout",
+    )
     args = parser.parse_args(argv)
 
     if args.command in BASE_COMMANDS or args.command == "sync":
@@ -530,6 +590,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_compact(args.base_dir, yes=args.yes, rehome=args.rehome)
     if args.command == "reset":
         return run_reset(args.base_dir, yes=args.yes)
+    if args.command == "union":
+        return run_union(args.base_dir)
     if args.command == "doctor":
         return run_doctor()
     if args.command == "index":
@@ -546,6 +608,12 @@ def main(argv: list[str] | None = None) -> int:
         return run_status(force=args.force)
     if args.command == "skill":
         return run_skill(args.action)
+    if args.command == "hook":
+        return run_hook(args.target)
+    if args.command == "ci":
+        from .ci import run as run_ci
+
+        return run_ci(args.action)
     return 2
 
 

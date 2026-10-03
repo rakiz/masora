@@ -10,6 +10,23 @@
 
 ### Added
 
+- **Team life, wave 6b (AUDIT.md proposals 5-6)** — the pending branch is
+  PER-AUTHOR (`masora/<author-slug>` from the base clone's git identity,
+  deterministic slug ≤ 24 chars, missing identity = E-GIT remedy): two
+  writers publish independently, no shared-branch collision, every flow
+  step (push with lease, PR head, tracking compare, drop) switched;
+  `masora union <base-dir>` rescues a conflicted `deleted.toml` by ROW
+  UNION (both sides' `[[deleted]]`/`[[deleted_events]]` rows deduped on
+  their natural keys, ours-first order, no row ever dropped — fail-closed
+  `E-UNION-*` diagnostics; published only after `check_base` passes on a
+  throwaway copy, atomic replace, never runs git); `masora hook install`
+  ships the SessionStart freshness hook (background pull + fast-forward
+  per base, stale-index rebuild within the §10.1 budget, at most ONE
+  summary line, silent failure everywhere, `--ff-only` so it can never
+  discard a commit); `masora ci print` ships the reusable base-PR check
+  workflow (workflow_call, read-only `masora check`, the union rescue
+  documented for maintainers). (+38 tests.)
+
 - **Team life, wave 6a (AUDIT.md proposals 6-7)** — the `unrefute` MCP tool
   (9th tool: targets a refute event ULID, lifts it per FORMAT.md §5.4's fold,
   refuses a lineage id or a never-refuted target, `source: human` stays

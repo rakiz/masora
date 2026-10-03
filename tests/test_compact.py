@@ -547,14 +547,16 @@ def test_compact_then_sync_accepts_tombstoned_events(repo, capsys):
     assert "E-REWRITE" not in out
     assert "2 deleted" in out
     assert "synced: 0 pending event(s) + tombstone additions" in out
-    pending = git(origin, "ls-tree", "-r", "--name-only", "refs/heads/masora/pending").splitlines()
+    pending = git(
+        origin, "ls-tree", "-r", "--name-only", "refs/heads/masora/masora-test"
+    ).splitlines()
     assert DOUBT_REL not in pending and UNDOUBT_REL not in pending
     assert CLAIM_REL in pending and VERIFY_REL in pending and L2_REL in pending
     assert "deleted.toml" in pending
-    tombstoned = git(origin, "show", "refs/heads/masora/pending:deleted.toml")
+    tombstoned = git(origin, "show", "refs/heads/masora/masora-test:deleted.toml")
     assert tombstoned.strip() == deleted_events_tombstone(ULID_L1, [ULID_D1A, ULID_U1A]).strip()
     for rel in (CLAIM_REL, VERIFY_REL, L2_REL):
-        assert git(origin, "show", f"refs/heads/masora/pending:{rel}").strip() == (
+        assert git(origin, "show", f"refs/heads/masora/masora-test:{rel}").strip() == (
             (base / rel).read_text(encoding="utf-8").strip()
         )
 

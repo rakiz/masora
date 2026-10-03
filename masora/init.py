@@ -171,3 +171,4 @@ def _finish(target: Path, name: str) -> None:
         "then hand out the URL for masora setup"
     )
     print("after setup: masora skill install — the agent rules ride the package")
+    print("ci: masora ci print — the reusable check workflow for the base repo's .github/workflows")

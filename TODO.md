@@ -91,12 +91,12 @@ the wave; commit at the wave boundary, nothing pushed.
 
 ### Phase 6: team life (AUDIT.md wave 5)
 
-- [ ] Freshness automation: SessionStart hook (background pull + re-index +
+- [x] Freshness automation: SessionStart hook (background pull + re-index +
   one-line stale summary; silent failure; §10.1 caps).
-- [ ] Multi-writer kit: per-author pending branch (`masora/<author>`),
+- [x] Multi-writer kit: per-author pending branch (`masora/<author>`),
   tombstone-union tooling for concurrent gc PRs, reusable CI action
   running `masora check` on base PRs, `unrefute` MCP tool.
-- [ ] `masora doctor` (clone health, git identity, gh auth, graph store,
+- [x] `masora doctor` (clone health, git identity, gh auth, graph store,
   config) + the refoundation runbook (explicit-confirm `reset
   --from-origin`; NEVER automatic — tamper evidence stays intact).
 - [ ] Deferred until ×10 base scale: probe-budget scaling (commit-graph

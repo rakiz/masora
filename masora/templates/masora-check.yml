@@ -1,0 +1,59 @@
+# Reusable CI check for a Masora base repository (GitHub Actions, workflow_call).
+#
+# Install: copy this file into the BASE repository's .github/workflows/
+# (e.g. `masora ci print > .github/workflows/masora-check.yml`), then call it
+# from the base repo's pull_request workflow:
+#
+#   jobs:
+#     masora-check:
+#       uses: ./.github/workflows/masora-check.yml
+#       with:
+#         base-dir: .   # the base repo root IS the base (base.toml at root)
+#
+# What it does: checkout + install masora (the README's uv tool story) +
+# `masora check <base-dir>` — the same whole-tree gate every local sync runs,
+# now on the PR. Read-only: CI never publishes, never pushes, never merges.
+#
+# Conflicted deleted.toml rescue (FORMAT.md §7.10): git cannot union-merge
+# TOML, so two concurrent gc PRs leave conflict markers in deleted.toml — CI
+# simply fails (the check refuses the conflicted file). The rescue is
+# MAINTAINER-SIDE and stays local: on a clean pull of the conflicted branch,
+# run `masora union <base-dir>` (row-union merge, never runs git), review and
+# commit the merged file; the PR then passes this check on the next push.
+
+name: masora check
+
+on:
+  workflow_call:
+    inputs:
+      base-dir:
+        description: Path to the Masora base inside the repository (base.toml at its root)
+        required: false
+        type: string
+        default: .
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The full history keeps the four-axis staleness axes comparable;
+          # the check itself is whole-tree, but a shallow tree can hide
+          # dangling-reference context.
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install masora
+        run: |
+          python -m pip install --upgrade pip
+          pip install uv
+          # The README story: masora installs as a tool. On a Masora checkout
+          # of THIS repo use the local tree instead:
+          #   uv tool install .
+          uv tool install masora
+      - name: masora check
+        run: masora check "${{ inputs.base-dir }}"
+      # The union rescue is deliberately NOT automated here — CI stays
+      # read-only. See the comment at the top of this file.

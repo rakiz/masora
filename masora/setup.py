@@ -66,6 +66,10 @@ def _setup(base_spec: str) -> None:
         "skill: masora skill install — installs the agent rules into your skills mechanism"
         " (masora skill print to pipe them)"
     )
+    print(
+        "ci: for the BASE repository, copy the check workflow — masora ci print"
+        " > <base-repo>/.github/workflows/masora-check.yml"
+    )
 
 
 def _parse_spec(base_spec: str) -> tuple[str, str | None]:

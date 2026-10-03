@@ -215,7 +215,7 @@ command handles it.
   | `unverified` | no active verify — renders as nothing: the absence of a verify is not evidence; `verified(<source>)` always renders |
   | `suspect` | the displayed version's or its 1-hop neighbours' edge-set hash changed since the recorded snapshot |
   | `doubted` | an active doubt targets that verify — disputed, not provably wrong |
-  | `pending` | events not yet merged (traveling through the `masora/pending` PR) |
+  | `pending` | events not yet merged (traveling through the `masora/<author>` pending PR) |
   | `unknown` | a provider was unavailable — shadows the resolution; never a silent pass |
   | `unanchored` | explicitly unanchored claim; the flag is its validity signal |
 

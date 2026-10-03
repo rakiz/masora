@@ -165,7 +165,7 @@ Pipeline (each step's failures abort with exit 1):
    are applied to the merged tree: the tombstoned lineages' event files are
    removed from the origin side before validation.
 8. **Publication**: one plumbing commit (merged tree, parent = `origin/main`)
-   on `masora/pending`, pushed `--force-with-lease`; PR opened or updated via
+   on the per-author branch `masora/<author>` (the slug derives from the base clone's git `user.name`; a missing identity is an E-GIT refusal), pushed `--force-with-lease`; PR opened or updated via
    `gh`, or the compare URL printed. Idempotent: when the branch already
    carries the pending set, nothing is pushed. In solo `--push` mode the push
    goes straight to `origin/main`, and events COMMITTED on local main but
@@ -215,7 +215,7 @@ honest; `--yes` applies exactly the printed plan.
   and advances the local `main` — a mode selector, not a confirmation:
   `--push --yes` publishes, `--push` alone plans the push.
 - `--drop --yes`: closes the PR (`gh` when available), deletes
-  `masora/pending` locally and remotely; the local `.md` files of dropped
+  `masora/<author>` locally and remotely; the local `.md` files of dropped
   events stay on disk. `--drop` without `--yes` only plans the discard
   (exit 3, nothing touched).
 - Exit codes: 3 plan printed (nothing written), 0 synced (the "no pending
@@ -878,6 +878,51 @@ is printed and the command exits 3. With `--yes`: `reset --hard` when
 the follow-ups (rebuild the indexes, re-run `masora check`). The procedure
 is the runbook docs/REFOUNDATION.md (refoundation and secret-removal-from-
 history cases).
+
+## Hook (`masora/hook.py`, MASORA_DESIGN.md §10.1, AUDIT.md risk 1)
+
+`masora hook install [--target {claude,opencode}]` reuses the skill-install
+pattern: the hook script ships in the package (`masora/hooks/
+session_start.py`, one canonical copy, written out verbatim — the shipped ==
+installed invariant is tested) into every detected agent home, and registers
+it: Claude Code gets a SessionStart entry merged into `~/.claude/settings.json`
+(idempotent, foreign keys preserved, an unreadable settings file degrades to
+the printed manual snippet); opencode's hook surface is a JavaScript plugin,
+so the script is written but the registration is printed as the manual
+snippet — never guessed at. The hook's background work (`hook.session_start`)
+is the §10.1 freshness automation: per configured base, fetch + `merge
+--ff-only` (NEVER force, NEVER rebase — a diverged clone is skipped silently,
+`masora doctor` reports clone health), then the indexes whose four-axis
+staleness says stale are rebuilt within the hard wall-clock budget
+(`REBUILD_BUDGET_S`, a named §10.1 cap), and at most ONE line is printed —
+the stale-lineage count plus the worst staleness reason class — or nothing
+when fresh. Every exception is swallowed, exit 0 always: the hook must never
+block or fail a session start.
+
+## Union (`masora/union.py`, FORMAT.md §7.10)
+
+`masora union <base-dir>` resolves the ONE merge conflict a base actually
+hits: two concurrent gc/compact PRs both append `deleted.toml` rows and git
+cannot union-merge TOML. It parses both sides of every conflict block (the
+common lines plus ours/theirs), unions `[[deleted]]` rows keyed by LINEAGE
+and `[[deleted_events]]` rows keyed by EVENT ULID — ours first, deduplicated,
+a row never dropped (a malformed row on either side is the fail-closed
+`E-UNION-ROW` refusal) — and re-validates the whole tree with `check_base`
+on a throwaway copy: the merged file replaces the conflicted original only
+when the check passes (sibling temp file + `os.replace`, the M10 pattern;
+`E-UNION-NO-MARKERS` refuses a file with no conflict markers, nothing to
+union). It NEVER runs git — no commit, no stage; the caller reviews and
+commits, and CI stays read-only.
+
+## CI template (`masora/templates/masora-check.yml`, `masora/ci.py`)
+
+The reusable GitHub Actions workflow (workflow_call) for the BASE repository:
+checkout + install masora (the README's `uv tool install` story) + `masora
+check <base-dir>`; its comment documents the maintainer-side union rescue for
+a conflicted `deleted.toml` (CI itself stays read-only). CI belongs to the
+base repo's `.github/workflows/`, never to an agent home — so there is no
+automatic install: `masora ci print` writes the packaged template to stdout
+(the `masora skill print` idiom), and `setup`/`init` final hints name it.
 
 ## Not built yet
 

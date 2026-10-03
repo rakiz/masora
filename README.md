@@ -36,7 +36,7 @@ leaves the code untouched.
    set against `origin/main` by event id (append-only enforcement) and
    validates the merged result; without `--yes` it stops there and prints the
    pending set (plan, exit 3), with `--yes` it commits the pending set on the
-   `masora/pending` branch, pushes and opens or updates the single PR.
+   `masora/<author>` branch (the author slug derives from the base clone's git `user.name`), pushes and opens or updates that author's single PR.
 4. **Merge** — a human reviews the PR (the recorded evidence is in the diff)
    and merges into `main`.
 5. **Recall** — later sessions query the base: `masora mcp` serves the write
@@ -61,8 +61,15 @@ masora sync              # plan the publication of pending events (exit 3); add 
 masora explain <base-dir> <lineage-ulid>  # the complete story of ONE lineage, statuses included
 masora mcp               # run the MCP stdio server — register it in your MCP client's config
 masora skill install     # install the agent rules into your skills mechanism (Claude Code, opencode)
+masora hook install      # install the SessionStart freshness hook (background pull + re-index, silent failure)
 masora status            # one screen: tool versions, your bases, index drift, update check
 ```
+
+Team-life extras: each writer publishes on its own `masora/<author>` pending
+branch; a conflicted `deleted.toml` after concurrent gc PRs is rescued with
+`masora union <base-dir>` (row-union merge — review and commit yourself); and
+the base repo gets CI with `masora ci print` copied into its
+`.github/workflows/`.
 
 `sync` is plan-then-confirm: without `--yes` it runs the full gate pipeline
 (local check, diff vs `origin/main`, stacked audit, merged-result validation),
@@ -78,7 +85,7 @@ prints the pending set and exits 3 — nothing is written.
   `--exclude` are mutually exclusive; deletions already decided by gc
   (tombstones + removed files) are not filterable and always ride the sync.
 - `masora sync --drop --yes` — discard the pending set: close the PR (if
-  `gh` is available), delete the `masora/pending` branch locally and
+  `gh` is available), delete the `masora/<author>` branch locally and
   remotely; the local `.md` files of dropped events are left in place for
   you to remove (`--drop` without `--yes` only plans the discard).
 

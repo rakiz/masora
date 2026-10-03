@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -37,7 +38,8 @@ from .diagnostics import (
 from .frontmatter import split_frontmatter
 from .ulid import is_ulid
 
-PENDING_BRANCH = "masora/pending"
+PENDING_BRANCH_NS = "masora"
+AUTHOR_SLUG_MAX = 24
 REMOTE = "origin"
 MAIN_BRANCH = "main"
 PR_TITLE = "masora sync"
@@ -100,6 +102,60 @@ class SyncError(Exception):
     def __init__(self, diag: Diag):
         super().__init__(diag.message)
         self.diag = diag
+
+
+IDENTITY_REMEDY = (
+    "sync publishes commits and needs a commit identity — set it with:"
+    " git config --global user.name '<your name>' and git config --global user.email '<you@example.org>'"
+)
+
+
+def _author_slugify(name: str) -> str:
+    """The per-author branch slug: lowercase ASCII `[a-z0-9-]`, spaces and dots
+    become `-`, every other character (accents, punctuation) is dropped, runs
+    collapse to one `-`, trimmed to 24 characters. Deterministic; an empty
+    result means the identity is unusable."""
+    out: list[str] = []
+    for char in name.lower():
+        if char in " .":
+            out.append("-")
+        elif ("a" <= char <= "z") or ("0" <= char <= "9") or char == "-":
+            out.append(char)
+    collapsed = re.sub("-+", "-", "".join(out)).strip("-")
+    return collapsed[:AUTHOR_SLUG_MAX].rstrip("-")
+
+
+def author_slug(base_dir: Path) -> str:
+    """The pending-branch author slug from the base clone's git `user.name`.
+
+    A missing or unusable identity is an E-GIT refusal (with the identity
+    remedy): sync needs a commit identity anyway, so inventing a branch name
+    here would only defer the failure to the first commit.
+    """
+    proc = run_git(
+        ["git", "-C", str(base_dir), "config", "--get", "user.name"],
+        capture_output=True,
+        text=True,
+        env=git_env(),
+    )
+    raw = proc.stdout.strip() if proc is not None and proc.returncode == 0 else ""
+    slug = _author_slugify(raw)
+    if not slug:
+        raise SyncError(
+            Diag(
+                "error",
+                E_GIT,
+                f"no usable git user.name in {base_dir} — the per-author pending branch"
+                f" masora/<author> derives from it; {IDENTITY_REMEDY}",
+            )
+        )
+    return slug
+
+
+def pending_branch(base_dir: Path) -> str:
+    """The per-author pending branch: `masora/<author-slug>` — two writers never
+    collide on one shared branch (each pushes and opens its own PR)."""
+    return f"{PENDING_BRANCH_NS}/{author_slug(base_dir)}"
 
 
 @dataclass
@@ -165,6 +221,7 @@ def _run_publish(
         _fetch(base_dir)
         origin_main = _origin_main(base_dir)
         merge_base = _merge_base(base_dir)
+        branch = pending_branch(base_dir)
     except SyncError as exc:
         print(f"  {exc.diag.render()}")
         print("FAILED: 1 error(s)")
@@ -423,8 +480,8 @@ def _run_publish(
                     f" local {MAIN_BRANCH} advanced{preserved_note}"
                 )
             else:
-                current = _optional_rev(base_dir, f"refs/heads/{PENDING_BRANCH}")
-                remote_tracking = _optional_rev(base_dir, f"refs/remotes/{REMOTE}/{PENDING_BRANCH}")
+                current = _optional_rev(base_dir, f"refs/heads/{branch}")
+                remote_tracking = _optional_rev(base_dir, f"refs/remotes/{REMOTE}/{branch}")
                 up_to_date = (
                     current is not None
                     and remote_tracking == current
@@ -432,20 +489,18 @@ def _run_publish(
                     and _git(base_dir, "rev-parse", f"{current}^{{tree}}") == tree
                 )
                 if up_to_date:
-                    print(
-                        f"pending set unchanged: {PENDING_BRANCH} already carries it ({current[:12]})"
-                    )
+                    print(f"pending set unchanged: {branch} already carries it ({current[:12]})")
                 else:
-                    _git(base_dir, "update-ref", f"refs/heads/{PENDING_BRANCH}", commit)
+                    _git(base_dir, "update-ref", f"refs/heads/{branch}", commit)
                     _git(
                         base_dir,
                         "push",
                         "--force-with-lease",
                         REMOTE,
-                        f"{PENDING_BRANCH}:{PENDING_BRANCH}",
+                        f"{branch}:{branch}",
                     )
-                    print(f"pushed branch {PENDING_BRANCH} ({commit[:12]})")
-                    _publish_pr(base_dir, pending, warnings, local_events, removed)
+                    print(f"pushed branch {branch} ({commit[:12]})")
+                    _publish_pr(base_dir, branch, pending, warnings, local_events, removed)
     except SyncError as exc:
         print(f"  {exc.diag.render()}")
         print("FAILED: 1 error(s)")
@@ -469,14 +524,15 @@ def _run_drop(base_dir: Path, yes: bool = False) -> int:
         _remote_url(base_dir)
         _fetch(base_dir)
         origin_main = _origin_main(base_dir)
-        local_pending = _optional_rev(base_dir, f"refs/heads/{PENDING_BRANCH}")
-        remote_pending = _optional_rev(base_dir, f"refs/remotes/{REMOTE}/{PENDING_BRANCH}")
+        branch = pending_branch(base_dir)
+        local_pending = _optional_rev(base_dir, f"refs/heads/{branch}")
+        remote_pending = _optional_rev(base_dir, f"refs/remotes/{REMOTE}/{branch}")
     except SyncError as exc:
         print(f"  {exc.diag.render()}")
         print("FAILED: 1 error(s)")
         return 1
     if local_pending is None and remote_pending is None:
-        print(f"nothing to drop: no local or remote {PENDING_BRANCH}")
+        print(f"nothing to drop: no local or remote {branch}")
         return 0
     dropped: list[EventFile] = []
     with tempfile.TemporaryDirectory() as tmp:
@@ -500,12 +556,12 @@ def _run_drop(base_dir: Path, yes: bool = False) -> int:
         print("plan only: nothing written — re-run with --yes to discard")
         return PLAN_EXIT
     print(f"dropped {len(dropped)} pending event(s)")
-    _close_pr(base_dir)
+    _close_pr(base_dir, branch)
     if remote_pending is not None:
-        _git(base_dir, "push", REMOTE, "--delete", PENDING_BRANCH)
-        print(f"deleted remote branch {PENDING_BRANCH}")
-    _git(base_dir, "update-ref", "-d", f"refs/heads/{PENDING_BRANCH}")
-    print(f"deleted local branch {PENDING_BRANCH}")
+        _git(base_dir, "push", REMOTE, "--delete", branch)
+        print(f"deleted remote branch {branch}")
+    _git(base_dir, "update-ref", "-d", f"refs/heads/{branch}")
+    print(f"deleted local branch {branch}")
     print(
         "note: the local .md files of the dropped events were left in place; delete them or edit before the next sync"
     )
@@ -1015,6 +1071,7 @@ def _pr_body(
 
 def _publish_pr(
     base_dir: Path,
+    branch: str,
     pending: list[EventFile],
     warnings: list[Diag],
     events: dict[str, EventFile] | None = None,
@@ -1027,10 +1084,10 @@ def _publish_pr(
     gh = _gh_on_path()
     if gh is None or slug is None:
         print(
-            f"forge CLI not available for this remote: open the pull request from {PENDING_BRANCH} to {MAIN_BRANCH} at {_compare_url(url, slug)}"
+            f"forge CLI not available for this remote: open the pull request from {branch} to {MAIN_BRANCH} at {_compare_url(url, slug, branch)}"
         )
         return
-    existing = _gh_pr_list(gh, slug)
+    existing = _gh_pr_list(gh, slug, branch)
     if existing:
         number, pr_url = existing
         _gh_run(
@@ -1048,7 +1105,7 @@ def _publish_pr(
                 "--repo",
                 slug,
                 "--head",
-                PENDING_BRANCH,
+                branch,
                 "--base",
                 MAIN_BRANCH,
                 "--title",
@@ -1061,11 +1118,11 @@ def _publish_pr(
         print(f"opened PR {pr_url or '(forge CLI returned no url)'}")
 
 
-def _close_pr(base_dir: Path) -> None:
+def _close_pr(base_dir: Path, branch: str) -> None:
     gh = _gh_on_path()
     if gh is None:
         print(
-            f"note: forge CLI (gh) not available; an open pull request from {PENDING_BRANCH} could not be looked up or closed"
+            f"note: forge CLI (gh) not available; an open pull request from {branch} could not be looked up or closed"
         )
         return
     try:
@@ -1074,10 +1131,10 @@ def _close_pr(base_dir: Path) -> None:
         slug = None
     if slug is None:
         print(
-            f"note: remote is not GitHub; an open pull request from {PENDING_BRANCH} could not be looked up or closed"
+            f"note: remote is not GitHub; an open pull request from {branch} could not be looked up or closed"
         )
         return
-    existing = _gh_pr_list(gh, slug)
+    existing = _gh_pr_list(gh, slug, branch)
     if existing is None:
         return
     if existing:
@@ -1097,7 +1154,7 @@ def _close_pr(base_dir: Path) -> None:
             print(f"note: could not close PR {pr_url}: {proc.stderr.strip()}")
 
 
-def _gh_pr_list(gh: str, slug: str) -> tuple[int, str] | None:
+def _gh_pr_list(gh: str, slug: str, branch: str) -> tuple[int, str] | None:
     proc = run_git(
         [
             gh,
@@ -1106,7 +1163,7 @@ def _gh_pr_list(gh: str, slug: str) -> tuple[int, str] | None:
             "--repo",
             slug,
             "--head",
-            PENDING_BRANCH,
+            branch,
             "--state",
             "open",
             "--json",
@@ -1155,9 +1212,9 @@ def _gh_on_path() -> str | None:
     return shutil.which("gh")
 
 
-def _compare_url(url: str, slug: str | None) -> str:
+def _compare_url(url: str, slug: str | None, branch: str) -> str:
     if slug:
-        return f"https://github.com/{slug}/compare/{MAIN_BRANCH}...{PENDING_BRANCH}?expand=1"
+        return f"https://github.com/{slug}/compare/{MAIN_BRANCH}...{branch}?expand=1"
     return url
 
 

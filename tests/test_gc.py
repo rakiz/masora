@@ -310,10 +310,12 @@ def test_gc_then_sync_accepts_tombstoned_lineage(repo, capsys):
     assert "E-GC-UNAVAILABLE" not in out
     assert "2 deleted" in out
     assert "synced: 0 pending event(s) + tombstone additions" in out
-    pending = git(origin, "ls-tree", "-r", "--name-only", "refs/heads/masora/pending").splitlines()
+    pending = git(
+        origin, "ls-tree", "-r", "--name-only", "refs/heads/masora/masora-test"
+    ).splitlines()
     assert CLAIM_REL not in pending and VERIFY_REL not in pending
     assert L2_REL in pending and "deleted.toml" in pending
-    tombstoned = git(origin, "show", "refs/heads/masora/pending:deleted.toml")
+    tombstoned = git(origin, "show", "refs/heads/masora/masora-test:deleted.toml")
     assert tombstoned.strip() == tombstone(ULID_L1, [ULID_L1, ULID_V1A]).strip()
 
 

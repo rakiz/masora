@@ -498,7 +498,7 @@ knowledge. The index can flag lineages sharing anchors with similar statements; 
   `sync` runs `masora check` locally before opening the PR; the review notifies
   the author. Direct push stays available for a solo base.
 - **Lifecycle of local, unpublished events**: they are commits on a local branch
-  `masora/pending`, rebased onto `origin/main`; envelopes tag them `pending`.
+  `masora/<author>` (one branch per writer, derived from the clone's git identity), rebased onto `origin/main`; envelopes tag them `pending`.
   `sync` pushes that branch and opens **or updates** the single PR (forge CLI if
   available, otherwise prints the compare URL). Squash-merges are harmless:
   events are compared by file content. Events whose PR was rejected are

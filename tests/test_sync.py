@@ -139,16 +139,16 @@ def test_sync_clean_add_pushes_pending_branch_and_opens_pr(repo, fake_gh, github
     out = capsys.readouterr().out
     assert "2 added, 0 unchanged, 0 rewritten, 0 deleted" in out
     assert git(origin, "rev-parse", "refs/heads/main") == main_before
-    pending = git(base, "rev-parse", "refs/heads/masora/pending")
-    assert pending == git(origin, "rev-parse", "refs/heads/masora/pending")
-    assert git(base, "rev-parse", "masora/pending^") == main_before
+    pending = git(base, "rev-parse", "refs/heads/masora/masora-test")
+    assert pending == git(origin, "rev-parse", "refs/heads/masora/masora-test")
+    assert git(base, "rev-parse", "masora/masora-test^") == main_before
     assert "2026-09/x/01J8Z3K0000000000000000000.claim.md" in git(
-        origin, "ls-tree", "-r", "--name-only", "masora/pending"
+        origin, "ls-tree", "-r", "--name-only", "masora/masora-test"
     )
     calls = gh_calls(fake_gh)
     assert [call["args"][:2] for call in calls] == [["pr", "list"], ["pr", "create"]]
     create = calls[1]
-    assert "--head" in create["args"] and "masora/pending" in create["args"]
+    assert "--head" in create["args"] and "masora/masora-test" in create["args"]
     assert "--base" in create["args"] and "main" in create["args"]
     assert create["args"][create["args"].index("--title") + 1] == (
         "masora sync: 1 claim, 1 verification"
@@ -188,7 +188,7 @@ def test_sync_idempotent_second_run(repo, fake_gh, github_remote, capsys):
 
     assert code == 0
     out = capsys.readouterr().out
-    assert "pending set unchanged: masora/pending already carries it" in out
+    assert "pending set unchanged: masora/masora-test already carries it" in out
     assert gh_calls(fake_gh) == calls_after_first
 
 
@@ -199,7 +199,7 @@ def test_sync_squash_merged_content_is_not_tampering(repo, capsys):
     assert sync_run(base, yes=True) == 0
     capsys.readouterr()
     main_before = git(origin, "rev-parse", "refs/heads/main")
-    pending_tree = git(base, "rev-parse", "refs/heads/masora/pending^{tree}")
+    pending_tree = git(base, "rev-parse", "refs/heads/masora/masora-test^{tree}")
     squash = git(base, "commit-tree", pending_tree, "-p", main_before, "-m", "masora sync (squash)")
     git(base, "push", "origin", f"{squash}:refs/heads/main")
 
@@ -223,7 +223,7 @@ def test_sync_rewrite_is_rejected(repo, capsys):
     out = capsys.readouterr().out
     assert "E-REWRITE" in out
     assert "FAILED: 1 error(s)" in out
-    assert not rev_ok(origin, "refs/heads/masora/pending")
+    assert not rev_ok(origin, "refs/heads/masora/masora-test")
 
 
 def test_sync_partial_lineage_deletion_is_rejected(repo, capsys):
@@ -359,8 +359,8 @@ def test_sync_drop_deletes_local_branch_closes_pr_and_deletes_remote(
     assert "dropped 1 pending event(s)" in out
     calls = gh_calls(fake_gh)
     assert any(call["args"][:2] == ["pr", "close"] and "42" in call["args"] for call in calls)
-    assert not rev_ok(origin, "refs/heads/masora/pending")
-    assert not rev_ok(base, "refs/heads/masora/pending")
+    assert not rev_ok(origin, "refs/heads/masora/masora-test")
+    assert not rev_ok(base, "refs/heads/masora/masora-test")
 
 
 def test_sync_drop_without_forge_cli_still_deletes_remote_branch(repo, monkeypatch, capsys):
@@ -375,8 +375,8 @@ def test_sync_drop_without_forge_cli_still_deletes_remote_branch(repo, monkeypat
     assert code == 0
     out = capsys.readouterr().out
     assert "forge CLI (gh) not available" in out
-    assert not rev_ok(origin, "refs/heads/masora/pending")
-    assert not rev_ok(base, "refs/heads/masora/pending")
+    assert not rev_ok(origin, "refs/heads/masora/masora-test")
+    assert not rev_ok(base, "refs/heads/masora/masora-test")
 
 
 def test_sync_drop_without_any_pending(repo, capsys):
@@ -397,8 +397,8 @@ def test_sync_push_solo_pushes_main(repo, capsys):
     assert code == 0
     out = capsys.readouterr().out
     assert "solo mode" in out
-    assert not rev_ok(base, "refs/heads/masora/pending")
-    assert not rev_ok(origin, "refs/heads/masora/pending")
+    assert not rev_ok(base, "refs/heads/masora/masora-test")
+    assert not rev_ok(origin, "refs/heads/masora/masora-test")
     main_after = git(origin, "rev-parse", "refs/heads/main")
     assert main_after != main_before
     assert git(base, "rev-parse", f"{main_after}^") == main_before
@@ -429,7 +429,7 @@ def test_sync_dangling_target_is_warning_only(repo, capsys):
     out = capsys.readouterr().out
     assert "W-DANGLING" in out
     assert "synced with warnings: 2 warning(s)" in out
-    assert rev_ok(origin, "refs/heads/masora/pending")
+    assert rev_ok(origin, "refs/heads/masora/masora-test")
 
 
 def test_sync_pr_body_unresolvable_target_falls_back_to_ulid(repo, fake_gh, github_remote):
@@ -459,7 +459,7 @@ def test_sync_local_check_errors_block_before_any_git_action(repo, capsys):
     assert code == 1
     out = capsys.readouterr().out
     assert "FAILED" in out
-    assert not rev_ok(origin, "refs/heads/masora/pending")
+    assert not rev_ok(origin, "refs/heads/masora/masora-test")
 
 
 def test_sync_requires_origin(tmp_path, capsys):
@@ -488,8 +488,8 @@ def test_sync_compare_url_fallback_without_gh(repo, monkeypatch, capsys):
 
     assert code == 0
     out = capsys.readouterr().out
-    assert "https://github.com/acme/base/compare/main...masora/pending?expand=1" in out
-    assert rev_ok(origin, "refs/heads/masora/pending")
+    assert "https://github.com/acme/base/compare/main...masora/masora-test?expand=1" in out
+    assert rev_ok(origin, "refs/heads/masora/masora-test")
 
 
 def test_sync_non_github_remote_prints_manual_instruction(repo, capsys):
@@ -500,9 +500,9 @@ def test_sync_non_github_remote_prints_manual_instruction(repo, capsys):
 
     assert code == 0
     out = capsys.readouterr().out
-    assert "open the pull request from masora/pending to main" in out
+    assert "open the pull request from masora/masora-test to main" in out
     assert str(origin) in out
-    assert rev_ok(origin, "refs/heads/masora/pending")
+    assert rev_ok(origin, "refs/heads/masora/masora-test")
 
 
 def test_sync_collaborator_event_on_origin_is_not_tampering(repo, tmp_path, capsys):
@@ -526,7 +526,7 @@ def test_sync_collaborator_event_on_origin_is_not_tampering(repo, tmp_path, caps
     assert "E-GC-UNAVAILABLE" not in out
     assert "1 added" in out
     pending_files = git(
-        base, "ls-tree", "-r", "--name-only", "refs/heads/masora/pending"
+        base, "ls-tree", "-r", "--name-only", "refs/heads/masora/masora-test"
     ).splitlines()
     assert collab_rel in pending_files and CLAIM_REL in pending_files
 
@@ -540,17 +540,17 @@ def test_sync_up_to_date_requires_matching_remote_tracking_ref(
     capsys.readouterr()
     calls_after_first = gh_calls(fake_gh)
     main_sha = git(origin, "rev-parse", "refs/heads/main")
-    git(base, "push", "origin", f"{main_sha}:refs/heads/masora/pending", "--force")
+    git(base, "push", "origin", f"{main_sha}:refs/heads/masora/masora-test", "--force")
 
     code = sync_run(base, yes=True)
 
     assert code == 0
     out = capsys.readouterr().out
     assert "pending set unchanged" not in out
-    assert "pushed branch masora/pending" in out
+    assert "pushed branch masora/masora-test" in out
     assert len(gh_calls(fake_gh)) == len(calls_after_first) + 2
-    pending = git(base, "rev-parse", "refs/heads/masora/pending")
-    assert pending == git(origin, "rev-parse", "refs/heads/masora/pending")
+    pending = git(base, "rev-parse", "refs/heads/masora/masora-test")
+    assert pending == git(origin, "rev-parse", "refs/heads/masora/masora-test")
 
 
 def test_sync_drop_is_idempotent(repo, fake_gh, github_remote, monkeypatch, capsys):
@@ -570,8 +570,8 @@ def test_sync_drop_is_idempotent(repo, fake_gh, github_remote, monkeypatch, caps
     assert code == 0
     assert "nothing to drop" in capsys.readouterr().out
     assert gh_calls(fake_gh) == calls_after_drop
-    assert not rev_ok(base, "refs/heads/masora/pending")
-    assert not rev_ok(origin, "refs/heads/masora/pending")
+    assert not rev_ok(base, "refs/heads/masora/masora-test")
+    assert not rev_ok(origin, "refs/heads/masora/masora-test")
 
 
 def test_sync_pending_commit_excludes_stray_files(repo, capsys):
@@ -586,7 +586,7 @@ def test_sync_pending_commit_excludes_stray_files(repo, capsys):
     code = sync_run(base, yes=True)
 
     assert code == 0
-    files = git(base, "ls-tree", "-r", "--name-only", "refs/heads/masora/pending").splitlines()
+    files = git(base, "ls-tree", "-r", "--name-only", "refs/heads/masora/masora-test").splitlines()
     assert CLAIM_REL in files and "base.toml" in files
     assert "caches/data.bin" not in files
     assert ".venv/lib.py" not in files
@@ -755,7 +755,7 @@ def test_sync_stacked_claim_refuses_publication(repo, capsys):
     assert "remove the unpublished block claim with `masora gc --lineage <id>`" in out
     assert "never published — no tombstone" in out
     assert "re-run sync" in out
-    assert not rev_ok(origin, "refs/heads/masora/pending")
+    assert not rev_ok(origin, "refs/heads/masora/masora-test")
     assert git(origin, "rev-parse", "refs/heads/main") == main_before
 
 
@@ -771,7 +771,7 @@ def test_sync_allow_stacked_warns_and_publishes(repo, fake_gh, github_remote, ca
     assert "one-line-summary" in out
     assert f"statement is {STATEMENT_MAX + 1} chars" in out
     assert "synced with warnings: 1 warning(s)" in out
-    assert rev_ok(origin, "refs/heads/masora/pending")
+    assert rev_ok(origin, "refs/heads/masora/masora-test")
     create = gh_calls(fake_gh)[1]
     assert "W-SYNC-STACKED" in create["stdin"]
     assert "one-line-summary" in create["stdin"]
@@ -904,8 +904,8 @@ def test_sync_plan_mode_prints_pending_set_and_writes_nothing(repo, fake_gh, git
     assert '- verified "One line summary" — by llm — 1 evidence item' in out
     assert "plan only: nothing written — re-run with --yes to publish" in out
     assert git(origin, "rev-parse", "refs/heads/main") == main_before
-    assert not rev_ok(origin, "refs/heads/masora/pending")
-    assert not rev_ok(base, "refs/heads/masora/pending")
+    assert not rev_ok(origin, "refs/heads/masora/masora-test")
+    assert not rev_ok(base, "refs/heads/masora/masora-test")
     assert gh_calls(fake_gh) == []
 
 
@@ -921,9 +921,9 @@ def test_sync_yes_publishes_the_planned_set(repo, fake_gh, github_remote, capsys
     out = capsys.readouterr().out
     assert "1 added, 0 unchanged, 0 rewritten, 0 deleted" in out
     assert "synced: 1 pending event(s)" in out
-    pending = git(base, "rev-parse", "refs/heads/masora/pending")
-    assert pending == git(origin, "rev-parse", "refs/heads/masora/pending")
-    assert git(base, "rev-parse", "masora/pending^") == main_before
+    pending = git(base, "rev-parse", "refs/heads/masora/masora-test")
+    assert pending == git(origin, "rev-parse", "refs/heads/masora/masora-test")
+    assert git(base, "rev-parse", "masora/masora-test^") == main_before
 
 
 def test_sync_drop_plans_the_discard_without_yes(repo, fake_gh, github_remote, monkeypatch, capsys):
@@ -936,7 +936,7 @@ def test_sync_drop_plans_the_discard_without_yes(repo, fake_gh, github_remote, m
     monkeypatch.setenv(
         "FAKE_GH_LIST", '[{"number": 42, "url": "https://github.com/acme/base/pull/42"}]'
     )
-    pending_before = git(base, "rev-parse", "refs/heads/masora/pending")
+    pending_before = git(base, "rev-parse", "refs/heads/masora/masora-test")
 
     code = sync_run(base, drop=True)
 
@@ -945,8 +945,8 @@ def test_sync_drop_plans_the_discard_without_yes(repo, fake_gh, github_remote, m
     assert f"dropped: {ULID_L1} claim: One line summary" in out
     assert "would discard 1 pending event(s)" in out
     assert "plan only: nothing written — re-run with --yes to discard" in out
-    assert git(base, "rev-parse", "refs/heads/masora/pending") == pending_before
-    assert rev_ok(origin, "refs/heads/masora/pending")
+    assert git(base, "rev-parse", "refs/heads/masora/masora-test") == pending_before
+    assert rev_ok(origin, "refs/heads/masora/masora-test")
     assert not any(call["args"][:2] == ["pr", "close"] for call in gh_calls(fake_gh))
 
 
@@ -964,7 +964,7 @@ def test_sync_push_plans_without_yes(repo, capsys):
     assert "plan only: nothing written — re-run with --yes to push to origin/main" in out
     assert git(origin, "rev-parse", "refs/heads/main") == main_before
     assert git(base, "rev-parse", "refs/heads/main") == main_before
-    assert not rev_ok(base, "refs/heads/masora/pending")
+    assert not rev_ok(base, "refs/heads/masora/masora-test")
 
 
 def test_sync_no_pending_events_exits_zero_in_plan_mode(repo, capsys):
@@ -990,7 +990,7 @@ def test_sync_only_publishes_only_selected_events(repo, fake_gh, github_remote, 
     out = capsys.readouterr().out
     assert "--only selection: 1 of 2 pending event(s) will be published" in out
     assert "synced: 1 pending event(s)" in out
-    tree = git(origin, "ls-tree", "-r", "--name-only", "masora/pending")
+    tree = git(origin, "ls-tree", "-r", "--name-only", "masora/masora-test")
     assert CLAIM_REL in tree and OTHER_REL not in tree
     create = gh_calls(fake_gh)[1]
     assert "second-claim-about-locking" not in create["stdin"]
@@ -1021,7 +1021,7 @@ def test_sync_only_matches_unique_prefix(repo, fake_gh, github_remote, capsys):
     code = sync_run(base, only=["01J8Z3K1"], yes=True)
 
     assert code == 0
-    tree = git(origin, "ls-tree", "-r", "--name-only", "masora/pending")
+    tree = git(origin, "ls-tree", "-r", "--name-only", "masora/masora-test")
     assert prefixed_rel in tree and CLAIM_REL not in tree
 
 
@@ -1037,7 +1037,7 @@ def test_sync_ambiguous_prefix_is_refused_with_candidates(repo, capsys):
     assert "E-SYNC-SELECT" in out
     assert "ambiguous" in out
     assert ULID_L1 in out and ULID_V1A in out
-    assert not rev_ok(origin, "refs/heads/masora/pending")
+    assert not rev_ok(origin, "refs/heads/masora/masora-test")
 
 
 def test_sync_selector_matching_nothing_is_refused(repo, capsys):
@@ -1050,7 +1050,7 @@ def test_sync_selector_matching_nothing_is_refused(repo, capsys):
     out = capsys.readouterr().out
     assert "E-SYNC-SELECT" in out
     assert f"no pending event matches --exclude selector '{DANGLING}'" in out
-    assert not rev_ok(origin, "refs/heads/masora/pending")
+    assert not rev_ok(origin, "refs/heads/masora/masora-test")
 
 
 def test_sync_only_and_exclude_together_are_refused(repo, capsys):
@@ -1107,7 +1107,7 @@ def test_sync_deletions_ride_a_selection(repo, capsys):
     assert code == 0
     out = capsys.readouterr().out
     assert "tombstone additions" in out
-    tree = git(origin, "ls-tree", "-r", "--name-only", "masora/pending")
+    tree = git(origin, "ls-tree", "-r", "--name-only", "masora/masora-test")
     assert CLAIM_REL not in tree and VERIFY_REL not in tree
     assert OTHER_REL in tree
 
@@ -1125,7 +1125,7 @@ def test_sync_gates_run_on_the_filtered_set(repo, capsys):
     assert code == 0
     out = capsys.readouterr().out
     assert "E-SYNC-STACKED" not in out
-    tree = git(origin, "ls-tree", "-r", "--name-only", "masora/pending")
+    tree = git(origin, "ls-tree", "-r", "--name-only", "masora/masora-test")
     assert OTHER_REL in tree and CLAIM_REL not in tree
 
 
@@ -1244,7 +1244,7 @@ def test_gh_pr_list_malformed_json_is_a_note(monkeypatch, capsys):
         stderr = ""
 
     monkeypatch.setattr(sync_mod.subprocess, "run", lambda *a, **k: Fake())
-    assert sync_mod._gh_pr_list("gh", "org/proj") is None
+    assert sync_mod._gh_pr_list("gh", "org/proj", "masora/pending") is None
     assert "could not parse" in capsys.readouterr().out
 
 
@@ -1255,6 +1255,121 @@ def test_gh_timeout_is_a_note(monkeypatch, capsys):
         raise subprocess.TimeoutExpired(cmd="gh", timeout=30)
 
     monkeypatch.setattr(sync_mod.subprocess, "run", hung)
-    assert sync_mod._gh_pr_list("gh", "org/proj") is None
+    assert sync_mod._gh_pr_list("gh", "org/proj", "masora/pending") is None
     assert "timed out" in capsys.readouterr().out
     assert sync_mod._gh_run("gh", ["pr", "list"], "body") == ""
+
+
+# --- Per-author pending branch (masora/<author>) ---
+
+
+def slug_for(base: Path, name: str) -> str:
+    git(base, "config", "user.name", name)
+    from masora.sync import pending_branch
+
+    return pending_branch(base)
+
+
+def test_author_slug_spaces_and_dots_become_dashes(repo):
+    base, _origin = repo
+    assert slug_for(base, "Masora Test") == "masora/masora-test"
+    assert slug_for(base, "Ada B. Lovelace") == "masora/ada-b-lovelace"
+
+
+def test_author_slug_drops_unicode_and_caps_length(repo):
+    base, _origin = repo
+    assert slug_for(base, "Sébastien") == "masora/sbastien"
+    assert slug_for(
+        base, "a-very-long-name-with-many-words-exceeding-the-limit"
+    ) == "masora/" + "a-very-long-name-with-many-words"[
+        : 24 - len("a-very-long-name-with-many-words")
+    ].rstrip("-")
+
+
+def test_author_slug_is_deterministic(repo):
+    base, _origin = repo
+    first = slug_for(base, "Alice Oexample")
+    second = slug_for(base, "Alice Oexample")
+    assert first == second
+
+
+def test_missing_identity_refuses_with_egit_and_remedy(repo, capsys):
+    base, _origin = repo
+    git(base, "config", "user.name", "")
+    from masora.sync import SyncError, pending_branch
+
+    with pytest.raises(SyncError) as excinfo:
+        pending_branch(base)
+    assert excinfo.value.diag.code == "E-GIT"
+    assert "user.name" in excinfo.value.diag.message
+
+
+def test_identity_of_only_dropped_characters_refuses(repo):
+    base, _origin = repo
+    git(base, "config", "user.name", "李明")
+    from masora.sync import SyncError, pending_branch
+
+    with pytest.raises(SyncError):
+        pending_branch(base)
+
+
+def test_sync_publishes_on_the_author_branch(repo, fake_gh, github_remote, capsys):
+    """End-to-end: branch create, push, PR head and drop cleanup all use
+    masora/<author>, derived from the clone's git identity."""
+    base, origin = repo
+    from masora.sync import pending_branch
+
+    branch = pending_branch(base)
+    write_event(
+        base,
+        CLAIM_REL,
+        make_claim(ULID_L1, unanchored=True, anchors=OMIT, unanchored_reason="no anchors"),
+    )
+    assert sync_run(base, yes=True) == 0
+    assert rev_ok(origin, f"refs/heads/{branch}")
+    assert rev_ok(base, f"refs/heads/{branch}")
+    create = next(call for call in gh_calls(fake_gh) if call["args"][:2] == ["pr", "create"])
+    assert branch in create["args"]
+
+    # cleanup: --drop deletes the same per-author branch locally and remotely
+    assert sync_run(base, drop=True, yes=True) == 0
+    assert not rev_ok(origin, f"refs/heads/{branch}")
+    assert not rev_ok(base, f"refs/heads/{branch}")
+
+
+def test_two_authors_get_two_independent_pending_branches(
+    repo, tmp_path, fake_gh, github_remote, capsys
+):
+    """The multi-writer point of the change: two clones of the same base push
+    their pending sets to two different branches — no shared-branch collision."""
+    base, origin = repo
+    from masora.sync import pending_branch
+
+    worker = tmp_path / "worker"
+    subprocess.run(
+        ["git", "clone", str(origin), str(worker)], capture_output=True, check=True, env=git_env()
+    )
+    git(worker, "config", "user.name", "Other Author")
+    git(worker, "config", "user.email", "other@example.invalid")
+
+    base_branch = pending_branch(base)
+    worker_branch = pending_branch(worker)
+    assert base_branch != worker_branch
+
+    write_event(
+        base,
+        CLAIM_REL,
+        make_claim(ULID_L1, unanchored=True, anchors=OMIT, unanchored_reason="no anchors"),
+    )
+    assert sync_run(base, yes=True) == 0
+
+    worker_rel = "2026-09/x/01J8Z3K0000000000000000006.claim.md"
+    write_event(
+        worker,
+        worker_rel,
+        make_claim(ULID_L2, unanchored=True, anchors=OMIT, unanchored_reason="no anchors"),
+    )
+    assert sync_run(worker, yes=True) == 0
+
+    assert rev_ok(origin, f"refs/heads/{base_branch}")
+    assert rev_ok(origin, f"refs/heads/{worker_branch}")

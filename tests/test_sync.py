@@ -972,3 +972,158 @@ def test_sync_no_pending_events_exits_zero_in_plan_mode(repo, capsys):
     code = sync_run(base)
     assert code == 0
     assert "no pending events: nothing to sync" in capsys.readouterr().out
+
+
+# --- sync selection: --only / --exclude (TODO.md Phase 2.5) ---
+
+OTHER_REL = "2026-09/y/01J8Z3K0000000000000000006.claim.md"
+
+
+def test_sync_only_publishes_only_selected_events(repo, fake_gh, github_remote, capsys):
+    base, origin = repo
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    write_event(base, OTHER_REL, make_claim(ULID_L2, summary="Second claim about locking"))
+
+    code = sync_run(base, only=[ULID_L1], yes=True)
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "--only selection: 1 of 2 pending event(s) will be published" in out
+    assert "synced: 1 pending event(s)" in out
+    tree = git(origin, "ls-tree", "-r", "--name-only", "masora/pending")
+    assert CLAIM_REL in tree and OTHER_REL not in tree
+    create = gh_calls(fake_gh)[1]
+    assert "second-claim-about-locking" not in create["stdin"]
+
+
+def test_sync_excluded_events_stay_pending_locally(repo, capsys):
+    base, _origin = repo
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    write_event(base, OTHER_REL, make_claim(ULID_L2, summary="Second claim about locking"))
+    assert sync_run(base, only=[ULID_L1], yes=True) == 0
+    capsys.readouterr()
+
+    code = sync_run(base)
+
+    assert code == 3
+    out = capsys.readouterr().out
+    assert "2 added" in out
+    assert "second-claim-about-locking" in out
+
+
+def test_sync_only_matches_unique_prefix(repo, fake_gh, github_remote, capsys):
+    base, origin = repo
+    prefixed_ulid = "01J8Z3K1000000000000000000"
+    prefixed_rel = "2026-09/z/01J8Z3K1000000000000000000.claim.md"
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    write_event(base, prefixed_rel, make_claim(prefixed_ulid, summary="Prefixed claim"))
+
+    code = sync_run(base, only=["01J8Z3K1"], yes=True)
+
+    assert code == 0
+    tree = git(origin, "ls-tree", "-r", "--name-only", "masora/pending")
+    assert prefixed_rel in tree and CLAIM_REL not in tree
+
+
+def test_sync_ambiguous_prefix_is_refused_with_candidates(repo, capsys):
+    base, origin = repo
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    write_event(base, VERIFY_REL, make_verify(ULID_V1A, ULID_L1, ULID_L1))
+
+    code = sync_run(base, only=["01J8Z3K0"])
+
+    assert code == 1
+    out = capsys.readouterr().out
+    assert "E-SYNC-SELECT" in out
+    assert "ambiguous" in out
+    assert ULID_L1 in out and ULID_V1A in out
+    assert not rev_ok(origin, "refs/heads/masora/pending")
+
+
+def test_sync_selector_matching_nothing_is_refused(repo, capsys):
+    base, origin = repo
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+
+    code = sync_run(base, exclude=[DANGLING])
+
+    assert code == 1
+    out = capsys.readouterr().out
+    assert "E-SYNC-SELECT" in out
+    assert f"no pending event matches --exclude selector '{DANGLING}'" in out
+    assert not rev_ok(origin, "refs/heads/masora/pending")
+
+
+def test_sync_only_and_exclude_together_are_refused(repo, capsys):
+    base, _origin = repo
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+
+    code = sync_run(base, only=[ULID_L1], exclude=[ULID_L1])
+
+    assert code == 1
+    assert "E-SYNC-SELECT" in capsys.readouterr().out
+
+
+def test_sync_cli_refuses_only_and_exclude_together(repo, capsys):
+    base, _origin = repo
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+
+    with pytest.raises(SystemExit):
+        main(["sync", str(base), "--only", ULID_L1, "--exclude", ULID_L1])
+
+    assert "--only and --exclude are mutually exclusive" in capsys.readouterr().err
+
+
+def test_sync_exclude_plan_lists_the_excluded_ids(repo, fake_gh, github_remote, capsys):
+    base, origin = repo
+    main_before = git(origin, "rev-parse", "refs/heads/main")
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    write_event(base, OTHER_REL, make_claim(ULID_L2, summary="Second claim about locking"))
+
+    code = sync_run(base, exclude=[ULID_L2])
+
+    assert code == 3
+    out = capsys.readouterr().out
+    assert "--exclude selection: 1 of 2 pending event(s) excluded from this sync" in out
+    assert f"  excluded: {ULID_L2}" in out
+    assert '- one-line-summary: "One line summary" — llm' in out
+    assert "second-claim-about-locking" not in out
+    assert "plan only: nothing written" in out
+    assert git(origin, "rev-parse", "refs/heads/main") == main_before
+    assert gh_calls(fake_gh) == []
+
+
+def test_sync_deletions_ride_a_selection(repo, capsys):
+    base, origin = repo
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    write_event(base, VERIFY_REL, make_verify(ULID_V1A, ULID_L1, ULID_L1))
+    seed(base)
+    write_event(base, OTHER_REL, make_claim(ULID_L2, summary="Second claim about locking"))
+    (base / CLAIM_REL).unlink()
+    (base / VERIFY_REL).unlink()
+    (base / "deleted.toml").write_text(tombstone(ULID_L1, [ULID_L1, ULID_V1A]), encoding="utf-8")
+
+    code = sync_run(base, only=[ULID_L2], yes=True)
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "tombstone additions" in out
+    tree = git(origin, "ls-tree", "-r", "--name-only", "masora/pending")
+    assert CLAIM_REL not in tree and VERIFY_REL not in tree
+    assert OTHER_REL in tree
+
+
+def test_sync_gates_run_on_the_filtered_set(repo, capsys):
+    base, origin = repo
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, statement=STACKED_STATEMENT))
+    write_event(base, OTHER_REL, make_claim(ULID_L2, summary="Second claim about locking"))
+    assert sync_run(base) == 1
+    assert "E-SYNC-STACKED" in capsys.readouterr().out
+    capsys.readouterr()
+
+    code = sync_run(base, exclude=[ULID_L1], yes=True)
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "E-SYNC-STACKED" not in out
+    tree = git(origin, "ls-tree", "-r", "--name-only", "masora/pending")
+    assert OTHER_REL in tree and CLAIM_REL not in tree

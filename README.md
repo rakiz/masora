@@ -72,6 +72,11 @@ prints the pending set and exits 3 — nothing is written.
 - `masora sync --push --yes` — solo base: push the merged result directly to
   `origin/main` instead of a pending branch and PR (`--push` alone only
   plans the push).
+- `masora sync --only <ulid> [<ulid>…]` / `masora sync --exclude <ulid> [<ulid>…]` —
+  publish a SUBSET of the pending events: full ULIDs or unique prefixes (an
+  ambiguous or unmatched selector is refused with the candidates); `--only` and
+  `--exclude` are mutually exclusive; deletions already decided by gc
+  (tombstones + removed files) are not filterable and always ride the sync.
 - `masora sync --drop --yes` — discard the pending set: close the PR (if
   `gh` is available), delete the `masora/pending` branch locally and
   remotely; the local `.md` files of dropped events are left in place for

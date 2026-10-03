@@ -154,6 +154,26 @@ def main(argv: list[str] | None = None) -> int:
         help="publish flagged block claims anyway, per-lineage warning",
     )
     sync.add_argument(
+        "--only",
+        nargs="+",
+        metavar="ULID",
+        default=None,
+        help="publish only the pending events with these ids (full ULID or unique"
+        " prefix — an ambiguous prefix is refused with the candidates); deletions"
+        " already decided by gc (tombstones + removed files) are not filterable and"
+        " always ride the sync; mutually exclusive with --exclude",
+    )
+    sync.add_argument(
+        "--exclude",
+        nargs="+",
+        metavar="ULID",
+        default=None,
+        help="publish every pending event except these ids (full ULID or unique"
+        " prefix — an ambiguous prefix is refused with the candidates); the excluded"
+        " events stay pending locally; deletions already decided by gc are not"
+        " filterable and always ride the sync; mutually exclusive with --only",
+    )
+    sync.add_argument(
         "--yes",
         action="store_true",
         help="execute the planned action (publish, push or discard); without it sync prints"
@@ -439,12 +459,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "sync":
         if args.drop and args.push:
             sync.error("--drop and --push are mutually exclusive")
+        if args.only and args.exclude:
+            sync.error("--only and --exclude are mutually exclusive")
         return run_sync(
             args.base_dir,
             drop=args.drop,
             push=args.push,
             allow_stacked=args.allow_stacked,
             yes=args.yes,
+            only=args.only,
+            exclude=args.exclude,
         )
     if args.command == "setup":
         return run_setup(args.base)

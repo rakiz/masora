@@ -26,6 +26,7 @@ from .diagnostics import (
     E_MERGE_BASE,
     E_NO_ORIGIN,
     E_REWRITE,
+    E_SYNC_SELECT,
     E_SYNC_STACKED,
     E_TOMBSTONE_SHAPE,
     E_TOMBSTONE_SHRINK,
@@ -89,17 +90,31 @@ def run(
     push: bool = False,
     allow_stacked: bool = False,
     yes: bool = False,
+    only: list[str] | None = None,
+    exclude: list[str] | None = None,
 ) -> int:
     print(f"masora sync {base_dir}")
     if not base_dir.is_dir():
         print(f"masora sync: base directory does not exist: {base_dir}", file=sys.stderr)
         return 1
+    if only is not None and exclude is not None:
+        print(
+            f"  {Diag('error', E_SYNC_SELECT, '--only and --exclude are mutually exclusive').render()}"
+        )
+        return 1
     if drop:
         return _run_drop(base_dir, yes)
-    return _run_publish(base_dir, push, allow_stacked, yes)
+    return _run_publish(base_dir, push, allow_stacked, yes, only=only, exclude=exclude)
 
 
-def _run_publish(base_dir: Path, push: bool, allow_stacked: bool = False, yes: bool = False) -> int:
+def _run_publish(
+    base_dir: Path,
+    push: bool,
+    allow_stacked: bool = False,
+    yes: bool = False,
+    only: list[str] | None = None,
+    exclude: list[str] | None = None,
+) -> int:
     local = check_base(base_dir)
     print(
         f"local check: scanned {local.file_count} event file(s), {local.lineage_count} lineage(s)"
@@ -158,7 +173,30 @@ def _run_publish(base_dir: Path, push: bool, allow_stacked: bool = False, yes: b
                 f"{len(rewritten_ids)} rewritten, {len(deleted_ids)} deleted"
             )
 
-            stacked = _stacked_pending(local_events, added_ids)
+            selected_added = added_ids
+            excluded_ids: set[str] = set()
+            if only is not None or exclude is not None:
+                try:
+                    selected_added = _select_pending(added_ids, only, exclude)
+                except SyncError as exc:
+                    print(f"  {exc.diag.render()}")
+                    print("FAILED: 1 error(s)")
+                    return 1
+                excluded_ids = set(added_ids) - set(selected_added)
+                if exclude is not None:
+                    print(
+                        f"--exclude selection: {len(excluded_ids)} of {len(added_ids)} pending"
+                        " event(s) excluded from this sync (they stay pending locally):"
+                    )
+                    for event_id in sorted(excluded_ids):
+                        print(f"  excluded: {event_id}")
+                else:
+                    print(
+                        f"--only selection: {len(selected_added)} of {len(added_ids)} pending"
+                        " event(s) will be published"
+                    )
+
+            stacked = _stacked_pending(local_events, selected_added)
             if stacked:
                 _report_stacked(stacked, local_events, allow_stacked, warnings)
                 if not allow_stacked:
@@ -235,7 +273,7 @@ def _run_publish(base_dir: Path, push: bool, allow_stacked: bool = False, yes: b
                     )
                 )
 
-            for event_id in added_ids:
+            for event_id in selected_added:
                 event = local_events[event_id]
                 if (
                     event.kind == "claim"
@@ -271,6 +309,7 @@ def _run_publish(base_dir: Path, push: bool, allow_stacked: bool = False, yes: b
                     de_origin,
                     deleted_ids,
                     origin_events,
+                    skip_paths={local_events[event_id].path for event_id in excluded_ids},
                 )
                 merged = check_base(merged_dir)
                 print(
@@ -286,7 +325,7 @@ def _run_publish(base_dir: Path, push: bool, allow_stacked: bool = False, yes: b
                 return 1
 
             has_pending = (
-                bool(added_ids) or bool(pairs_local - pairs_base) or bool(de_local - de_base)
+                bool(selected_added) or bool(pairs_local - pairs_base) or bool(de_local - de_base)
             )
             if not has_pending:
                 print("no pending events: nothing to sync")
@@ -296,7 +335,7 @@ def _run_publish(base_dir: Path, push: bool, allow_stacked: bool = False, yes: b
                 print("synced: 0 pending event(s)")
                 return 0
 
-            pending = [local_events[event_id] for event_id in added_ids]
+            pending = [local_events[event_id] for event_id in selected_added]
             removed = len(pairs_local - pairs_base) + len(de_local - de_base)
             if not yes:
                 print(_pr_body(pending, warnings, local_events, removed), end="")
@@ -348,7 +387,7 @@ def _run_publish(base_dir: Path, push: bool, allow_stacked: bool = False, yes: b
     tombstone_note = (
         " + tombstone additions" if (pairs_local - pairs_base) or (de_local - de_base) else ""
     )
-    print(f"synced: {len(added_ids)} pending event(s){tombstone_note}")
+    print(f"synced: {len(selected_added)} pending event(s){tombstone_note}")
     return 0
 
 
@@ -399,6 +438,49 @@ def _run_drop(base_dir: Path, yes: bool = False) -> int:
         "note: the local .md files of the dropped events were left in place; delete them or edit before the next sync"
     )
     return 0
+
+
+def _select_pending(
+    added_ids: list[str], only: list[str] | None, exclude: list[str] | None
+) -> list[str]:
+    """Resolve the --only/--exclude selectors against the pending EVENT
+    ADDITIONS and return the selected event ids (sorted).
+
+    A selector matches by full ULID or by unique prefix (git-short-sha style);
+    an exact match wins over prefix ambiguity. A selector matching nothing, or
+    a prefix matching several pending ids, is a refusal — a typo must neither
+    silently publish everything nor silently exclude nothing. The two flags
+    are mutually exclusive (checked at the entry point too). Deletions decided
+    by gc are not filterable and are not part of this selection.
+    """
+    if only is not None and exclude is not None:
+        raise SyncError(Diag("error", E_SYNC_SELECT, "--only and --exclude are mutually exclusive"))
+    selectors = only if only is not None else exclude
+    mode = "--only" if only is not None else "--exclude"
+    pending = sorted(added_ids)
+    selected: list[str] = []
+    problems: list[str] = []
+    for selector in selectors:
+        if selector in pending:
+            selected.append(selector)
+            continue
+        matches = [event_id for event_id in pending if event_id.startswith(selector)]
+        if not matches:
+            problems.append(
+                f"no pending event matches {mode} selector '{selector}' — "
+                "select from the pending additions only (deletions are not filterable)"
+            )
+        elif len(matches) > 1:
+            candidates = ", ".join(matches)
+            problems.append(f"{mode} selector '{selector}' is ambiguous — matches: {candidates}")
+        else:
+            selected.append(matches[0])
+    if problems:
+        raise SyncError(Diag("error", E_SYNC_SELECT, "; ".join(problems)))
+    matched = set(selected)
+    if exclude is not None:
+        return sorted(set(pending) - matched)
+    return sorted(matched)
 
 
 def _stacked_pending(
@@ -585,13 +667,20 @@ def _build_merged(
     de_origin: set[tuple[str, str]],
     deleted_ids: list[str],
     origin_events: dict[str, EventFile],
+    skip_paths: set[str] | None = None,
 ) -> None:
     shutil.copytree(origin_dir, merged_dir)
+    dropped_paths = skip_paths or set()
     for path in sorted(base_dir.rglob("*")):
         if ".git" in path.parts or not path.is_file():
             continue
         rel = path.relative_to(base_dir)
         if not (FILENAME_RE.match(path.name) or rel in ("base.toml", "deleted.toml")):
+            continue
+        if str(rel) in dropped_paths:
+            # An --only/--exclude selection: the excluded pending events stay
+            # out of the published tree so the merged result is validated —
+            # and published — without them.
             continue
         dest = merged_dir / rel
         dest.parent.mkdir(parents=True, exist_ok=True)

@@ -6,6 +6,23 @@
       the current state only (release-notes style); the history of how the
       project got there lives between released versions. -->
 
+## [Unreleased]
+
+### Added
+
+- **`masora sync --only <ulid…>` / `--exclude <ulid…>`** — publish a SUBSET of
+  the pending events: both flags take a list of event ULIDs (full id or unique
+  prefix; an ambiguous prefix or a selector matching nothing is refused with
+  the candidates — `E-SYNC-SELECT`, nothing mutated), and they are mutually
+  exclusive. The selectors filter the pending EVENT ADDITIONS only: deletions
+  already decided by `gc` (tombstones) always ride. The gates (stacking audit,
+  founder rule, merged-result validation) run on the filtered set, so the PR
+  is self-consistent without the excluded events — excluded events stay
+  pending locally and a later plain sync publishes them. Plan mode prints the
+  filtered set, the counts and one `excluded:` line per id. (`masora/sync.py`,
+  `masora/cli.py`, `masora/diagnostics.py`, docs/TROUBLESHOOTING.md, README.md,
+  docs/ARCHITECTURE.md, tests/test_sync.py.)
+
 ## 0.7.0 — 2026-10-02
 
 ### Added

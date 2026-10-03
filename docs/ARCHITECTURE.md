@@ -188,6 +188,21 @@ sync exits 3: no branch, no push, no PR, no local ref mutation. `--yes`
 publishes; it is the single confirmation gate of every mutating mode, like
 gc's and compact's.
 
+`--only <id…>` / `--exclude <id…>` filter the pending EVENT ADDITIONS before
+the gates: `--only` publishes just the selected ids, `--exclude` everything
+pending except them. Selectors match a pending addition by full ULID or by
+unique prefix (an exact match wins; an ambiguous prefix is refused with the
+candidates, a selector matching nothing is refused — `E-SYNC-SELECT` — so a
+typo neither publishes everything nor excludes in silence); the two flags are
+mutually exclusive. The stacked audit, the founder rule and the merged-result
+validation run on the FILTERED set, and the merged overlay leaves the excluded
+events' files out — the published branch is self-consistent without them.
+Excluded events stay pending locally (a later plain `sync` publishes them).
+Deletions already decided by gc (tombstone rows + removed files) are NOT
+filterable — they always ride the sync. Plan mode prints the filtered pending
+set with the counts and, for `--exclude`, the excluded ids, so the preview is
+honest; `--yes` applies exactly the printed plan.
+
 - `--push` (solo base): pushes the merged commit straight to `origin/main`
   and advances the local `main` — a mode selector, not a confirmation:
   `--push --yes` publishes, `--push` alone plans the push.

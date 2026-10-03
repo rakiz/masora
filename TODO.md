@@ -10,7 +10,7 @@ Settled 2026-09-25 with the design owner — decisions recorded in MASORA_DESIGN
 
 ### Phase 2.5: sync selection (ordered 2026-10-02)
 
-- [ ] `masora sync --only <id…>` / `--exclude <id…>` — publish a SUBSET of the
+- [x] `masora sync --only <id…>` / `--exclude <id…>` — publish a SUBSET of the
   pending set: both flags take a LIST of event ULIDs (unique-prefix matching,
   ambiguous prefix refused with the candidates), are mutually exclusive, and
   refuse a selector matching nothing (a typo must neither publish everything
@@ -20,13 +20,13 @@ Settled 2026-09-25 with the design owner — decisions recorded in MASORA_DESIGN
 
 ## Bug tickets (live-rollout reports)
 
-- [ ] **sync: deletion detection is merge-base-relative** (live-rollout report,
-  0.7.0, the shared base workstation): event DELETIONS that reached origin/main via
-  the `masora/pending` branch are invisible to a later `masora gc`/sync when
-  the local main is stale — the detection compares against the merge-base
-  (`sync.py:154`), and a behind main hides already-published deletions.
-  Reproduced on the workstation; workaround applied there: advance the local
-  main before re-running gc. Fix: the published-set read (`_published_ids`)
+- [ ] **sync: deletion detection is merge-base-relative** (live-rollout
+  report, 0.7.0, shared-base workstation): event DELETIONS that reached
+  origin/main via the `masora/pending` branch are invisible to a later
+  `masora gc`/sync when the local main is stale — the detection compares
+  against the merge-base (`sync.py:154`), and a behind main hides
+  already-published deletions. Reproduced live; workaround applied there:
+  advance the local main before re-running gc. Fix: the published-set read (`_published_ids`)
   should compare against `origin/main` as fetched during the sync pipeline,
   or the gate should refuse when local main is behind.
 
@@ -414,8 +414,8 @@ is wanted, without cppgraph.
   and branches (owner seed 2026-10-02, ruled IMPORTANT: "what happens when I
   travel back in time in my codebase? … one knowledge base served over
   different versions, different branches"). The real-world scale makes this
-  a core use case, not a refinement: release-train branches,
-  9.0, master) with ~a large distributed team working at various points of each —
+  a core use case, not a refinement: release-train branches of a large
+  codebase, worked on by a large distributed team at various points of each —
   most recall will happen OFF the branch a claim was established on.
   Owner-endorsed shape: automatic
   CONTEXT STAMPING at write/verify time — every claim and verify records

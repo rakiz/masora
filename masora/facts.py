@@ -4,13 +4,14 @@ Resolves the base from the user config for `--repo` (mappings on the
 normalized `origin` remote, then `default_base` — MASORA_DESIGN.md §9), reads
 the existing per-checkout index and prints ONE compact JSON document on
 stdout. Strictly read-only: no index build, no git network access, nothing
-written. `--symbol` filters to lineages whose effective version anchors on
-that exact SCIP identity — the displayed version, or the NEWEST version when
-the displayed one is null (`resolution: none`, FORMAT.md §6 folding); for
-those lineages `anchors_matched` lists the matched identities, and facts are
-empty-matched and skipped when they don't anchor the symbol. Each fact also
-carries the effective version's provenance (`source`, `name`, `effort`) and
-its FULL anchor-identity list (`anchors`).
+written. `--symbol` (repeatable) filters to lineages whose effective version
+anchors on ANY of the passed SCIP identities — matched verbatim, the same
+rule Masora's provider uses — the displayed version, or the NEWEST version
+when the displayed one is null (`resolution: none`, FORMAT.md §6 folding);
+for those lineages `anchors_matched` lists the matched identities, and facts
+are empty-matched and skipped when they don't anchor any passed symbol. Each
+fact also carries the effective version's provenance (`source`, `name`,
+`effort`) and its FULL anchor-identity list (`anchors`).
 
 Contract v2 stamps each fact with the git context Masora evaluated at index
 build time (MASORA_DESIGN.md §6.2): `established_relation` (the DISPLAYED
@@ -61,9 +62,9 @@ class FactsError(Exception):
         self.diag = diag
 
 
-def run(repo: Path, symbol: str | None = None) -> int:
+def run(repo: Path, symbols: list[str] | None = None) -> int:
     try:
-        document = _facts(repo, symbol)
+        document = _facts(repo, symbols)
     except FactsError as exc:
         print(f"  {exc.diag.render()}", file=sys.stderr)
         return 1
@@ -75,7 +76,11 @@ def _flags(values: tuple[int, ...]) -> str:
     return ",".join(name for name, value in zip(_FLAG_NAMES, values) if value) or "-"
 
 
-def _facts(repo: Path, symbol: str | None) -> dict:
+def _facts(repo: Path, symbols: list[str] | None) -> dict:
+    # OR-matching over the repeatable --symbol: a lineage is included when
+    # its effective version anchors on ANY passed identity; the matched
+    # identities accumulate in anchors_matched (deduped, in call order).
+    symbol_set = set(symbols) if symbols else None
     if not repo.is_dir():
         raise FactsError(
             Diag("error", E_IDX_REPO, f"--repo path is not an existing directory: {repo}")
@@ -184,15 +189,9 @@ def _facts(repo: Path, symbol: str | None) -> dict:
                         "SELECT identity FROM anchors WHERE version = ?", (effective,)
                     )
                 ]
-                if symbol is not None:
-                    matched = [
-                        identity[0]
-                        for identity in conn.execute(
-                            "SELECT identity FROM anchors WHERE version = ? AND identity = ?",
-                            (effective, symbol),
-                        )
-                    ]
-            if symbol is not None and not matched:
+                if symbol_set is not None:
+                    matched = list(dict.fromkeys(s for s in symbols if s in anchor_identities))
+            if symbol_set is not None and not matched:
                 continue
             facts.append(
                 {

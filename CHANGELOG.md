@@ -10,6 +10,19 @@
 
 ### Added
 
+- **Facts contract: batched symbol matching (the injection-surface request)**
+  — `masora facts --symbol` is REPEATABLE: one spawn matches N symbols
+  (OR-semantics over the verbatim anchor rule, `anchors_matched` accumulating
+  deduplicated in call order), contract_version stays 2 and the document
+  shape is unchanged. docs/CPPGRAPH_INTEGRATION.md carries the REQUEST to the
+  cppgraph side in the contract's own voice (§6: the injection scope gains
+  find/outline with one batched spawn per response, budget and visible
+  truncation unchanged, plus the presence-hint rule — one capability line
+  when masora is present and zero facts rendered; §9: the two new
+  diff-able self-check rows). Implementing it is the cppgraph agent's call,
+  per the §9 diff ritual — masora owns the contract, not the other repo.
+  (+4 tests.)
+
 - **Team life, wave 6b (AUDIT.md proposals 5-6)** — the pending branch is
   PER-AUTHOR (`masora/<author-slug>` from the base clone's git identity,
   deterministic slug ≤ 24 chars, missing identity = E-GIT remedy): two

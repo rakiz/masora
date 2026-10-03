@@ -113,10 +113,14 @@ def claim_event(uid: str, repo: Path, head: str, identities: list[str], **overri
     )
 
 
-def facts(capsys, repo: Path, symbol: str | None = None) -> tuple[int, dict | None, str]:
+def facts(
+    capsys, repo: Path, symbol: str | None = None, symbols: list[str] | None = None
+) -> tuple[int, dict | None, str]:
     argv = ["facts", "--repo", str(repo)]
     if symbol is not None:
         argv += ["--symbol", symbol]
+    for s in symbols or []:
+        argv += ["--symbol", s]
     code = main(argv)
     captured = capsys.readouterr()
     document = json.loads(captured.out) if captured.out.strip() else None
@@ -701,3 +705,78 @@ def test_facts_v2_maps_relation_unknown_to_the_contract_enum(tmp_path, base, cap
     (fact,) = document["facts"]
     assert fact["established_relation"] == "unknown"
     assert fact["established_commit"] == head[:12]
+
+
+def test_facts_repeated_symbol_or_matches_across_lineages(tmp_path, base, capsys):
+    """One spawn for several symbols: lineages anchoring on ANY passed
+    identity are returned, each carrying only the identities it matched."""
+    repo, head = make_repo(tmp_path)
+    uid_a = "01J8Z3K0000000000000000000"
+    uid_b = ULID_L2
+    write_event(base, f"2026-09/x/{uid_a}.claim.md", claim_event(uid_a, repo, head, [SYM_A]))
+    write_event(base, f"2026-09/x/{uid_b}.claim.md", claim_event(uid_b, repo, head, [SYM_B]))
+    assert build_index(base, repo).errors == []
+
+    code, document, _err = facts(capsys, repo, symbols=[SYM_A, SYM_B])
+
+    assert code == 0
+    assert document["contract_version"] == 2
+    by_lineage = {fact["lineage"]: fact for fact in document["facts"]}
+    assert sorted(by_lineage) == sorted([uid_a, uid_b])
+    assert by_lineage[uid_a]["anchors_matched"] == [SYM_A]
+    assert by_lineage[uid_b]["anchors_matched"] == [SYM_B]
+
+
+def test_facts_repeated_symbol_same_lineage_accumulates_anchors_matched(tmp_path, base, capsys):
+    """Two passed symbols anchoring the SAME lineage: one fact, the
+    anchors_matched list carries both identities in call order."""
+    repo, head = make_repo(tmp_path)
+    uid = "01J8Z3K0000000000000000000"
+    write_event(base, f"2026-09/x/{uid}.claim.md", claim_event(uid, repo, head, [SYM_A, SYM_B]))
+    assert build_index(base, repo).errors == []
+
+    code, document, _err = facts(capsys, repo, symbols=[SYM_B, SYM_A])
+
+    assert code == 0
+    (fact,) = document["facts"]
+    assert fact["lineage"] == uid
+    assert fact["anchors_matched"] == [SYM_B, SYM_A]
+
+
+def test_facts_repeated_symbol_filters_non_matching_lineages(tmp_path, base, capsys):
+    """A lineage anchoring NONE of the passed symbols is filtered out, even
+    as another matches — and a repeated duplicate symbol dedupes."""
+    repo, head = make_repo(tmp_path)
+    uid_a = "01J8Z3K0000000000000000000"
+    uid_b = ULID_L2
+    write_event(base, f"2026-09/x/{uid_a}.claim.md", claim_event(uid_a, repo, head, [SYM_A]))
+    write_event(base, f"2026-09/x/{uid_b}.claim.md", claim_event(uid_b, repo, head, [SYM_B]))
+    assert build_index(base, repo).errors == []
+
+    code, document, _err = facts(capsys, repo, symbols=[SYM_A, SYM_A])
+
+    assert code == 0
+    (fact,) = document["facts"]
+    assert fact["lineage"] == uid_a
+    assert fact["anchors_matched"] == [SYM_A]
+
+
+def test_facts_repeated_symbol_keeps_the_v2_document_shape(tmp_path, base, capsys):
+    """The richer CLI input changes nothing on the output contract: the
+    per-lineage key set and contract_version are those of a single-symbol
+    query."""
+    repo, head = make_repo(tmp_path)
+    uid = "01J8Z3K0000000000000000000"
+    write_event(base, f"2026-09/x/{uid}.claim.md", claim_event(uid, repo, head, [SYM_A, SYM_B]))
+    assert build_index(base, repo).errors == []
+
+    _code, single, _err = facts(capsys, repo, symbol=SYM_A)
+    _code, multi, _err = facts(capsys, repo, symbols=[SYM_A, SYM_B])
+
+    assert multi["contract_version"] == 2
+    assert list(multi) == list(single)
+    (multi_fact,) = multi["facts"]
+    (single_fact,) = single["facts"]
+    assert set(multi_fact) == set(single_fact)
+    assert multi_fact["anchors_matched"] == [SYM_A, SYM_B]
+    assert single_fact["anchors_matched"] == [SYM_A]

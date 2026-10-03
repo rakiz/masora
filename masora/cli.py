@@ -452,10 +452,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     facts.add_argument(
         "--symbol",
+        action="append",
         default=None,
         metavar="SCIP",
-        help="exact SCIP symbol string; only lineages whose displayed version (or newest version"
-        " for resolution none) anchors on it are returned",
+        help="exact SCIP symbol string, repeatable; only lineages whose displayed version (or"
+        " newest version for resolution none) anchor on ANY passed symbol are returned",
     )
     status = sub.add_parser(
         "status",
@@ -603,7 +604,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "mcp":
         return run_mcp()
     if args.command == "facts":
-        return run_facts(args.repo, symbol=args.symbol)
+        return run_facts(args.repo, symbols=args.symbol)
     if args.command == "status":
         return run_status(force=args.force)
     if args.command == "skill":

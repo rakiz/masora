@@ -10,6 +10,7 @@ from pathlib import Path
 from .checker import check_base
 from .compact import run as run_compact
 from .diagnostics import E_IDX_QUERY, E_NOT_A_BASE, W_IDX_STALE, Diag
+from .doctor import run as run_doctor
 from .explain import ExplainError, explain_lineage
 from .facts import run as run_facts
 from .gc import run as run_gc
@@ -25,6 +26,7 @@ from .index import (
 from .init import run as run_init
 from .mcp import PROTOCOL_VERSION
 from .mcp import serve as run_mcp
+from .reset import run as run_reset
 from .setup import run as run_setup
 from .skill import run as run_skill
 from .status import installed_version
@@ -32,7 +34,7 @@ from .status import run as run_status
 from .sync import run as run_sync
 from .write import WriteError, auto_base, origin_state
 
-BASE_COMMANDS = ("check", "gc", "compact", "index", "search", "explain")
+BASE_COMMANDS = ("check", "gc", "compact", "index", "search", "explain", "reset")
 
 
 def _configured_base_hint() -> Path | None:
@@ -294,6 +296,47 @@ def main(argv: list[str] | None = None) -> int:
         " single home (the founder's month, <slug>-<lineage>), merging split month"
         " buckets; moved files keep their ULIDs and bytes",
     )
+    reset = sub.add_parser(
+        "reset",
+        help="accept an out-of-band remote history rewrite: reset local main to origin/main",
+        description="Exit codes: 3 plan printed (nothing written), 0 reset, 1 errors."
+        " NEVER runs automatically and never called by another masora command: it is the"
+        " explicit, human-confirmed acceptance of an out-of-band remote history rewrite"
+        " (docs/REFOUNDATION.md). The command does NOT judge whether the rewrite was a"
+        " refoundation or an attack — tamper evidence stays intact; it prints the"
+        " local-only commits being discarded and requires --yes. Refuses a dirty working"
+        " tree up front (E-RESET-DIRTY): commit or discard first. After the reset, rebuild"
+        " the indexes (masora index) and re-run masora check.",
+    )
+    reset.add_argument(
+        "base_dir",
+        type=Path,
+        nargs="?",
+        default=None,
+        help="path to the Masora base directory (omitted: resolved from the checkout's"
+        " masora configuration — mappings on the normalized origin remote, then default_base)",
+    )
+    reset.add_argument(
+        "--from-origin",
+        action="store_true",
+        required=True,
+        help="the reset target is origin/main after a fresh fetch (the refoundation"
+        " acceptance move); required, spelled out so the destructive move is never a typo",
+    )
+    reset.add_argument(
+        "--yes",
+        action="store_true",
+        help="execute the reset; without it reset prints the plan only and exits 3",
+    )
+    sub.add_parser(
+        "doctor",
+        help="report-only health checks: tool, config, git identity, bases, gh, indexes, graphs",
+        description="Exit codes: 0 no failing check, 1 at least one FAIL (WARNs never"
+        " fail). Every check prints OK / WARN / FAIL with a concrete remedy and NOTHING"
+        " is mutated. The only network operation is the read-only `git fetch origin` of"
+        " each configured base; the gh check is report-only (missing gh is a WARN — gh"
+        " is optional).",
+    )
     index = sub.add_parser(
         "index",
         help="rebuild the SQLite index of a base for one code repo (MASORA_DESIGN.md §6.2, §8)",
@@ -386,7 +429,7 @@ def main(argv: list[str] | None = None) -> int:
         help="run the MCP stdio server (MASORA_DESIGN.md §10.4)",
         description="Hand-rolled minimal MCP server over stdio: newline-delimited JSON-RPC 2.0,"
         f" protocol version {PROTOCOL_VERSION} (negotiated: the result always carries it), tools only — note, verify,"
-        " doubt, undoubt, refute, search, list_stale, explain. Responses go to stdout; protocol anomalies"
+        " doubt, undoubt, refute, unrefute, search, list_stale, explain. Responses go to stdout; protocol anomalies"
         " to stderr (W-MCP-PROTO); the loop survives malformed input.",
     )
     facts = sub.add_parser(
@@ -485,6 +528,10 @@ def main(argv: list[str] | None = None) -> int:
         return run_gc(args.base_dir, args.lineage, yes=args.yes)
     if args.command == "compact":
         return run_compact(args.base_dir, yes=args.yes, rehome=args.rehome)
+    if args.command == "reset":
+        return run_reset(args.base_dir, yes=args.yes)
+    if args.command == "doctor":
+        return run_doctor()
     if args.command == "index":
         return _run_index(args.base_dir, args.repo, args.cppgraph, args.no_cppgraph)
     if args.command == "search":

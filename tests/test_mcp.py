@@ -228,6 +228,7 @@ def test_handshake_tools_list_shape(server):
         "doubt",
         "undoubt",
         "refute",
+        "unrefute",
         "search",
         "list_stale",
         "explain",
@@ -238,6 +239,7 @@ def test_handshake_tools_list_shape(server):
     assert schemas["doubt"]["required"] == ["id", "reason", "repo_root"]
     assert schemas["undoubt"]["required"] == ["id", "reason", "repo_root"]
     assert schemas["refute"]["required"] == ["id", "reason", "repo_root"]
+    assert schemas["unrefute"]["required"] == ["id", "reason", "repo_root"]
     assert schemas["search"]["required"] == ["query"]
     assert schemas["list_stale"]["required"] == []
     assert all(schema["additionalProperties"] is False for schema in schemas.values())
@@ -374,7 +376,7 @@ def test_write_tools_expose_no_lines_argument(server):
     server.ready()
     listing = server.request("tools/list")
     schemas = {tool["name"]: tool["inputSchema"] for tool in listing["result"]["tools"]}
-    for name in ("note", "verify", "doubt", "undoubt", "refute"):
+    for name in ("note", "verify", "doubt", "undoubt", "refute", "unrefute"):
         assert "lines" not in schemas[name].get("properties", {})
 
 
@@ -1761,3 +1763,147 @@ def test_stdio_streams_reconfigured_to_utf8(monkeypatch):
     assert mcp.serve() == 0
     assert fake_in.reconfigured == {"encoding": "utf-8"}
     assert fake_out.reconfigured == {"encoding": "utf-8"}
+
+
+# --- the unrefute tool (the inverse move of refute, FORMAT.md §5.4) -----------
+
+
+def refute_args(refute_id: str, repo: Path, base_dir: Path, **overrides) -> dict:
+    args = {
+        "id": refute_id,
+        "reason": "The replay no longer contradicts the claim.",
+        "repo_root": str(repo),
+        "base": str(base_dir),
+    }
+    args.update(overrides)
+    return args
+
+
+def test_unrefute_round_trip_through_index(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+    note_text, _ = server.tool("note", note_args(repo, base))
+    uid = note_text.splitlines()[1].split()[1]
+    refute_text, _ = server.tool(
+        "refute", {"id": uid, "reason": "Wrong.", "repo_root": str(repo), "base": str(base)}
+    )
+    refute_id = refute_text.splitlines()[1].split()[1]
+    text, is_error = server.tool("unrefute", refute_args(refute_id, repo, base))
+    assert is_error is False
+    lines = text.splitlines()
+    rel = lines[0].removeprefix("wrote ")
+    unrefute_id = lines[1].split()[1]
+    data = load_frontmatter((base / rel).read_text(encoding="utf-8"), rel)
+    assert data["kind"] == "unrefute"
+    assert data["targets"] == refute_id
+    assert data["source"] == "llm"
+    assert data["reason"]
+    assert rel.endswith(f"{unrefute_id}.unrefute.md")
+    assert (
+        rel.rsplit("/", 1)[0]
+        == refute_text.splitlines()[0].removeprefix("wrote ").rsplit("/", 1)[0]
+    )
+    # the refuted version is a display candidate again
+    (status,) = build_index(base, repo).statuses
+    assert status.resolution == "current"
+    assert status.displayed == uid
+    assert check_base(base).errors == []
+
+
+def test_unrefute_carries_reason_evidence_and_provenance(server, code_repo, base):
+    repo, head = code_repo
+    server.ready()
+    note_text, _ = server.tool("note", note_args(repo, base))
+    uid = note_text.splitlines()[1].split()[1]
+    refute_text, _ = server.tool(
+        "refute", {"id": uid, "reason": "Wrong.", "repo_root": str(repo), "base": str(base)}
+    )
+    refute_id = refute_text.splitlines()[1].split()[1]
+    text, is_error = server.tool(
+        "unrefute",
+        refute_args(
+            refute_id,
+            repo,
+            base,
+            evidence=["cppgraph .calls replay: 2 of 2 edges"],
+            name="glm-5p3-flash",
+            effort="high",
+        ),
+    )
+    assert is_error is False
+    rel = text.splitlines()[0].removeprefix("wrote ")
+    data = load_frontmatter((base / rel).read_text(encoding="utf-8"), rel)
+    assert data["evidence"] == ["cppgraph .calls replay: 2 of 2 edges"]
+    assert data["name"] == "glm-5p3-flash" and data["effort"] == "high"
+    assert data["recorded_at"] == {"commit": head, "graph_commit": head}
+
+
+def test_unrefute_human_source_is_refused_from_mcp(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+    note_text, _ = server.tool("note", note_args(repo, base))
+    uid = note_text.splitlines()[1].split()[1]
+    refute_text, _ = server.tool(
+        "refute", {"id": uid, "reason": "Wrong.", "repo_root": str(repo), "base": str(base)}
+    )
+    refute_id = refute_text.splitlines()[1].split()[1]
+    text, is_error = server.tool("unrefute", refute_args(refute_id, repo, base, source="human"))
+    assert is_error is True
+    assert "E-MCP-HUMAN" in text
+    assert not list(base.rglob("*.unrefute.md"))
+
+
+def test_unrefute_requires_a_refute_id(server, code_repo, base):
+    """A claim/verify/doubt id is an E-MCP-ARGS refusal; a lineage has NO
+    lineage form (the same rule as undoubt) — an unrefute on a never-refuted
+    lineage fails with the tool's own diagnostic, nothing written."""
+    repo, _head = code_repo
+    server.ready()
+    note_text, _ = server.tool("note", note_args(repo, base))
+    uid = note_text.splitlines()[1].split()[1]
+    for target in (uid, uid):  # claim id and lineage id (a founder: they coincide)
+        text, is_error = server.tool("unrefute", refute_args(target, repo, base))
+        assert is_error is True
+        assert "E-MCP-ARGS" in text and "refute" in text
+    server.tool(
+        "verify", {"id": uid, "evidence": ["ok"], "repo_root": str(repo), "base": str(base)}
+    )
+    verify_text, _ = server.tool(
+        "verify", {"id": uid, "evidence": ["ok"], "repo_root": str(repo), "base": str(base)}
+    )
+    verify_id = verify_text.splitlines()[1].split()[1]
+    text, is_error = server.tool("unrefute", refute_args(verify_id, repo, base))
+    assert is_error is True
+    assert "E-MCP-ARGS" in text and "refute" in text
+    assert not list(base.rglob("*.unrefute.md"))
+
+
+def test_unrefute_unknown_id(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+    text, is_error = server.tool("unrefute", refute_args("01J8Z3K0000000000000000009", repo, base))
+    assert is_error is True
+    assert "E-MCP-UNKNOWN-ID" in text
+
+
+def test_unrefute_post_check_failure_writes_nothing(server, code_repo, base, monkeypatch, tmp_path):
+    """Atomicity: a failing post-write check unlinks the just-written file —
+    the tool never returns success on an invalid tree (FORMAT.md §6)."""
+    repo, _head = code_repo
+    server.ready()
+    note_text, _ = server.tool("note", note_args(repo, base))
+    uid = note_text.splitlines()[1].split()[1]
+    refute_text, _ = server.tool(
+        "refute", {"id": uid, "reason": "Wrong.", "repo_root": str(repo), "base": str(base)}
+    )
+    refute_id = refute_text.splitlines()[1].split()[1]
+    existing = list(base.rglob("*.md"))
+    # Force a duplicate id: the post-check must refuse and unlink (E-DUP-ID).
+    import masora.mcp as mcp_module
+
+    monkeypatch.setattr(mcp_module, "new_ulid", lambda: refute_id)
+    with pytest.raises(WriteError) as exc:
+        mcp_module._tool_unrefute(refute_args(refute_id, repo, base))
+    assert exc.value.code == "E-DUP-ID"
+    assert list(base.rglob("*.md")) == existing
+    assert not list(base.rglob("*.tmp"))

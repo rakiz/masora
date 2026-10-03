@@ -266,12 +266,16 @@ def _resolve_target(
                     )
                 )
             return verification["id"], id_str
-        if wants == "doubt":
+        if wants in ("doubt", "refute"):
+            # undo moves (undoubt/unrefute) target the undoable event's ULID
+            # only — a lineage form would guess which correction is being
+            # lifted, so it does not exist (the same rule as undoubt).
             raise WriteError(
                 Diag(
                     "error",
                     E_MCP_ARGS,
-                    f"{tool} targets a doubt event ULID; pass the doubt's id (no lineage form for {tool})",
+                    f"{tool} targets a {wants} event ULID; pass the {wants}'s id"
+                    f" (no lineage form for {tool})",
                 )
             )
         displayed = envelope["displayed"]
@@ -532,7 +536,7 @@ def _tool_targeted(kind: str, args: dict) -> str:
     shared = checked(base_dir)
     envs = envelopes(base_dir, shared)
     parsed = records(base_dir)
-    wants = {"doubt": "verify", "undoubt": "doubt", "refute": "any"}[kind]
+    wants = {"doubt": "verify", "undoubt": "doubt", "refute": "any", "unrefute": "refute"}[kind]
     target, lineage = _resolve_target(base_dir, parsed, target_id, kind, wants, envs)
 
     graph_commit = None
@@ -576,6 +580,10 @@ def _tool_undoubt(args: dict) -> str:
 
 def _tool_refute(args: dict) -> str:
     return _tool_targeted("refute", args)
+
+
+def _tool_unrefute(args: dict) -> str:
+    return _tool_targeted("unrefute", args)
 
 
 def _resolve_read_context(args: dict) -> tuple[Path, Path]:
@@ -990,6 +998,41 @@ TOOLS = [
         ),
     },
     {
+        "name": "unrefute",
+        "description": (
+            "Record an .unrefute event lifting a refutation: the inverse move of refute, the"
+            " way undoubt relates to doubt (FORMAT.md §5.4). Targets the refute event's ULID"
+            " only (no lineage form); the refuted version becomes a display candidate again."
+        ),
+        "inputSchema": _schema(
+            {
+                "id": _str(description="the refute event's ULID"),
+                "reason": _str(description="why the refutation is lifted (in English)"),
+                "repo_root": _str(description="path to the code repo checkout"),
+                **_BASE_PROPS,
+                "source": {
+                    "type": "string",
+                    "enum": ["human", "llm"],
+                    "description": "default llm; human is REFUSED over MCP (local CLI act with interactive confirmation)",
+                },
+                "evidence": {
+                    "type": "array",
+                    "items": _str(),
+                    "description": "proof items (in English)",
+                },
+                "name": _str(
+                    description="free string when source is llm: the exact model id, never an agent or tool alias"
+                ),
+                "effort": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high"],
+                    "description": "only when source is llm",
+                },
+            },
+            ["id", "reason", "repo_root"],
+        ),
+    },
+    {
         "name": "search",
         "description": (
             "FTS query over the base index (MASORA_DESIGN.md §6.2); auto-builds a missing index,"
@@ -1071,6 +1114,7 @@ _TOOL_BY_NAME = {
     "doubt": _tool_doubt,
     "undoubt": _tool_undoubt,
     "refute": _tool_refute,
+    "unrefute": _tool_unrefute,
     "search": _tool_search,
     "list_stale": _tool_list_stale,
     "explain": _tool_explain,

@@ -377,7 +377,8 @@ is the lineage's, never an empty render. An unknown id is
 Nothing is written, ever. The graph registry's sqlite handle (opened for
 the anchor states) is closed when the story is built. This promotes
 `explain (evidence-chain trace)` out of the TODO's out-of-scope list — the
-remaining advanced tools are `unrefute`, `recheck` and `history`.
+remaining advanced tools are `recheck` and `history` (`unrefute` has since
+shipped as the ninth MCP tool).
 
 ## Index and resolution (`masora/index.py`, `masora/gitctx.py`, `masora/resolve.py`, MASORA_DESIGN.md §6.2, §5.4, §8)
 
@@ -666,11 +667,12 @@ context per call — the server does no repo discovery):
 | `doubt` | `id`, `reason`, `repo_root`; optional `base`, `source`, `evidence[]`, `name`, `effort` | Targets a `.verify` ULID, or a lineage → the active verify of its displayed version; none → `E-MCP-UNKNOWN-ID`. |
 | `undoubt` | same params as `doubt` | Targets the doubt event's ULID only (no lineage form). |
 | `refute` | same params as `doubt` | Targets any event ULID, or a lineage → its displayed version. |
+| `unrefute` | same params as `doubt` | Targets the refute event's ULID only (no lineage form) — the inverse move of refute, the way undoubt relates to doubt (FORMAT.md §5.4); the refuted version becomes a display candidate again. |
 | `search` | `query`; optional `any_version`, `base`, `repo_root` | FTS over the index (auto-**built when missing**, never rebuilt when merely stale — the SessionStart hook owns freshness); a call WITHOUT `repo_root` reuses an existing code-repo-keyed index for the base when one exists (no duplicate base-keyed index, no second probe budget); `W-IDX-STALE` is surfaced in the result text; statuses rendered per lineage. Default filter: the displayed version of each matching lineage (the newest for `none` lineages); `any_version` searches ALL ACTIVE versions, each hit with its own git relation — refuted versions are never searched (a future `history` tool owns refuted archaeology). |
 | `list_stale` | optional `base`, `repo_root` | Two labeled lists (§12.16(f)/(g)): `re-check (N):` — stale/restored/unknown lineages plus `degraded` context ordering (actionable: worth re-verifying on this checkout) — and `not applicable here (N):` — off-version lineages (the knowledge lives on another version line); `no stale lineages` when both are empty. |
 | `explain` | `lineage`; optional `base`, `repo_root` | The fresh one-lineage story (E-EXPLAIN-UNKNOWN on an unknown id); with a repo the git context is re-derived live with a fresh probe budget and surfaced — the `off-version:` field, the `context:` ordering line and per-claim `[established: <relation>]` markers. |
 
-The write path (`masora/write.py`) is shared by all five write tools:
+The write path (`masora/write.py`) is shared by all SIX write tools:
 `resolve_base()` honours an explicit `base` parameter first (a caller-provided
 base always wins), then matches the code repo's `origin` remote (normalized via
 `config.normalize_remote`) against the user config's `[[mappings]]`, then
@@ -835,12 +837,54 @@ clone or unreadable config is reported as-is). Three sections:
   (`status.fetch_latest_release`) is an injectable module-level callable so
   the tests stay hermetic.
 
+## Doctor (`masora/doctor.py`)
+
+`masora doctor` runs report-only health checks — every check prints one
+OK / WARN / FAIL line with a concrete remedy and NOTHING is mutated; exit 0
+when no FAIL, 1 when any FAIL (WARNs never fail). The checks: the tool
+environment (installed version, config found and parseable — an unreadable
+config is a FAIL, an absent one a WARN); the git identity (`user.name` /
+`user.email` — FAIL each when missing, `init` and sync commits need them);
+per configured base: the clone directory (FAIL when missing),
+`base.toml` readability (FAIL), the clone's `origin` remote matching the
+configured one after normalization (FAIL on mismatch) and a read-only
+`git fetch origin` (the ONLY network operation — FAIL with the git exit
+message); the gh CLI (report-only, missing/unauthenticated is a WARN — gh
+is optional); per (base, repo) pair known to a stored index meta: the
+SQLite index (missing/unreadable/stale is a WARN with the `masora index`
+remedy, staleness reported through the same four-axis
+`index_stale_reason` strings `W-IDX-STALE` uses) and the cppgraph graph
+store (absent, unreadable or behind HEAD is a WARN — cppgraph is a separate
+tool). Every spawn goes through `sync.run_git`/`git_env` (M4 timeouts); the
+gh check and the base fetch are injectable callables (`run(gh_checker=…,
+fetcher=…)`), the same seam idiom as `status.fetch_latest_release`.
+
+## Reset (`masora/reset.py`, docs/REFOUNDATION.md, AUDIT.md risk 3)
+
+`masora reset <base-dir> --from-origin [--yes]` is the refoundation
+acceptance move — the ONLY path that accepts an out-of-band remote history
+rewrite by resetting local `main` to `origin/main` (hard reset). It NEVER
+runs automatically and nothing in `sync`/`index`/the MCP server/any hook
+may call it; it is deliberately NEUTRAL — it does not judge whether the
+rewrite was a refoundation or an attack (tamper evidence stays intact; the
+sync-time `E-REWRITE` refusal is unchanged) and its help says so. Flow,
+plan-then-confirm exactly like gc/compact: a dirty working tree is refused
+up front (`E-RESET-DIRTY` — commit or discard first), then fetch
+(`E-RESET-FETCH` on failure) and the `origin/main` existence check
+(`E-RESET-NO-MAIN`); without `--yes` the plan — the target commit plus the
+local-only commits (`rev-list origin/main..main`) that will be discarded —
+is printed and the command exits 3. With `--yes`: `reset --hard` when
+`main` is checked out, only `update-ref refs/heads/main` otherwise, then
+the follow-ups (rebuild the indexes, re-run `masora check`). The procedure
+is the runbook docs/REFOUNDATION.md (refoundation and secret-removal-from-
+history cases).
+
 ## Not built yet
 
 All listed in TODO.md — statements below are facts, not plans in code:
 
 - Credential-shaped content rejection at `note`, `SessionStart` hook,
-  unrefute/recheck/history MCP tools; the cppgraph side of the injection
+  recheck/history MCP tools; the cppgraph side of the injection
   (its wire contract is implemented: `masora facts`, pinned in
   [docs/CPPGRAPH_INTEGRATION.md](CPPGRAPH_INTEGRATION.md)). (The
   MCP write path itself is built: `masora/mcp.py` + `masora/write.py` — the

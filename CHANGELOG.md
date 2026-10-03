@@ -8,6 +8,25 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Team life, wave 6a (AUDIT.md proposals 6-7)** — the `unrefute` MCP tool
+  (9th tool: targets a refute event ULID, lifts it per FORMAT.md §5.4's fold,
+  refuses a lineage id or a never-refuted target, `source: human` stays
+  MCP-unwritable); `masora doctor` — report-only health checks (config,
+  git identity, per-base clone health + origin match + read-only fetch, gh
+  auth as WARN-only, index existence + four-axis staleness, cppgraph graph
+  presence + freshness), exit 1 only on FAIL, all spawns under the M4
+  timeouts, nothing mutated; `masora reset <base-dir> --from-origin
+  [--yes]` — the refoundation acceptance move as plan-then-confirm (plan
+  exits 3), refuses a dirty tree and a missing origin/main, lists the
+  local-only commits it would discard, callable by NOTHING internal (the
+  never-automatic invariant), and neutral on refoundation-vs-attack by
+  design (tamper evidence intact); the refoundation runbook
+  (docs/REFOUNDATION.md) cross-linked from the E-REWRITE remedies, README
+  and ARCHITECTURE; new `E-RESET-*` diagnostics (two-way synced).
+  (+29 tests.)
+
 ### Changed
 
 - **Robustness/perf sweep (AUDIT.md wave 3)** — anchor fingerprints are

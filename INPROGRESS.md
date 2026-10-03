@@ -2,19 +2,33 @@
 
 ## Current phase
 
-**Working now:** nothing — Phase 3 (correctness sweep, AUDIT.md waves 1-2) is
-IMPLEMENTED (uncommitted): H2 sync --push preservation of committed excluded
-events, H3 search hardening (safe MATCH expression, bm25 ranking, 20-hit cap
-with omitted count), the publication gate (origin tombstones applied from the
-post-fetch origin/main; stale local mains neither resurrect nor brick), M10
-atomic event writes, M9 gc fetch + tombstone-remedy wording, M5 secret-scan
-field coverage, H1 "proof not replayed" honesty step, H4 `source: human`
-refused over MCP (E-MCP-HUMAN), the FORMAT/SPEC contract amendments (fixed
-`lines` ref set, code-only v1 anchors, M1 graph staleness meta split), and
-the M11 ULID skew policy documentation. Suite 779 green, ruff clean. Next:
-the orchestrator commits the wave; then Phase 4 (robustness/perf sweep) and
-the pre-registered evaluation. The owner-facing audit is in AUDIT.md
-(uncommitted).
+**Working now:** Phase 5 (evaluation, AUDIT.md wave 4) — the RUN of the
+pre-registered protocol (docs/EVALUATION.md). Seed-check done 2026-10-03:
+the base masora-mdb is now branched on this machine (setup from
+git@github.com:10gen/masora-mdb; fresh clone = post-refoundation main;
+`masora check` PASSED — the only warning is the known W-REPLAY), the index
+is rebuilt for ~/code/mongo (195 lineages / 309 versions; W-CTX-DEGRADED on
+114 — shallow clone, recorded not fixed), the cppgraph graph for mongo is
+fresh (source_commit = checkout HEAD), and the contamination check is clean
+(no masora trace in the checkout's or the global agent config). The corpus
+is bound: 20 tasks (16 grounded + 4 controls) → claim ULIDs, run order
+shuffled once (seed 20261003), all in the recording sheet at
+~/.local/share/masora/eval-2026-10-03/SHEET.md — OFF this public repo
+(private base content). Steps: [x] seed-check + binding; [ ] harness dry
+run (claude -p, stream-json, per-condition MCP configs); [ ] the 40-run
+batch in seeded order (owner-validated cost before launch); [ ] score
+(a)–(d), join conditions, apply the §6 verdict rule, archive the sheet.
+**The 40-run batch is EXECUTING in the background** (nohup,
+~/.local/share/masora/eval-2026-10-03/run_batch.sh, log batch.log, rows in
+runs.csv; harness validated by an unscored probe). Scoring happens after
+the last run. In parallel (different repo, zero interference — the eval
+uses the installed masora 0.7.0 snapshot):
+
+**Phase 6 (team life, AUDIT.md proposals 5-7), wave 6a in progress:**
+`unrefute` MCP tool, `masora doctor`, `reset --from-origin`
+(plan-then-confirm, never automatic) + the refoundation runbook doc.
+Wave 6b follows: SessionStart hook + auto re-index, per-author pending
+branch, tombstone-union tooling, CI check action. Nothing pushed.
 
 ## Context the next session needs
 

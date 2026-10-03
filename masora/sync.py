@@ -262,7 +262,8 @@ def _run_publish(
                         "error",
                         E_REWRITE,
                         f"event id {event_id} was rewritten: append-only history (FORMAT.md §7.9) — "
-                        f"content differs from the recorded history ({origin_events[event_id].path if event_id in origin_events else base_events[event_id].path})",
+                        f"content differs from the recorded history ({origin_events[event_id].path if event_id in origin_events else base_events[event_id].path});"
+                        " if the remote history was rewritten out-of-band, see docs/REFOUNDATION.md",
                         local_events[event_id].path,
                     )
                 )
@@ -640,7 +641,8 @@ def _deletion_diags(
             Diag(
                 "error",
                 E_REWRITE,
-                f"event id {event_id} was deleted: append-only history (FORMAT.md §7.9) — still present in origin/main at {origin_events[event_id].path}",
+                f"event id {event_id} was deleted: append-only history (FORMAT.md §7.9) — still present in origin/main at {origin_events[event_id].path};"
+                " if the remote history was rewritten out-of-band, see docs/REFOUNDATION.md",
                 origin_events[event_id].path,
             )
         )

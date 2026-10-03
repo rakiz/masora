@@ -164,6 +164,8 @@ sync with `masora/diagnostics.py` by `tests/test_docs.py`.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how the code maps onto the
   contract (canonicalization, fold, checker, sync).
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — diagnostic codes.
+- [docs/REFOUNDATION.md](docs/REFOUNDATION.md) — the runbook for accepting a
+  remote history rewrite (`masora reset --from-origin`, explicit confirmation only).
 - [docs/AGENT_INSTRUCTIONS.md](docs/AGENT_INSTRUCTIONS.md) — the rules an
   adopting project pastes into its AGENTS.md.
 - [docs/EVALUATION.md](docs/EVALUATION.md) — the pre-registered protocol for

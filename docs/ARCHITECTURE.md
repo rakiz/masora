@@ -754,8 +754,8 @@ and nothing on stdout, exit 1.
 The paste-ready rules block for an adopting project's `AGENTS.md` —
 MASORA_DESIGN.md §10.1's channel 3 (skill/AGENTS.md instructions), one of
 three injection channels and never the only mechanism (the cppgraph
-injection via `masora facts` above and the agent hooks under "Not built
-yet" below are the other two). The block directs the agent to:
+injection via `masora facts` and the agent hooks (`masora hook install`)
+are the other two). The block directs the agent to:
 
 - search the base before re-deriving an area's behaviour, and read a
   claim's status before trusting it: `verified(human)` trusted,
@@ -899,6 +899,26 @@ the stale-lineage count plus the worst staleness reason class — or nothing
 when fresh. Every exception is swallowed, exit 0 always: the hook must never
 block or fail a session start.
 
+The SAME install registers a SECOND hook for Claude Code, the
+UserPromptSubmit recall hook (`hook.user_prompt_submit` + the shipped
+`masora/hooks/user_prompt_submit.py`, Phase 2's primary recall channel):
+at every user prompt it resolves the base from the prompt's cwd
+(`auto_base`), opens the EXISTING index (missing/stale = silent skip —
+never a synchronous rebuild, the SessionStart hook owns those), FTSs the
+prompt over the content/questions/keywords union as an ANY-term query with
+the safe expression builder, and injects at most `PROMPT_MAX_CLAIMS`
+lines — `masora: <summary> [status, verification]`, a refuted lineage as
+the negative-knowledge `masora NOT:` form — inside the `PROMPT_TOKEN_BUDGET`
+envelope, all within the hard `PROMPT_BUDGET_S` wall-clock budget. Short
+prompts (below `PROMPT_MIN_CHARS`/`PROMPT_MIN_WORDS`) and matches below the
+`PROMPT_RANK_FLOOR` bm25 rank are skipped: search is lexical, false
+positives are the documented risk. Read-only and stateless (v1: no memory
+between prompts); every failure is silent, exit 0 always. The registration
+commands pin the interpreter `hook install` itself ran under (a bare
+`python3` may lack the package or hold a stale copy), and the shipped
+scripts re-exec once into a masora-capable interpreter when the registered
+one cannot import the package — still silently, exit 0.
+
 ## Union (`masora/union.py`, FORMAT.md §7.10)
 
 `masora union <base-dir>` resolves the ONE merge conflict a base actually
@@ -928,8 +948,7 @@ automatic install: `masora ci print` writes the packaged template to stdout
 
 All listed in TODO.md — statements below are facts, not plans in code:
 
-- Credential-shaped content rejection at `note`, `SessionStart` hook,
-  recheck/history MCP tools; the cppgraph side of the injection
+- The `recheck`/`history` MCP tools; the cppgraph side of the injection
   (its wire contract is implemented: `masora facts`, pinned in
   [docs/CPPGRAPH_INTEGRATION.md](CPPGRAPH_INTEGRATION.md)). (The
   MCP write path itself is built: `masora/mcp.py` + `masora/write.py` — the

@@ -10,6 +10,23 @@
 
 ### Added
 
+- **Phase 2: the UserPromptSubmit hook (the eval's fix-recall lever)** — at
+  every user prompt, masora resolves the base from the cwd, FTS-searches
+  the existing index (never built synchronously) and injects at most 3
+  claim lines with their trust-matrix labels BEFORE the agent picks any
+  tool: thresholds as named constants (min prompt 25 chars / 4 words, a
+  bm25 rank floor, ≤ 3 claims, ~100-token budget, a 2 s hard wall-clock),
+  lineage dedup, status preference (current/restored > stale), refuted
+  matches rendered as negative knowledge (`masora NOT: … [refuted]`),
+  silent failure always (exit 0, nothing printed), stateless v1, strictly
+  read-only. The hook registration pins the interpreter install ran under
+  and both shipped scripts carry a guarded re-exec bootstrap — a bare
+  `python3` registration silently never ran (found empirically, fixed for
+  BOTH hooks). `masora hook install` registers both claude hooks
+  idempotently and migrates the old-shape entry; opencode keeps the
+  snippet degradation. Verified end-to-end in a real claude session: the
+  model quoted an injected claim that exists only in the base. (+14 tests.)
+
 - **Facts contract v3 (the cppgraph implementer's friction, accepted)** —
   the shape is v2 PLUS: per-fact `anchor_leaf` (the short leaf of the first
   matched anchor, masora-derived — the rendering input for multi-symbol

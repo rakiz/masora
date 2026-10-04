@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""masora SessionStart freshness hook (MASORA_DESIGN.md §10.1).
+"""masora UserPromptSubmit recall hook (MASORA_DESIGN.md §10.1, channel 2).
 
 Installed by `masora hook install`; registered as a Claude Code
-SessionStart command (or spawned by an opencode plugin). Background and
-best-effort: fetches + fast-forwards the configured base clones, rebuilds
-stale indexes within the §10.1 wall-clock budget and prints at most ONE
-line — the stale-lineage summary. Every failure is silent, exit 0 always;
-the hook must never block or fail a session start.
+UserPromptSubmit command. Claude Code hands the prompt to stdin as JSON
+(`prompt`, `cwd`); stdout text on exit 0 becomes agent context. Read-only
+and best-effort: it searches the ALREADY-BUILT index for the 2-3 most
+relevant claims and prints them with their trust labels — never builds the
+index (the SessionStart hook owns rebuilds), never writes anything, never
+fails a prompt. Stateless v1: every prompt is searched on its own — no
+memory between prompts. Every failure is silent, exit 0 always.
 """
 
+import json
 import os
 import shutil
 import sys
@@ -20,7 +23,7 @@ def _reexec_if_needed() -> None:
     package — re-exec ONCE into an interpreter that has it, preferring the
     one behind the `masora` CLI (its shebang names the tool env). Still
     silent: no interpreter found means exit 0, never a traceback on the
-    session start."""
+    agent's prompt."""
     try:
         import masora  # noqa: F401
     except ModuleNotFoundError:
@@ -49,12 +52,28 @@ def _reexec_if_needed() -> None:
 _reexec_if_needed()
 
 try:
-    from masora.hook import session_start
+    from masora.hook import user_prompt_submit
 except Exception:  # noqa: BLE001 — a stale interpreter still stays silent, exit 0
 
-    def session_start():
+    def user_prompt_submit(*_args, **_kwargs):
+        return None
+
+
+def main() -> int:
+    try:
+        payload = json.loads(sys.stdin.read())
+        prompt = payload.get("prompt") if isinstance(payload, dict) else None
+        cwd = payload.get("cwd") if isinstance(payload, dict) else None
+        text = user_prompt_submit(
+            prompt if isinstance(prompt, str) else "",
+            Path(cwd) if isinstance(cwd, str) and cwd else Path.cwd(),
+        )
+        if text:
+            print(text)
+    except Exception:  # noqa: BLE001 — the hook must never fail a prompt
         return 0
+    return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(session_start())
+    raise SystemExit(main())

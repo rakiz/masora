@@ -894,9 +894,11 @@ is the §10.1 freshness automation: per configured base, fetch + `merge
 --ff-only` (NEVER force, NEVER rebase — a diverged clone is skipped silently,
 `masora doctor` reports clone health), then the indexes whose four-axis
 staleness says stale are rebuilt within the hard wall-clock budget
-(`REBUILD_BUDGET_S`, a named §10.1 cap), and at most ONE line is printed —
-the stale-lineage count plus the worst staleness reason class — or nothing
-when fresh. Every exception is swallowed, exit 0 always: the hook must never
+(`REBUILD_BUDGET_S`, a named §10.1 cap), and at most TWO lines are printed —
+the stale-lineage count plus the worst staleness reason class (only when
+something is stale) and the standing usage rule (`SESSION_USAGE_LINE`) — or
+just the usage rule when fresh, and nothing at all when nothing is
+configured. Every exception is swallowed, exit 0 always: the hook must never
 block or fail a session start.
 
 The SAME install registers a SECOND hook for Claude Code, the
@@ -907,13 +909,21 @@ at every user prompt it resolves the base from the prompt's cwd
 never a synchronous rebuild, the SessionStart hook owns those), FTSs the
 prompt over the content/questions/keywords union as an ANY-term query with
 the safe expression builder, and injects at most `PROMPT_MAX_CLAIMS`
-lines — `masora: <summary> [status, verification]`, a refuted lineage as
-the negative-knowledge `masora NOT:` form — inside the `PROMPT_TOKEN_BUDGET`
+lines — prefixed by the one-line usage rule (`PROMPT_USAGE_LINE`, the
+WITH-condition instruction; nothing matched prints nothing, usage line
+included) — as `masora: <summary> [status, verification]`, a refuted lineage
+as the negative-knowledge `masora NOT:` form — inside the
+`PROMPT_TOKEN_BUDGET`
 envelope, all within the hard `PROMPT_BUDGET_S` wall-clock budget. Short
 prompts (below `PROMPT_MIN_CHARS`/`PROMPT_MIN_WORDS`) and matches below the
 `PROMPT_RANK_FLOOR` bm25 rank are skipped: search is lexical, false
 positives are the documented risk. Read-only and stateless (v1: no memory
-between prompts); every failure is silent, exit 0 always. The registration
+between prompts); every failure is silent, exit 0 always. Delivery is
+stdout-on-exit-0 and is reliable (the eval 2026-10-03 post-mortem: the
+"missing from the transcript" symptom was claude's stream-json omitting the
+prompt-turn user message and UserPromptSubmit hook events without
+`--include-hook-events` — a transcript-visibility gap the batch runner
+closes, not a delivery failure). The registration
 commands pin the interpreter `hook install` itself ran under (a bare
 `python3` may lack the package or hold a stale copy), and the shipped
 scripts re-exec once into a masora-capable interpreter when the registered

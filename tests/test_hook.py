@@ -26,7 +26,14 @@ from helpers import (
 
 from masora.cli import main
 from masora.config import bases_root
-from masora.hook import prompt_script_text, script_text, session_start, user_prompt_submit
+from masora.hook import (
+    PROMPT_USAGE_LINE,
+    SESSION_USAGE_LINE,
+    prompt_script_text,
+    script_text,
+    session_start,
+    user_prompt_submit,
+)
 from masora.hook import run as hook_run
 from masora.index import build_index, index_stale
 
@@ -264,15 +271,15 @@ def test_hook_skips_a_diverged_base_silently(tmp_path, capsys):
     assert session_start() == 0
 
     # The pull is skipped silently (no force, no rebase) — but the hook still
-    # reports/rebuilds the clone's index staleness, in at most ONE line.
+    # reports/rebuilds the clone's index staleness, in at most TWO lines.
     assert git(base, "rev-parse", "HEAD") == diverged
     lines = [line for line in capsys.readouterr().out.splitlines() if line]
-    assert len(lines) <= 1
+    assert len(lines) <= 2
     for line in lines:
         assert line.startswith("masora: ")
 
 
-def test_hook_rebuilds_a_stale_index_and_prints_one_summary_line(tmp_path, capsys):
+def test_hook_rebuilds_a_stale_index_and_prints_two_lines(tmp_path, capsys):
     _home, _origin, base, code = base_scenario(tmp_path)
     # Move the CODE repo: the index's code-HEAD axis goes stale, and the
     # anchored file changed, so the rebuilt index reports the lineage stale.
@@ -285,9 +292,10 @@ def test_hook_rebuilds_a_stale_index_and_prints_one_summary_line(tmp_path, capsy
 
     out = capsys.readouterr().out
     lines = [line for line in out.splitlines() if line]
-    assert len(lines) == 1
+    assert len(lines) == 2
     assert lines[0].startswith("masora: ")
     assert "stale lineage(s)" in lines[0]
+    assert lines[1] == SESSION_USAGE_LINE
     assert index_stale(index_db(base, code), base, code) is False
 
 
@@ -297,11 +305,28 @@ def index_db(base: Path, code: Path) -> Path:
     return index_db_path(base, code)
 
 
-def test_hook_prints_nothing_when_fresh(tmp_path, capsys):
+def test_hook_fresh_prints_only_the_standing_usage_line(tmp_path, capsys):
     base_scenario(tmp_path)
 
     assert session_start() == 0
-    assert capsys.readouterr().out == ""
+    # Everything fresh: no stale summary, but the STANDING usage rule still
+    # ships (the one line the prompt hook deliberately never nags with).
+    assert capsys.readouterr().out == f"{SESSION_USAGE_LINE}\n"
+
+
+def test_session_start_usage_lines_are_pinned():
+    """The usage lines are part of the WITH condition (docs/EVALUATION.md
+    amendment 2026-10-04) — the wording is pinned, not tweaked locally."""
+    assert SESSION_USAGE_LINE == (
+        "masora: recall recorded knowledge with the masora search / explain MCP"
+        ' tools before investigating "what happens when X" questions.'
+    )
+    assert SESSION_USAGE_LINE.count("\n") == 0
+    assert PROMPT_USAGE_LINE == (
+        "masora: recalled knowledge for this prompt — search/explain go deeper"
+        " (the masora MCP tools); cppgraph owns code structure."
+    )
+    assert PROMPT_USAGE_LINE.count("\n") == 0
 
 
 def test_hook_silent_failure_garbage_config(tmp_path, capsys):
@@ -430,10 +455,57 @@ def test_prompt_hook_selects_matching_claims_with_labels(tmp_path):
 
     assert text is not None
     lines = text.splitlines()
-    assert len(lines) == 2
-    assert all(line.startswith("masora: ") for line in lines)
+    assert len(lines) == 3
+    # The WITH-condition usage line prefixes the claims (the amendment's
+    # instruction ships WITH the recalled knowledge); the claims follow,
+    # one per lineage.
+    assert lines[0] == PROMPT_USAGE_LINE
+    assert all(line.startswith("masora: ") for line in lines[1:])
     # statuses are LABELS: unverified renders silently (its absence is not
     # evidence), the unanchored flag is a plain label
+    assert f"masora: {LONG_A} [current, unanchored]" in lines
+    assert f"masora: {LONG_B} [current, unanchored]" in lines
+
+
+def test_prompt_hook_no_match_prints_nothing_including_no_usage_line(tmp_path):
+    """Nothing matched (or the hook skipped) → NOTHING prints: the prompt
+    hook never nags — the standing usage rule belongs to SessionStart."""
+    code = prompt_scenario(tmp_path, unanchored_claim(ULID_L1, LONG_A))
+
+    assert user_prompt_submit("zorblax quuxel frobnicated wibblesnaps overgremlined?", code) is None
+    assert user_prompt_submit("continue", code) is None
+
+
+def test_prompt_shipped_script_delivers_usage_line_and_claims_on_stdout(tmp_path):
+    """Delivery regression pin (eval 2026-10-03): the hook's delivery channel
+    is STDOUT ON EXIT 0 — the exact channel proven to reach the model (the
+    injected text lands in the UserPromptSubmit hook_response, and claude
+    hands it to the agent; the runner-side defect was transcript visibility,
+    fixed by --include-hook-events, not delivery). The INSTALLED script, fed
+    the real stdin payload against a built index, emits the usage line plus
+    the claims on stdout and nothing on stderr, exit 0."""
+    code = prompt_scenario(
+        tmp_path,
+        unanchored_claim(ULID_L1, LONG_A),
+        unanchored_claim(ULID_L2, LONG_B),
+    )
+    script = tmp_path / "installed.py"
+    script.write_text(prompt_script_text(), encoding="utf-8")
+    home = Path(os.environ["MASORA_HOME"])
+    env = dict(os.environ, MASORA_HOME=str(home))
+    proc = subprocess.run(
+        [sys.executable, str(script)],
+        input=json.dumps({"prompt": PROMPT, "cwd": str(code)}),
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert proc.returncode == 0
+    assert proc.stderr == ""
+    lines = proc.stdout.splitlines()
+    assert len(lines) == 3
+    assert lines[0] == PROMPT_USAGE_LINE
     assert f"masora: {LONG_A} [current, unanchored]" in lines
     assert f"masora: {LONG_B} [current, unanchored]" in lines
 
@@ -450,7 +522,7 @@ def test_prompt_hook_verified_label_renders_the_source(tmp_path):
 
     text = user_prompt_submit(PROMPT, code)
 
-    assert text == f"masora: {LONG_A} [current, unanchored, verified(human)]"
+    assert text == f"{PROMPT_USAGE_LINE}\nmasora: {LONG_A} [current, unanchored, verified(human)]"
 
 
 def test_prompt_hook_dedups_by_lineage(tmp_path):
@@ -465,8 +537,8 @@ def test_prompt_hook_dedups_by_lineage(tmp_path):
     text = user_prompt_submit(PROMPT, code)
 
     assert text is not None
-    assert text.startswith("masora: ")
-    assert len(text.splitlines()) == 1
+    assert text.startswith(PROMPT_USAGE_LINE)
+    assert len(text.splitlines()) == 2
 
 
 def test_prompt_hook_short_prompt_is_skipped(tmp_path):
@@ -494,7 +566,7 @@ def test_prompt_hook_refuted_renders_the_not_line(tmp_path):
 
     text = user_prompt_submit(PROMPT, code)
 
-    assert text == f"masora NOT: {LONG_A} [refuted]"
+    assert text == f"{PROMPT_USAGE_LINE}\nmasora NOT: {LONG_A} [refuted]"
 
 
 def test_prompt_hook_caps_at_three_lines_and_names_the_caps(tmp_path):
@@ -518,7 +590,10 @@ def test_prompt_hook_caps_at_three_lines_and_names_the_caps(tmp_path):
     text = user_prompt_submit(PROMPT, code)
 
     assert text is not None
-    assert len(text.splitlines()) <= 3
+    lines = text.splitlines()
+    # usage line + at most PROMPT_MAX_CLAIMS claim lines
+    assert len(lines) <= 1 + hook_mod.PROMPT_MAX_CLAIMS
+    assert lines[0] == PROMPT_USAGE_LINE
 
 
 def test_prompt_hook_silent_failure_on_missing_index(tmp_path):

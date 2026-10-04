@@ -43,10 +43,14 @@ injection, §10.1 channel 2).
    source doctor uses): the four-axis `index_stale_reason` decides a
    rebuild, bounded by `REBUILD_BUDGET_S` — a hard wall-clock budget, one of
    the named §10.1 caps (the constants carry the §10.1 pointer).
-3. Output: AT MOST one line — `masora: <n> stale lineage(s), worst reason:
-   <class>` — or nothing when fresh. The count is read AFTER the (optional)
-   rebuild; the worst reason class ranks the four staleness axes
-   graph > code HEAD > base HEAD > uncommitted writes.
+3. Output: AT MOST two lines — the stale summary `masora: <n> stale
+   lineage(s), worst reason: <class>` (only when something is stale) plus
+   the standing usage rule (`SESSION_USAGE_LINE`, the AGENT_INSTRUCTIONS.md
+   "search before investigating" ritual) whenever any base is configured —
+   the one line the prompt hook deliberately never nags with. Nothing
+   configured (no/garbage config) prints NOTHING. The count is read AFTER
+   the (optional) rebuild; the worst reason class ranks the four staleness
+   axes graph > code HEAD > base HEAD > uncommitted writes.
 
 ## Invariants
 
@@ -54,7 +58,7 @@ injection, §10.1 channel 2).
   per-base/per-index exception swallowed; even the final print is guarded.
 - The hook runs in the background at session start: it must never block a
   session, never prompt (all spawns through `sync.run_git`/`git_env` with
-  timeouts), never print more than one line.
+  timeouts), never print more than two lines (the summary + the usage rule).
 - The hook NEVER mutates git history: fetch + ff-only merge only — a
   diverged clone waits for a human (or `masora doctor`'s remedies).
 
@@ -85,10 +89,23 @@ consulted).
   better status first (current/restored > stale > none), best rank within
   a status; the `PROMPT_TOKEN_BUDGET` (100) envelope wins over the count
   but at least one claim renders whenever any matched.
-- Rendering: statuses are LABELS per the §6 trust matrix —
-  `masora: <summary> [status, verification, flags…]`, a refuted lineage as
-  the negative-knowledge `masora NOT: <summary> [refuted]`, `unverified`
-  rendered silently (its absence is not evidence).
+- Rendering: the block is prefixed by the one-line usage rule
+  (`PROMPT_USAGE_LINE` — the WITH-condition instruction, docs/EVALUATION.md
+  amendment 2026-10-04); claim lines render statuses as LABELS per the §6
+  trust matrix — `masora: <summary> [status, verification, flags…]`, a
+  refuted lineage as the negative-knowledge `masora NOT: <summary>
+  [refuted]`, `unverified` rendered silently (its absence is not evidence).
+  Nothing matched → NOTHING prints, usage line included: the standing
+  instruction belongs to the SessionStart summary, not to every prompt.
+- Delivery (eval 2026-10-03 post-mortem): the channel is STDOUT ON EXIT 0,
+  and it is reliable — the injected text lands in the UserPromptSubmit
+  `hook_response` and reaches the model, interactive or not. The eval's
+  "claims missing from the transcript" symptom was TRANSCRIPT VISIBILITY,
+  not delivery: claude 2.1.274's `-p --output-format stream-json` omits the
+  prompt-turn user message and the UserPromptSubmit hook lifecycle events
+  unless `--include-hook-events` is passed — the batch runner carries that
+  flag now (probe evidence: the claims appear in the hook_response under the
+  exact runner invocation shape, with or without it they reach the model).
 - Budget: `PROMPT_BUDGET_S` (2.0) on the whole hook — exceeded means print
   nothing.
 - Invariants: SILENT FAILURE (any exception → nothing printed, exit 0),

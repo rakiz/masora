@@ -5,7 +5,9 @@ Installed by `masora hook install`; registered as a Claude Code
 UserPromptSubmit command. Claude Code hands the prompt to stdin as JSON
 (`prompt`, `cwd`); stdout text on exit 0 becomes agent context. Read-only
 and best-effort: it searches the ALREADY-BUILT index for the 2-3 most
-relevant claims and prints them with their trust labels — never builds the
+relevant claims and prints them — prefixed by the one-line usage rule —
+with their trust labels; nothing at all prints when nothing matches.
+Never builds the
 index (the SessionStart hook owns rebuilds), never writes anything, never
 fails a prompt. Stateless v1: every prompt is searched on its own — no
 memory between prompts. Every failure is silent, exit 0 always.

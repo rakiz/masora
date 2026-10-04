@@ -4,9 +4,10 @@
 Installed by `masora hook install`; registered as a Claude Code
 SessionStart command (or spawned by an opencode plugin). Background and
 best-effort: fetches + fast-forwards the configured base clones, rebuilds
-stale indexes within the §10.1 wall-clock budget and prints at most ONE
-line — the stale-lineage summary. Every failure is silent, exit 0 always;
-the hook must never block or fail a session start.
+stale indexes within the §10.1 wall-clock budget and prints at most TWO
+lines — the stale-lineage summary plus the standing usage rule. Every
+failure is silent, exit 0 always; the hook must never block or fail a
+session start.
 """
 
 import os

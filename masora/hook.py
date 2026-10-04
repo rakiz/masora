@@ -5,7 +5,8 @@ Two hooks share the install machinery and the silent-failure discipline:
 - **SessionStart** (`session_start`): freshness automation for AUDIT.md's
   operational risk 1 ("silent recall decay") — background fetch + ff-only
   merge of each configured base clone, rebuild of stale indexes within a
-  hard wall-clock budget, at most ONE line of output.
+  hard wall-clock budget, at most TWO lines of output (the stale summary
+  plus the standing usage rule).
 - **UserPromptSubmit** (`user_prompt_submit`, Phase 2's primary recall
   channel — the pre-registered evaluation showed the other channels barely
   engage): at every user prompt, FTS the prompt over the already-built
@@ -29,8 +30,10 @@ session):
    is skipped silently, reporting it is `masora doctor`'s job),
 2. rebuilds the indexes whose four-axis staleness says stale, bounded by a
    hard wall-clock budget (the caps below),
-3. prints ONE line — the stale-lineage summary (count + the worst staleness
-   reason class) — or nothing at all when everything is fresh.
+3. prints at most TWO lines — the stale-lineage summary (count + the worst
+   staleness reason class) plus the standing usage rule — or just the usage
+   rule when everything is fresh, and nothing at all when nothing is
+   configured.
 
 Installation (`masora hook install`) reuses the skill-install pattern: the
 hook scripts ship inside the package (`masora/hooks/`, one canonical copy
@@ -246,25 +249,34 @@ def _print_manual_snippet(
 
 
 def session_start() -> int:
-    """The hook entry point: NEVER raises, ALWAYS exits 0, at most one line
-    on stdout. Every per-base failure is swallowed — a broken base must cost
-    the session nothing (the hook is best-effort by §10.1)."""
+    """The hook entry point: NEVER raises, ALWAYS exits 0, at most two lines
+    on stdout (the stale summary + the standing usage rule). Every per-base
+    failure is swallowed — a broken base must cost the session nothing (the
+    hook is best-effort by §10.1)."""
     try:
-        _summary = _run_quiet()
+        summary, configured = _run_quiet()
     except Exception:  # noqa: BLE001 — the hook must never fail a session start
         return 0
-    if _summary is not None:
+    # Two lines max: the stale-lineage summary (only when something is
+    # stale) and the standing usage rule (whenever masora is configured —
+    # this is the standing line the prompt hook deliberately never nags
+    # with). Nothing configured (no/garbage config) prints NOTHING.
+    lines = [line for line in (summary, SESSION_USAGE_LINE if configured else None) if line]
+    for line in lines:
         try:
-            print(_summary)
+            print(line)
         except Exception:  # noqa: BLE001, S110 — even a broken stdout is silent
             pass
     return 0
 
 
-def _run_quiet() -> str | None:
+def _run_quiet() -> tuple[str | None, bool]:
+    """The (stale summary, bases-configured) pair — the summary is None when
+    every index is fresh; `configured` is False only when no base resolves
+    (no config, garbage config, no matching base dir)."""
     bases = _configured_bases()
     if not bases:
-        return None
+        return None, False
     deadline = time.monotonic() + REBUILD_BUDGET_S
     stale_total = 0
     worst: str | None = None
@@ -288,8 +300,11 @@ def _run_quiet() -> str | None:
             except Exception:  # noqa: BLE001, S112 — same silence per index job
                 continue
     if stale_total == 0 and worst is None:
-        return None
-    return f"masora: {stale_total} stale lineage(s)" + (f", worst reason: {worst}" if worst else "")
+        return None, True
+    return (
+        f"masora: {stale_total} stale lineage(s)" + (f", worst reason: {worst}" if worst else ""),
+        True,
+    )
 
 
 def _configured_bases() -> list[Path]:
@@ -392,6 +407,23 @@ PROMPT_MAX_CLAIMS = 3
 PROMPT_TOKEN_BUDGET = 100
 PROMPT_RANK_FLOOR = -0.5
 
+# The WITH-condition usage lines (docs/EVALUATION.md amendment 2026-10-04):
+# the recalled claims ship WITH the instruction that makes the deeper
+# channels engage. At prompt time, when claims inject, the block is prefixed
+# by ONE line; when nothing matches nothing prints (no nagging — the
+# SessionStart hook carries the standing line instead). The SessionStart
+# summary is at most TWO lines: the stale summary plus the standing usage
+# rule (docs/AGENT_INSTRUCTIONS.md). Changing the wording is an evaluation-
+# protocol decision, not a local tweak — the tests pin both lines.
+PROMPT_USAGE_LINE = (
+    "masora: recalled knowledge for this prompt — search/explain go deeper"
+    " (the masora MCP tools); cppgraph owns code structure."
+)
+SESSION_USAGE_LINE = (
+    "masora: recall recorded knowledge with the masora search / explain MCP"
+    ' tools before investigating "what happens when X" questions.'
+)
+
 # Better status first when selecting the top claims (current knowledge
 # before stale; a strongly-matching refuted lineage is negative knowledge —
 # still worth injecting, but only when no current claim fills the cap).
@@ -420,9 +452,15 @@ def user_prompt_submit(prompt: str, cwd: Path) -> str | None:
     if len(prompt) < PROMPT_MIN_CHARS or len(prompt.split()) < PROMPT_MIN_WORDS:
         return None
     try:
-        return _prompt_injection(prompt, cwd)
+        claims = _prompt_injection(prompt, cwd)
     except Exception:  # noqa: BLE001 — the hook must never fail a prompt
         return None
+    # The usage line rides ONLY with actual claims: nothing matched (or the
+    # hook skipped) prints nothing — the standing instruction belongs to the
+    # SessionStart summary, not to every prompt.
+    if claims is None:
+        return None
+    return f"{PROMPT_USAGE_LINE}\n{claims}"
 
 
 def _prompt_injection(prompt: str, cwd: Path) -> str | None:

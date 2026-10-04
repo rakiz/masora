@@ -1,5 +1,20 @@
 # Evaluation protocol (pre-registered)
 
+> **Amendment 2026-10-04 (recorded before the next run; prior numbers
+> void).** Three scored batches showed that the untaught channels do not
+> engage: 0 masora tool calls across 60 WITH runs, one claim delivered via
+> the cppgraph channel, one via the prompt hook — while the REAL rollout
+> ships the usage instructions (docs/AGENT_INSTRUCTIONS.md, the skill).
+> The neutral-prompt rule measured a configuration that never ships. It is
+> amended to: the task prompt stays neutral (it never mentions Masora, the
+> base, or the evaluation), but the masora-delivered context — the recalled
+> claims AND the one-line usage instruction carried by the masora hooks —
+> is part of the WITH condition by design. The WITH condition now models
+> the real deployment. Per the voiding rule above: every number scored
+> under the previous rule (batches #1-4) is DISCARDED — the sheet keeps
+> them as instrument history, no verdict stands; the next full batch
+> (same seed, same corpus, same rubric) computes THE verdict.
+
 This document is written **before** any evaluation run is executed. A
 protocol amended after seeing results is void: if a rule here changes, the
 change is recorded in this file *and* every number scored under the old rule

@@ -448,8 +448,8 @@ Tasks:
   FORMAT.md, MASORA_DESIGN.md §12, docs/ARCHITECTURE.md, tests/test_gc.py,
   tests/test_sync.py, tests/test_docs.py.
 - [x] The opencode slash command shipped with the skill (rollout friction, second machine: opencode never surfaces an installed skill as a typed /command — only Claude Code does, so nothing masora shipped gave an opencode user a real /masora). → new packaged template `masora/skills/masora/COMMAND.md` (frontmatter + `!`-injected `masora $ARGUMENTS` + an interpret-the-output body that applies the masora skill's rules), `masora skill install` writes it to `~/.config/opencode/commands/masora.md` when the opencode home is detected (same overwrite-as-update policy; Claude Code homes get NO command file — the skill already surfaces as a slash command there and a same-named command would shadow it), `masora skill print` stays skill-only, CLI help + README install story carry one clause each. Tests: `test_skill.py` (command file installed == packaged, absent without the marker home, absent with no homes).
-- [ ] First rollout: create the base on the author's `employees/` dir + Confluence install page (install, `masora setup --base <url>`, usage); migration to a dedicated repo if adopted.
-- [ ] Agent-graded evaluation of the phase objective — the protocol is
+- [x] First rollout: create the base on the author's `employees/` dir + Confluence install page (install, `masora setup --base <url>`, usage); migration to a dedicated repo if adopted. → DONE 2026-10-05: the base lives at 10gen/masora-mdb (the dedicated repo), the refoundation shipped it; the colleague sharing is the owner's move (onboarding = README + skill + hook install).
+- [x] Agent-graded evaluation of the phase objective — the protocol is
   WRITTEN (docs/EVALUATION.md, pre-registered: paired A/B over ~20 tasks —
   8 templates grounded in the rollout base's recorded summaries + ≥ 4
   control tasks to detect false help; the repeated-wrong-deduction rubric
@@ -457,9 +457,13 @@ Tasks:
   injected-token accounting; seed-check, randomized task × condition order,
   the recording sheet; the verdict rule: strictly fewer repeated wrong
   deductions AND no token-cost regression beyond the injected tokens — the
-  numbers decide adoption). REMAINS: the RUN — bind the task list to the
-  real recorded summaries at the seed-check, execute the batch, fill the
-  sheet, apply the verdict rule.
+  numbers decide adoption). → THE RUN happened 2026-10-03/04: FIVE scored
+  batches (one voided, the dead cppgraph channel; the Mac's stale June
+  checkout discovered; the final batch on the workstation against master:
+  0 wrong deductions on BOTH sides — saturation —, WITH making 9.5% fewer
+  tool calls, tokens +0.84% — the per-turn hint repetition). Verdict FAIL
+  per the letter; the delivery PROVEN end to end; the record in the local
+  sheet (off-repo).
 
 Clarifications to settle as each task starts (final audit 2026-09-25):
 
@@ -485,13 +489,17 @@ Out of scope:
 Deferred — a spec seed recorded on 2026-09-29; reopen when non-code knowledge
 is wanted, without cppgraph.
 
-- [ ] Agent hooks (an injection channel without cppgraph):
+- [x] Agent hooks (an injection channel without cppgraph):
   - `SessionStart`: background pull of the base with silent failure, plus a summary of stale lineages;
   - `UserPromptSubmit`: FTS over the prompt, injection of 2-3 claims;
   - strict caps (summary ≈ 100 tokens, 2-3 claims per prompt);
   - FTS thresholds (minimum prompt length, minimum score — search is lexical, false positives are a risk);
   - injected-token accounting in the evaluation protocol;
   - purpose = non-code knowledge, without cppgraph.
+  → DONE 2026-10-04/05: the SessionStart hook shipped in Phase 6's wave 6b,
+  the UserPromptSubmit hook in the eval's fix-recall round (both claude-native,
+  opencode = the snippet degradation; thresholds/caps/budgets as §10.1
+  constants; verified end to end in real sessions).
 
 - [ ] Symbol-addressed search fallback: exercise the base via CLI/MCP `search` by symbol on machines without cppgraph (the anchors table exists; the FTS covers summary + statement only).
 

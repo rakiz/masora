@@ -311,7 +311,7 @@ lineage: "01J8Z3K…"
 kind: doubt
 targets: "01JB1R…"             # a .verify event ULID (disagreement with that verification)
 source: human                  # unified provenance, like every event
-name: "Sebastien"              # optional: the git user.name when human
+name: "the author"             # optional: the git user.name when human
 recorded_at:
   commit: "<40hex>"
   graph_commit: "<40hex>"

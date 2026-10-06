@@ -240,7 +240,7 @@ def test_handshake_tools_list_shape(server):
     assert schemas["undoubt"]["required"] == ["id", "reason", "repo_root"]
     assert schemas["refute"]["required"] == ["id", "reason", "repo_root"]
     assert schemas["unrefute"]["required"] == ["id", "reason", "repo_root"]
-    assert schemas["search"]["required"] == ["query"]
+    assert schemas["search"]["required"] == []
     assert schemas["list_stale"]["required"] == []
     assert all(schema["additionalProperties"] is False for schema in schemas.values())
 
@@ -1048,6 +1048,73 @@ def test_search_auto_builds_and_renders_statuses(server, code_repo, base):
     assert text.splitlines()[0] == "1 match(es) in 1 lineage(s)"
     assert "[current unverified flags: -]" in text.splitlines()[1]
     assert index_db_path(base, repo).is_file()
+
+
+def test_search_symbol_finds_anchored_claims(server, code_repo, base):
+    """The symbol fallback: exact identity, then a name fragment, no cppgraph."""
+    repo, _head = code_repo
+    server.ready()
+    server.tool("note", note_args(repo, base))
+    text, is_error = server.tool(
+        "search", {"symbol": SYM_A, "repo_root": str(repo), "base": str(base)}
+    )
+    assert is_error is False
+    assert text.splitlines()[0] == "1 match(es) in 1 lineage(s)"
+    assert "[current unverified flags: -]" in text.splitlines()[1]
+    assert text.splitlines()[-1].startswith("details: masora explain ")
+    fragment, is_error = server.tool(
+        "search", {"symbol": "Engine#start", "repo_root": str(repo), "base": str(base)}
+    )
+    assert is_error is False
+    assert fragment == text
+
+
+def test_search_symbol_no_match_is_the_empty_shape(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+    server.tool("note", note_args(repo, base))
+    text, is_error = server.tool(
+        "search",
+        {
+            "symbol": "scip-clang cxx . . nope#gone().",
+            "repo_root": str(repo),
+            "base": str(base),
+        },
+    )
+    assert is_error is False
+    assert text.endswith("no results")
+
+
+def test_search_symbol_shared_by_several_lineages_yields_several_hits(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+    server.tool("note", note_args(repo, base))
+    server.tool(
+        "note",
+        note_args(repo, base, summary="Second lineage on the same symbol"),
+    )
+    text, is_error = server.tool(
+        "search", {"symbol": SYM_A, "repo_root": str(repo), "base": str(base)}
+    )
+    assert is_error is False
+    assert text.splitlines()[0] == "2 match(es) in 2 lineage(s)"
+
+
+def test_search_symbol_schema_and_argument_gate(server, code_repo, base):
+    repo, _head = code_repo
+    server.ready()
+    listing = server.request("tools/list")
+    search = next(tool for tool in listing["result"]["tools"] if tool["name"] == "search")
+    assert "symbol" in search["inputSchema"]["properties"]
+    both, is_error = server.tool(
+        "search",
+        {"query": "bring", "symbol": SYM_A, "repo_root": str(repo), "base": str(base)},
+    )
+    assert is_error is True
+    assert "mutually exclusive" in both
+    neither, is_error = server.tool("search", {"repo_root": str(repo), "base": str(base)})
+    assert is_error is True
+    assert "is required" in neither
 
 
 def test_search_surfaces_staleness_without_rebuilding(server, code_repo, base):

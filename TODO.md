@@ -113,6 +113,34 @@ the wave; commit at the wave boundary, nothing pushed.
   ancestry or recency-first with an old-lineage floor), real structural
   replay scoped to the cppgraph integration, `history`/`recheck` tools.
 
+### Phase 7: recall hygiene (owner-seeded 2026-10-06)
+
+- [x] Keywords nudge in `explain`: `keywords` stays OPTIONAL (FORMAT.md §4 —
+  validity, not optimality; the no-fill design ruling stands), but `explain`
+  renders, for a claim with none, the factual line
+  `keywords: none (optional — add alternate vocabulary via a new claim
+  version if this claim would benefit from it)` — so backfill happens
+  continuously by the agents already touching the claim (a new claim
+  version), instead of a bulk pass. DECIDED 2026-10-06 (owner): the nudge
+  lives in `explain` ONLY (not search hits — token noise on every hit, the
+  eval's +0.84% lesson); no `check` warning for now (revisit if the rollout
+  stats show the nudge is not enough). Motivation: a keywords-less claim is
+  valid but potentially unfindable via FTS.
+- [x] Hint dedup in the UserPromptSubmit hook: the hook re-injects its hint
+  on EVERY turn (~100 tokens × N turns, the eval's +0.84%). The hook is
+  stateless per invocation but receives `session_id` in its stdin JSON:
+  keep a per-session state file (~/.local/share/masora/, hash of the last
+  injected hint) — inject on the session's first prompt and when the hint
+  CONTENT changed (fresh pull, new stale lineages), emit nothing otherwise.
+  Surface: masora/hook.py + tests; §10.1 caps unchanged.
+- [x] Symbol-addressed search fallback: `masora search` finds claims by an
+  anchored symbol's name WITHOUT cppgraph (the anchors table already sits
+  in the index; today FTS covers content + questions + keywords only).
+  DECIDED 2026-10-06 (owner): explicit syntax first (`--symbol <name>` /
+  `sym:<name>` — predictable, zero false positives), heuristic auto-detection
+  only if the need shows up. CLI + MCP, tests; cppgraph stays the primary
+  channel — this covers machines without the graph (the rollout machines).
+
 (The merge-base-relative deletion-detection bug ticket that lived here is
 absorbed into Phase 3.)
 

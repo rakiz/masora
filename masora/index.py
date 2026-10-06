@@ -184,6 +184,11 @@ def _hit_from_row(
 # treats as syntax (quotes, parens, `*`, `:`, `^`, `-`, `+`, …) is dropped.
 _TERM_RE = re.compile(r"\w+", re.UNICODE)
 
+# LIKE escaping for the symbol-identity substring fallback: a user-typed
+# fragment containing `\`, `%` or `_` must match literally, never as a
+# wildcard (the same translation the cppgraph provider's ref resolver uses).
+_LIKE_ESCAPES = str.maketrans({"\\": "\\\\", "%": "\\%", "_": "\\_"})
+
 # Maximum number of terms taken from one user query (a wall of text becomes a
 # giant AND — every term matching nothing kills the whole query).
 MAX_QUERY_TERMS = 16
@@ -307,6 +312,68 @@ def search_index_capped(
         conn.close()
     ranked = sorted(hits.values(), key=lambda h: (h.rank, h.lineage, h.version))
     return ranked[:SEARCH_CAP], len(ranked)
+
+
+def search_symbol_capped(
+    db: Path, symbol: str, any_version: bool = False
+) -> tuple[list[SearchHit], int]:
+    """Find the claims anchored to a symbol name — the no-cppgraph fallback.
+
+    Matches the anchors table's `identity` column (for the `code` provider the
+    exact SCIP symbol string an anchor recorded at write time): the exact
+    string first, a substring (LIKE `%…%`) fallback when nothing matches
+    exactly — a name fragment finds the full identity. The matched versions'
+    hits render exactly like FTS hits (same `SearchHit`, same result filter):
+    the DEFAULT mode keeps each lineage's effective version, `any_version`
+    keeps every active version and never returns refuted ones. Pure index
+    SQL — no graph store, no event-file reads. An unknown symbol is no
+    matches, never an error; a blank name matches nothing. Returns
+    `(hits, total_matches)` capped at `SEARCH_CAP` like the FTS path.
+    """
+    if not symbol.strip():
+        return [], 0
+    if not db.is_file():
+        raise IndexingError(
+            Diag("error", E_IDX_NOINDEX, f"no index at {db} — build it with masora index")
+        )
+    conn = _open_index(db)
+    try:
+        versions = [
+            r[0]
+            for r in conn.execute(
+                "SELECT DISTINCT version FROM anchors WHERE identity = ? ORDER BY version",
+                (symbol,),
+            ).fetchall()
+        ]
+        if not versions:
+            like = "%" + symbol.translate(_LIKE_ESCAPES) + "%"
+            versions = [
+                r[0]
+                for r in conn.execute(
+                    "SELECT DISTINCT version FROM anchors WHERE identity LIKE ? ESCAPE '\\'"
+                    " ORDER BY version",
+                    (like,),
+                ).fetchall()
+            ]
+        hits: dict[str, SearchHit] = {}
+        for version in versions:
+            row = conn.execute(CONTENT_BY_VERSION_SQL, (version,)).fetchone()
+            if row is not None:
+                hits[version] = _hit_from_row(row, ())
+        if any_version:
+            hits = {v: h for v, h in hits.items() if not h.refuted}
+        else:
+            effective = dict(conn.execute(EFFECTIVE_SQL).fetchall())
+            hits = {v: h for v, h in hits.items() if h.version == effective.get(h.lineage)}
+    finally:
+        conn.close()
+    ranked = sorted(hits.values(), key=lambda h: (h.lineage, h.version))
+    return ranked[:SEARCH_CAP], len(ranked)
+
+
+def search_symbol(db: Path, symbol: str, any_version: bool = False) -> list[SearchHit]:
+    """The uncapped-common-case alias of `search_symbol_capped` (like `search_index`)."""
+    return search_symbol_capped(db, symbol, any_version)[0]
 
 
 class IndexingError(Exception):

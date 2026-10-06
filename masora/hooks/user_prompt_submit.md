@@ -7,11 +7,20 @@ tested).
 
 ## Contract
 
-- stdin: Claude Code's JSON payload (`prompt`, `cwd`); stdout text on exit
-  0 becomes agent context — here, the recalled claim lines from
-  `masora.hook.user_prompt_submit` (see masora/hook.md).
+- stdin: Claude Code's JSON payload (`prompt`, `cwd`, `session_id`);
+  stdout text on exit 0 becomes agent context — here, the recalled claim
+  lines from `masora.hook.user_prompt_submit` (see masora/hook.md).
 - Garbage stdin (not JSON, not an object, missing fields) degrades to an
   empty prompt / cwd default — the hook still exits 0 silently.
+- Per-session dedup: with a string `session_id` in the payload, the hint
+  is injected on the session's first prompt and again only when its
+  content changed; an identical hint on a later turn prints nothing. The
+  state is a small per-session file (sha256 of the last injected hint,
+  under `<MASORA_HOME or ~/.local/share>/masora/hook-state/`) and is
+  BEST-EFFORT, FAIL-OPEN: any error reading or writing it defaults to
+  injecting — the dedup never turns into silence, never fails the prompt.
+  There is deliberately NO cleanup of stale session state files (they are
+  cheap, sessions are finite); details in masora/hook.md.
 
 ## The re-exec bootstrap (`_reexec_if_needed`)
 

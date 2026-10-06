@@ -6,6 +6,32 @@
       the current state only (release-notes style); the history of how the
       project got there lives between released versions. -->
 
+## [Unreleased]
+
+### Added
+
+- **Phase 7: recall hygiene** (three owner-ordered items from the eval's
+  lessons):
+  - **Keywords nudge in `explain`** — a claim whose effective version has
+    no `keywords` renders one factual line inviting an optional backfill
+    (a new claim version); claims with keywords and non-claim targets are
+    unchanged. `keywords` stays optional (FORMAT.md §4); no `check`
+    warning. (+4 tests.)
+  - **Hint dedup in the UserPromptSubmit hook** — the hook injects on the
+    session's first prompt and re-injects only when the hint content
+    changed (per-session state file: sha256 of the last injected hint,
+    keyed by `session_id`); identical repeats emit nothing. Fail-open
+    always (any state error → inject), no state cleanup, §10.1 caps
+    unchanged. Removes the eval's per-turn hint repetition (+0.84%
+    tokens). (+6 tests.)
+  - **Symbol-addressed search fallback** — `masora search --symbol <name>`
+    (CLI) and the search tool's `symbol` field (MCP) find claims by an
+    anchored symbol's identity (exact, then escaped-substring fallback)
+    straight from the index's anchors table — pure SQL, no cppgraph
+    needed; hits render exactly like FTS hits (cap, omitted count,
+    `details:` footer). For machines without the graph; cppgraph stays
+    the primary channel. (+8 tests.)
+
 ## 0.8.0 — 2026-10-05
 
 ### Added

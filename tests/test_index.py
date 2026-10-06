@@ -42,6 +42,8 @@ from masora.index import (
     index_stale_reason,
     search_index,
     search_index_capped,
+    search_symbol,
+    search_symbol_capped,
 )
 from masora.providers import cppgraph_registry
 from masora.resolve import AnchorData, VersionData, resolve_lineage
@@ -170,6 +172,87 @@ def test_search_renders_status_tuples(base, repo, home, capsys):
     assert "1 match(es) in 1 lineage(s)" in out
     assert f"{ULID_L1} [unknown unverified flags: unknown]" in out
     assert f"  {ULID_L1} The {TOKES} rotates" in out
+
+
+def test_search_symbol_finds_anchored_lineages(base, repo, home):
+    """Symbol fallback: exact identity first, a substring fallback otherwise;
+    one symbol anchored by two lineages yields two hits."""
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, summary=f"The {TOKES} rotates"))
+    write_event(base, L2_REL, make_claim(ULID_L2, summary="Unrelated summary"))
+    result = build_index(base, repo)
+    assert [h.lineage for h in search_symbol(result.db_path, IDENT_MAIN)] == [
+        ULID_L1,
+        ULID_L2,
+    ]
+    assert [h.lineage for h in search_symbol(result.db_path, "example#foo")] == [
+        ULID_L1,
+        ULID_L2,
+    ]
+    assert search_symbol(result.db_path, "zzzunfindable") == []
+
+
+def test_search_symbol_keeps_only_effective_versions(base, repo, home):
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, summary="First look"))
+    write_event(base, VERIFY_REL, make_verify(ULID_V1A, ULID_L1, ULID_L1))
+    write_event(
+        base, V2_REL, make_claim(ULID_V2A, lineage=ULID_L1, reason="Updated", summary="Second look")
+    )
+    result = build_index(base, repo)
+    hits, total = search_symbol_capped(result.db_path, IDENT_MAIN)
+    assert total == 1
+    assert [h.version for h in hits] == [ULID_V2A]
+    all_hits, all_total = search_symbol_capped(result.db_path, IDENT_MAIN, any_version=True)
+    assert all_total == 2
+    assert {h.version for h in all_hits} == {ULID_L1, ULID_V2A}
+
+
+def test_cli_search_symbol_honors_any_version(base, repo, home, capsys):
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, summary="First look"))
+    write_event(base, VERIFY_REL, make_verify(ULID_V1A, ULID_L1, ULID_L1))
+    write_event(
+        base,
+        V2_REL,
+        make_claim(ULID_V2A, lineage=ULID_L1, reason="Updated", summary="Second look"),
+    )
+    main(["index", str(base), "--repo", str(repo)])
+    code = main(["search", str(base), "--symbol", IDENT_MAIN, "--repo", str(repo)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert f"  {ULID_V2A} Second look" in out
+    assert f"  {ULID_L1} First look" not in out
+    code = main(["search", str(base), "--symbol", IDENT_MAIN, "--any-version", "--repo", str(repo)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert f"  {ULID_L1} First look" in out
+    assert f"  {ULID_V2A} Second look" in out
+
+
+def test_cli_search_symbol_renders_fts_shapes(base, repo, home, capsys):
+    write_event(base, CLAIM_REL, make_claim(ULID_L1, summary=f"The {TOKES} rotates"))
+    write_event(base, L2_REL, make_claim(ULID_L2, summary="Unrelated summary"))
+    main(["index", str(base), "--repo", str(repo)])
+    code = main(["search", str(base), "--symbol", IDENT_MAIN, "--repo", str(repo)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "2 match(es) in 2 lineage(s)" in out
+    assert f"{ULID_L1} [unknown unverified flags: unknown]" in out
+    assert f"  {ULID_L1} The {TOKES} rotates" in out
+    assert "details: masora explain" in out
+    code = main(["search", str(base), "--symbol", "zzzunfindable", "--repo", str(repo)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert out.strip().endswith("no results")
+
+
+def test_cli_search_symbol_and_query_are_exclusive(base, repo, home, capsys):
+    write_event(base, CLAIM_REL, make_claim(ULID_L1))
+    main(["index", str(base), "--repo", str(repo)])
+    with pytest.raises(SystemExit) as exc:
+        main(["search", str(base), "shard", "--symbol", IDENT_MAIN, "--repo", str(repo)])
+    assert exc.value.code == 2
+    with pytest.raises(SystemExit) as exc:
+        main(["search", "--repo", str(repo)])
+    assert exc.value.code == 2
 
 
 def test_fts_match_and_case_insensitive(base, repo, home):

@@ -15,7 +15,9 @@ the ritual below is conditional by design.
 
 - For a project-knowledge question — behaviour, architecture, product
   semantics, past decisions, trade-offs, conventions — try the `search` tool
-  of the `masora` MCP server when it is available in this session.
+  of the `masora` MCP server when it is available in this session; without
+  it, the read side still exists as the CLI (`masora search`,
+  `masora explain`, run via bash).
 - On `E-MCP-NO-BASE`: that is a resolution, configuration or context matter.
   It is NOT evidence that this project has no knowledge.
 - Never inspect the checkout for Masora markers — the design forbids them;
@@ -79,6 +81,13 @@ The `masora` MCP server (`masora mcp`) exposes eight tools:
 ## Retrieval budget
 
 The order, before you go dig:
+
+When the `masora` MCP server is not available in the current session —
+notably inside sub-agents, which never receive MCP tools — the READ side
+still exists as the CLI, run via bash: `masora search [base_dir] query`,
+`masora explain [base_dir] lineage`. Never read the base's raw event files
+as a substitute. The WRITE side (`note`/`verify`/`doubt`/`refute`) has no
+CLI: a sub-agent reports findings back and the main session writes them.
 
 1. `search` the masora base. A zero-result is not an answer: retry ONCE with
    alternate domain words or a reader-style question — summaries and
@@ -152,9 +161,11 @@ with --yes. Never publish a stacked note by default.
   what the graph confirms.
 - Anchor the symbols concerned — every symbol whose change could invalidate
   the claim.
-- When delegating research to sub-agents, hand them the graph entry points
-  IN THE BRIEF — they follow the method the brief imposes, not the tools you
-  would use.
+- When delegating research to sub-agents, hand them the tools IN THE BRIEF —
+  they see no MCP tools and follow the method the brief imposes, not the
+  tools you would use: exact `masora search`/`masora explain` commands for
+  the base, exact `cppgraph` commands (`find`, `callers`, `callees`) for the
+  graph.
 - Never note speculation as fact: say it is a hypothesis and leave it
   `unverified`.
 - Negative knowledge is welcome: `refute` what you disproved, with a reason.
@@ -208,9 +219,10 @@ replayable bullets) — compact keeps the live state, not the archives.
 - A proof may live in a test: locate it with the file tools and record it in
   the evidence.
 - When delegating verification to a sub-agent, hand the claim's anchors to
-  it as graph entry points IN THE BRIEF, and the verifier re-checks them
-  against the graph (definitions, callers, behaviour) — verifying by
-  restating the claim's prose is not verifying.
+  it as graph entry points IN THE BRIEF; the sub-agent has no MCP tools —
+  only the read-only CLI and `cppgraph` — and re-checks them against the
+  graph (definitions, callers, behaviour). Verification writes happen in the
+  main session — verifying by restating the claim's prose is not verifying.
 - Sign events with the exact model id that produced the verdict (`name`) —
   never an agent or orchestrator alias: `cheap-review` tells the reader
   nothing about which model verified; the model id does.

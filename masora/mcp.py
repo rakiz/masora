@@ -42,6 +42,7 @@ from .index import (
     search_index_capped,
     search_omitted_line,
     search_result_lines,
+    search_symbol_capped,
 )
 from .ulid import new_ulid
 from .write import (
@@ -639,12 +640,24 @@ def _read_index_context(args: dict) -> tuple[Path, Path]:
 
 
 def _tool_search(args: dict) -> str:
-    query = _req_str(args, "query")
+    query = _opt_str(args, "query")
+    symbol = _opt_str(args, "symbol")
+    if query is not None and symbol is not None:
+        raise WriteError(
+            Diag("error", E_MCP_ARGS, "arguments 'query' and 'symbol' are mutually exclusive")
+        )
+    if query is None and symbol is None:
+        raise WriteError(
+            Diag("error", E_MCP_ARGS, "one of the arguments 'query' or 'symbol' is required")
+        )
     any_version = _opt_bool(args, "any_version") or False
     base_dir, repo = _resolve_read_context(args)
     db, repo = _read_index_context(args)
     try:
-        hits, total = search_index_capped(db, query, any_version=any_version)
+        if symbol is not None:
+            hits, total = search_symbol_capped(db, symbol, any_version=any_version)
+        else:
+            hits, total = search_index_capped(db, query or "", any_version=any_version)
     except IndexingError as exc:
         raise WriteError(exc.diag) from exc
     lines = []
@@ -656,7 +669,7 @@ def _tool_search(args: dict) -> str:
     lines.extend(search_result_lines(hits))
     omitted = total - len(hits)
     if omitted:
-        lines.append(search_omitted_line(omitted, query))
+        lines.append(search_omitted_line(omitted, symbol if symbol is not None else query or ""))
     return "\n".join(lines)
 
 
@@ -1050,7 +1063,15 @@ TOOLS = [
                     " identifiers (the expression is built safely: punctuation and FTS"
                     " operators never raise; terms match as prefixes), ranked best-first and"
                     " capped at 20 hits with the omitted count reported;"
-                    " the '*' sentinel enumerates every indexed lineage"
+                    " the '*' sentinel enumerates every indexed lineage. Mutually exclusive"
+                    " with symbol; exactly one of the two is required"
+                ),
+                "symbol": _str(
+                    description="find claims anchored to a symbol name instead of running FTS:"
+                    " exact match on the anchors' identity (the SCIP symbol string for code"
+                    " anchors), a substring fallback when nothing matches exactly — pure index"
+                    " lookup, no cppgraph needed. Mutually exclusive with query; hits render"
+                    " exactly like FTS hits"
                 ),
                 "any_version": {
                     "type": "boolean",
@@ -1064,7 +1085,7 @@ TOOLS = [
                     description="path to the code repo the index is keyed on (default: the base dir)"
                 ),
             },
-            ["query"],
+            [],
         ),
     },
     {

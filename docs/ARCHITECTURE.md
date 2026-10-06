@@ -565,7 +565,10 @@ and adds FTS5 search. Section references are to MASORA_DESIGN.md.
   `masora search [<base-dir>] <query> [--repo <path>] [--any-version]` runs
   FTS and renders `lineage [resolution verification flags]` + matched
   versions with their `[established: …]` context suffixes (MCP tools come
-   later). When `base_dir` is omitted the base is resolved by the shared
+   later); `--symbol <name>` (MCP: the search tool's `symbol` field) replaces
+   FTS with a pure index lookup on the anchors' `identity` — exact match
+   first, a substring fallback otherwise, no cppgraph needed — with hits
+   rendering exactly like FTS hits. When `base_dir` is omitted the base is resolved by the shared
    gate's order — the hinted directory itself when it holds `base.toml`
    (`--repo`, else the cwd), then like `masora facts` (mappings on the
    normalized origin remote, then `default_base`); an
@@ -668,7 +671,7 @@ context per call — the server does no repo discovery):
 | `undoubt` | same params as `doubt` | Targets the doubt event's ULID only (no lineage form). |
 | `refute` | same params as `doubt` | Targets any event ULID, or a lineage → its displayed version. |
 | `unrefute` | same params as `doubt` | Targets the refute event's ULID only (no lineage form) — the inverse move of refute, the way undoubt relates to doubt (FORMAT.md §5.4); the refuted version becomes a display candidate again. |
-| `search` | `query`; optional `any_version`, `base`, `repo_root` | FTS over the index (auto-**built when missing**, never rebuilt when merely stale — the SessionStart hook owns freshness); a call WITHOUT `repo_root` reuses an existing code-repo-keyed index for the base when one exists (no duplicate base-keyed index, no second probe budget); `W-IDX-STALE` is surfaced in the result text; statuses rendered per lineage. Default filter: the displayed version of each matching lineage (the newest for `none` lineages); `any_version` searches ALL ACTIVE versions, each hit with its own git relation — refuted versions are never searched (a future `history` tool owns refuted archaeology). |
+| `search` | `query` or `symbol` (mutually exclusive); optional `any_version`, `base`, `repo_root` | `query`: FTS over the index (auto-**built when missing**, never rebuilt when merely stale — the SessionStart hook owns freshness); a call WITHOUT `repo_root` reuses an existing code-repo-keyed index for the base when one exists (no duplicate base-keyed index, no second probe budget); `W-IDX-STALE` is surfaced in the result text; statuses rendered per lineage. Default filter: the displayed version of each matching lineage (the newest for `none` lineages); `any_version` searches ALL ACTIVE versions, each hit with its own git relation — refuted versions are never searched (a future `history` tool owns refuted archaeology). `symbol`: pure index lookup on the anchors' `identity` (exact SCIP string first, substring fallback) — hits render exactly like FTS hits. |
 | `list_stale` | optional `base`, `repo_root` | Two labeled lists (§12.16(f)/(g)): `re-check (N):` — stale/restored/unknown lineages plus `degraded` context ordering (actionable: worth re-verifying on this checkout) — and `not applicable here (N):` — off-version lineages (the knowledge lives on another version line); `no stale lineages` when both are empty. |
 | `explain` | `lineage`; optional `base`, `repo_root` | The fresh one-lineage story (E-EXPLAIN-UNKNOWN on an unknown id); with a repo the git context is re-derived live with a fresh probe budget and surfaced — the `off-version:` field, the `context:` ordering line and per-claim `[established: <relation>]` markers. |
 

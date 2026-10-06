@@ -313,6 +313,15 @@ def _render(
         if questions:
             lines.append("  questions:")
             lines.extend(f"    - {question}" for question in questions)
+        # The keywords nudge is an explain-only backfill hint (owner decision):
+        # a claim whose effective version carries no keywords — the field is
+        # optional — sees the one factual line; claims with keywords and
+        # non-claim fields render nothing.
+        if effective.kind == "claim" and not effective.keywords:
+            lines.append(
+                "  keywords: none (optional — add alternate vocabulary via a new"
+                " claim version if this claim would benefit from it)"
+            )
     lines.extend(_anchor_lines(base_dir, fold.displayed, by_id, fingerprints))
     lines.append(f"  events ({len(records)}, oldest first):")
     for record in records:

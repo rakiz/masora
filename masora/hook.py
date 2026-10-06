@@ -11,8 +11,10 @@ Two hooks share the install machinery and the silent-failure discipline:
   channel — the pre-registered evaluation showed the other channels barely
   engage): at every user prompt, FTS the prompt over the already-built
   index and inject the 2-3 most relevant claims with their trust labels,
-  BEFORE the agent chooses any tool. Read-only and stateless (v1: no
-  memory between prompts); a missing or stale index is a SILENT SKIP —
+  BEFORE the agent chooses any tool. Read-only apart from the per-session
+  dedup state (the last injected hint's hash, keyed by session_id); the
+  hint goes out on the session's first prompt and again only when its
+  content changes. A missing or stale index is a SILENT SKIP —
   the SessionStart hook owns rebuilds.
 
 At agent session start, the SessionStart hook — IN THE BACKGROUND, with
@@ -47,6 +49,7 @@ Re-running install overwrites — that IS the update path.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shlex
 import sqlite3
@@ -430,7 +433,12 @@ SESSION_USAGE_LINE = (
 _PROMPT_STATUS_PREF = {"current": 0, "restored": 0, "stale": 1, "none": 2}
 
 
-def user_prompt_submit(prompt: str, cwd: Path) -> str | None:
+def user_prompt_submit(
+    prompt: str,
+    cwd: Path,
+    session_id: str | None = None,
+    state_dir: Path | None = None,
+) -> str | None:
     """The UserPromptSubmit hook: FTS the prompt, render the top claims.
 
     Resolves the base from the prompt's cwd (the `auto_base` resolution —
@@ -443,11 +451,19 @@ def user_prompt_submit(prompt: str, cwd: Path) -> str | None:
     inside the `PROMPT_TOKEN_BUDGET` envelope (the budget always wins over
     the claim count, but at least one claim renders whenever any matched).
 
+    Per-session dedup: with a `session_id` (Claude Code hands one in the
+    stdin payload), the hint goes out only on the session's FIRST prompt and
+    again whenever its CONTENT changes (a background pull brought fresh
+    drift) — an identical hint on a later turn prints nothing. The last
+    injected hint's hash lives in a small per-session file under the masora
+    state dir; `state_dir` overrides its directory (tests). The state is
+    BEST-EFFORT and fails OPEN: any error reading or writing it degrades to
+    injecting, never to silence and never to a crash.
+
     Silent-failure discipline: ANY problem (no base, unreadable config,
     missing/corrupt index, FTS error, budget spent) returns None — the hook
-    never raises, never writes anything (read-only like `masora facts`).
-    Stateless v1: every prompt is searched on its own — no memory between
-    prompts.
+    never raises, never writes anything but the dedup state (read-only like
+    `masora facts` otherwise).
     """
     if len(prompt) < PROMPT_MIN_CHARS or len(prompt.split()) < PROMPT_MIN_WORDS:
         return None
@@ -460,7 +476,49 @@ def user_prompt_submit(prompt: str, cwd: Path) -> str | None:
     # SessionStart summary, not to every prompt.
     if claims is None:
         return None
-    return f"{PROMPT_USAGE_LINE}\n{claims}"
+    text = f"{PROMPT_USAGE_LINE}\n{claims}"
+    return _dedup_hint(text, session_id, state_dir)
+
+
+def _hint_state_path(session_id: str, state_dir: Path | None) -> Path:
+    """The per-session state file: the session_id (it can carry arbitrary
+    characters) is hashed into a flat filename under the masora state dir —
+    the same resolution pattern as the other user-side state (update-check),
+    MASORA_HOME-aware, `state_dir` overriding for tests."""
+    if state_dir is not None:
+        return state_dir / f"{hashlib.sha256(session_id.encode('utf-8')).hexdigest()}.hint"
+    home = config.masora_home()
+    root = (
+        (home / "hook-state")
+        if home is not None
+        else Path.home() / ".local" / "share" / "masora" / "hook-state"
+    )
+    return root / f"{hashlib.sha256(session_id.encode('utf-8')).hexdigest()}.hint"
+
+
+def _dedup_hint(text: str, session_id: str | None, state_dir: Path | None) -> str | None:
+    """Inject on the session's first prompt, then only when the hint's
+    CONTENT changed since the last injection (a background pull refreshed
+    the drift). Same content on a later turn → nothing. The state file
+    stores the sha256 of the exact hint string; BEST-EFFORT and fail-open —
+    any error (missing dir, corrupt file, unwritable path) defaults to
+    INJECTING, and the hook's exit behavior is never touched."""
+    if not session_id:
+        return text
+    try:
+        path = _hint_state_path(session_id, state_dir)
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        try:
+            stored = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            stored = None
+        if stored == digest:
+            return None
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(digest + "\n", encoding="utf-8")
+    except Exception:  # noqa: BLE001 — state is best-effort; fail OPEN to injecting
+        return text
+    return text
 
 
 def _prompt_injection(prompt: str, cwd: Path) -> str | None:

@@ -23,6 +23,7 @@ from .index import (
     search_index_capped,
     search_omitted_line,
     search_result_lines,
+    search_symbol_capped,
 )
 from .init import run as run_init
 from .mcp import PROTOCOL_VERSION
@@ -390,7 +391,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     search.add_argument(
         "query",
-        help="FTS MATCH query over summaries and statements ('*' enumerates every indexed lineage)",
+        nargs="?",
+        default=None,
+        help="FTS MATCH query over summaries and statements ('*' enumerates every indexed"
+        " lineage); omit when --symbol is passed",
+    )
+    search.add_argument(
+        "--symbol",
+        default=None,
+        metavar="NAME",
+        help="find claims anchored to a symbol NAME instead of running FTS: exact match on"
+        " the anchors' identity (the SCIP symbol string for code anchors), a substring"
+        " fallback when nothing matches exactly; pure index lookup — no cppgraph needed."
+        " Mutually exclusive with a positional query; hits render exactly like FTS hits",
     )
     search.add_argument(
         "--repo",
@@ -549,6 +562,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    if args.command == "search":
+        # Before the base gate: a single positional is the QUERY — the base
+        # resolves from the checkout's masora configuration (the documented
+        # `search [<base-dir>] <query>` shape degenerates to `search <query>`
+        # exactly as when the query positional is required).
+        if args.symbol and args.query:
+            search.error("--symbol and a positional query are mutually exclusive")
+        if args.query is None and args.symbol is None:
+            if args.base_dir is None:
+                search.error("provide a query or --symbol")
+            args.query, args.base_dir = str(args.base_dir), None
+
     if args.command in BASE_COMMANDS or args.command == "sync":
         # One pre-flight base gate for every base-taking command — sync included:
         # the base is resolved or refused here, before any diff or mutation, so a
@@ -598,7 +623,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "index":
         return _run_index(args.base_dir, args.repo, args.cppgraph, args.no_cppgraph)
     if args.command == "search":
-        return _run_search(args.base_dir, args.query, args.repo, args.any_version)
+        return _run_search(args.base_dir, args.query, args.repo, args.any_version, args.symbol)
     if args.command == "explain":
         return _run_explain(args.base_dir, args.lineage_id, args.repo)
     if args.command == "mcp":
@@ -734,14 +759,23 @@ def _unresolved_base_message(repo: Path) -> str:
     )
 
 
-def _run_search(base_dir: Path, query: str, repo: Path, any_version: bool = False) -> int:
+def _run_search(
+    base_dir: Path,
+    query: str | None,
+    repo: Path,
+    any_version: bool = False,
+    symbol: str | None = None,
+) -> int:
     print(f"masora search {base_dir}")
     if not base_dir.is_dir():
         print(f"masora search: base directory does not exist: {base_dir}", file=sys.stderr)
         return 1
     db = index_db_path(base_dir, repo)
     try:
-        hits, total = search_index_capped(db, query, any_version=any_version)
+        if symbol is not None:
+            hits, total = search_symbol_capped(db, symbol, any_version=any_version)
+        else:
+            hits, total = search_index_capped(db, query or "", any_version=any_version)
     except IndexingError as exc:
         print(f"  {exc.diag.render()}")
         return 2 if exc.diag.code == E_IDX_QUERY else 1
@@ -756,7 +790,7 @@ def _run_search(base_dir: Path, query: str, repo: Path, any_version: bool = Fals
         print(line)
     omitted = total - len(hits)
     if omitted:
-        print(search_omitted_line(omitted, query))
+        print(search_omitted_line(omitted, symbol if symbol is not None else query or ""))
     return 0
 
 

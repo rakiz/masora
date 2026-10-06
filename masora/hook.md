@@ -108,7 +108,36 @@ consulted).
   exact runner invocation shape, with or without it they reach the model).
 - Budget: `PROMPT_BUDGET_S` (2.0) on the whole hook — exceeded means print
   nothing.
+- Per-session dedup: with a `session_id` from the payload, the hint goes
+  out on the session's FIRST prompt and again only when its CONTENT
+  changed (a background pull brought fresh drift); an identical hint on a
+  later turn prints nothing. The search itself stays per-prompt — only the
+  INJECTION is deduped.
 - Invariants: SILENT FAILURE (any exception → nothing printed, exit 0),
-  READ-ONLY (no index build, no event files — like `masora facts`),
-  STATELESS v1 (no memory between prompts; every prompt is searched on its
-  own).
+  READ-ONLY (no index build, no event files — like `masora facts`; the one
+  sanctioned write is the dedup state below), FAIL-OPEN DEDUP (any error
+  around the dedup state — missing dir, corrupt/unreadable file, unwritable
+  path — degrades to INJECTING, never to silence and never to a crash).
+
+### The dedup state file
+
+- What: `sha256` of the exact hint string last injected for that session
+  (hint = usage line + claim lines), one line of text.
+- Where: `<masora state dir>/hook-state/<sha256(session_id)>.hint` — the
+  session_id is hashed into a flat filename (it can carry arbitrary
+  characters); the root follows the config.py per-artifact resolution
+  (`MASORA_HOME`/`config.masora_home()` when set, else
+  `~/.local/share/masora/hook-state/`); tests override it with the
+  `state_dir` parameter.
+- Fail-open: a missing or corrupt file reads as "never injected" → inject;
+  a failed write is swallowed and the hint still goes out. The dedup can
+  only ever SUPPRESS a redundant repeat, never an injection that matters.
+- NO cleanup of stale session state files (dead sessions' hashes stay on
+  disk): state files are ~70 bytes and sessions are finite, so the leak is
+  bounded and noise-level; a cleanup pass would add surface for deleting
+  under the user's home for no recall benefit. No GC, no TTL, no rotation.
+- Deferral (recorded per review): `_hint_state_path` resolves the masora
+  state root locally rather than through a shared config.py helper because
+  config.py exposes only `masora_home()` plus per-artifact resolvers (each
+  doing its own home fallback) — there is no reusable root helper to route
+  through; refactoring config.py for this was ruled out.

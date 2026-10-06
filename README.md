@@ -45,7 +45,10 @@ leaves the code untouched.
    <query>` reads the index from the CLI — matching summaries, statements
    and each claim's `questions`/`keywords` (the matched lines are shown on
    the hit, and every hit group ends with the `masora explain` pointer);
-   the `'*'` query enumerates every indexed lineage.
+   the `'*'` query enumerates every indexed lineage. Without cppgraph,
+   `--symbol <name>` (CLI) / the search tool's `symbol` field (MCP) finds the
+   claims anchored to a symbol by its recorded anchor identity (the SCIP
+   symbol string for code anchors) — exact match first, substring fallback.
 
 ## Quick start
 

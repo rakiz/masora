@@ -120,6 +120,87 @@ def test_explain_tells_the_whole_story(story_base, capsys):
     assert "— unknown" in out
 
 
+def test_explain_nudges_when_the_effective_version_has_no_keywords(story_base, capsys):
+    """The keywords field is optional: a claim whose effective version carries
+    no keywords sees the one factual nudge line, verbatim."""
+    code = main(["explain", str(story_base), ULID_L1])
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert (
+        "  keywords: none (optional — add alternate vocabulary via a new claim"
+        " version if this claim would benefit from it)"
+    ) in out
+
+
+def test_explain_no_nudge_when_the_effective_version_has_keywords(story_base, capsys):
+    """Claims WITH keywords render exactly as before — no nudge line."""
+    v3 = "2026-09/x/01J8Z3K0000000000000000009.claim.md"
+    write_event(
+        base := story_base,
+        v3,
+        make_claim(
+            "01J8Z3K0000000000000000009",
+            lineage=ULID_L1,
+            reason="v3 with keywords",
+            keywords=["CSFLE", "KeyRotation"],
+        ),
+    )
+    write_event(
+        base,
+        VERIFY_B.replace(VB, "01J8Z3K0000000000000000010"),
+        make_verify("01J8Z3K0000000000000000010", ULID_L1, "01J8Z3K0000000000000000009"),
+    )
+
+    code = main(["explain", str(base), ULID_L1])
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "displayed version: 01J8Z3K0000000000000000009" in out
+    assert "keywords: none" not in out
+    assert "optional — add alternate vocabulary" not in out
+
+
+def test_explain_no_nudge_without_an_effective_version(story_base, capsys):
+    """The nudge belongs to the effective version's fields: with nothing
+    displayed (every version refuted) no keywords line renders."""
+    refute_v2 = "2026-09/x/01J8Z3K000000000000000000A.refute.md"
+    write_event(
+        story_base,
+        refute_v2,
+        make_doubt("01J8Z3K000000000000000000A", ULID_L1, V2, kind="refute"),
+    )
+
+    code = main(["explain", str(story_base), ULID_L1])
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "displayed version: none" in out
+    assert "keywords: none" not in out
+    assert "optional — add alternate vocabulary" not in out
+
+
+def test_explain_no_nudge_from_a_non_claim_event_target(story_base, capsys):
+    """A verify/doubt ULID as the explain target resolves to its lineage (the
+    story is the lineage's), so the nudge depends on the effective CLAIM
+    version's keywords — never on the event kind passed on the command line."""
+    refute_v2 = "2026-09/x/01J8Z3K000000000000000000A.refute.md"
+    write_event(
+        story_base,
+        refute_v2,
+        make_doubt("01J8Z3K000000000000000000A", ULID_L1, V2, kind="refute"),
+    )
+
+    code = main(["explain", str(story_base), VB])
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert f"lineage {ULID_L1}" in out
+    assert "displayed version: none" in out
+    assert "keywords: none" not in out
+    assert "optional — add alternate vocabulary" not in out
+
+
 def test_explain_unknown_lineage_is_a_clean_diagnostic(story_base, capsys):
     code = main(["explain", str(story_base), "01J8Z3K0000000000000000009"])
 

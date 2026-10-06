@@ -698,3 +698,106 @@ def test_prompt_shipped_script_matches_the_packaged_copy():
     assert (resources_files("masora") / "hooks/user_prompt_submit.py").read_text(
         encoding="utf-8"
     ) == packaged()
+
+
+# --- per-session hint dedup (UserPromptSubmit, session_id) ---
+
+
+def test_prompt_hook_first_turn_injects_and_stores_state(tmp_path):
+    state_dir = tmp_path / "state"
+    code = prompt_scenario(tmp_path, unanchored_claim(ULID_L1, LONG_A))
+
+    text = user_prompt_submit(PROMPT, code, session_id="sess-1", state_dir=state_dir)
+
+    assert text is not None
+    assert text.startswith(PROMPT_USAGE_LINE)
+    # one state file per session, holding the hint's hash
+    files = list(state_dir.glob("*.hint"))
+    assert len(files) == 1
+    assert len(files[0].read_text(encoding="utf-8").strip()) == 64
+
+
+def test_prompt_hook_same_hint_second_turn_emits_nothing(tmp_path):
+    state_dir = tmp_path / "state"
+    code = prompt_scenario(tmp_path, unanchored_claim(ULID_L1, LONG_A))
+
+    assert user_prompt_submit(PROMPT, code, session_id="sess-1", state_dir=state_dir)
+    assert user_prompt_submit(PROMPT, code, session_id="sess-1", state_dir=state_dir) is None
+    # a DIFFERENT session still gets the hint on its own first prompt
+    assert user_prompt_submit(PROMPT, code, session_id="sess-2", state_dir=state_dir)
+
+
+def test_prompt_hook_changed_hint_content_reinjects(tmp_path):
+    state_dir = tmp_path / "state"
+    code = prompt_scenario(
+        tmp_path,
+        unanchored_claim(ULID_L1, LONG_A),
+        unanchored_claim(ULID_L2, LONG_B),
+    )
+
+    assert user_prompt_submit(PROMPT, code, session_id="sess-1", state_dir=state_dir)
+
+    # A prompt hitting the OTHER claim changes the hint's CONTENT (what a
+    # background pull or a different question can bring) — the fresh hint
+    # goes out again, and the stored hash is updated.
+    other = "Resharding a collection blocks writes during the final commit phase?"
+
+    text = user_prompt_submit(other, code, session_id="sess-1", state_dir=state_dir)
+
+    assert text is not None
+    assert text.startswith(PROMPT_USAGE_LINE)
+    assert f"masora: {LONG_B}" in text
+    # and the SAME prompt again is suppressed once more
+    assert user_prompt_submit(other, code, session_id="sess-1", state_dir=state_dir) is None
+
+
+def test_prompt_hook_corrupt_state_fails_open_to_injecting(tmp_path):
+    state_dir = tmp_path / "state"
+    code = prompt_scenario(tmp_path, unanchored_claim(ULID_L1, LONG_A))
+
+    assert user_prompt_submit(PROMPT, code, session_id="sess-1", state_dir=state_dir)
+    next(state_dir.glob("*.hint")).write_text("corrupt", encoding="utf-8")
+
+    # a corrupted (or otherwise unreadable) state file must degrade to
+    # INJECTING — the dedup never turns into silence
+    assert user_prompt_submit(PROMPT, code, session_id="sess-1", state_dir=state_dir)
+    assert user_prompt_submit(PROMPT, code, session_id="sess-1", state_dir=state_dir) is None
+
+
+def test_prompt_hook_unwritable_state_dir_fails_open(tmp_path):
+    code = prompt_scenario(tmp_path, unanchored_claim(ULID_L1, LONG_A))
+    state_dir = tmp_path / "state-file-not-dir"
+    state_dir.write_text("in the way", encoding="utf-8")
+
+    # the state dir cannot be created under a file — inject anyway
+    assert user_prompt_submit(PROMPT, code, session_id="sess-1", state_dir=state_dir)
+
+
+def test_prompt_shipped_script_dedups_by_session_id(tmp_path):
+    code = prompt_scenario(tmp_path, unanchored_claim(ULID_L1, LONG_A))
+    script = tmp_path / "installed.py"
+    script.write_text(prompt_script_text(), encoding="utf-8")
+    env = dict(os.environ, MASORA_HOME=str(Path(os.environ["MASORA_HOME"])))
+    payload = json.dumps({"prompt": PROMPT, "cwd": str(code), "session_id": "sess-1"})
+
+    first = subprocess.run(
+        [sys.executable, str(script)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    second = subprocess.run(
+        [sys.executable, str(script)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+
+    assert first.returncode == 0 and first.stderr == ""
+    assert first.stdout.startswith(PROMPT_USAGE_LINE)
+    assert second.returncode == 0 and second.stderr == ""
+    assert second.stdout == ""

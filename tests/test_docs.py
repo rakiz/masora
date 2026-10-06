@@ -115,8 +115,28 @@ def test_skill_ritual_is_conditional() -> None:
 def test_agent_instructions_carry_the_graph_first_anchor_discipline() -> None:
     text = AGENT_INSTRUCTIONS.read_text(encoding="utf-8")
     assert "Locate symbols with the code graph (cppgraph `find`/`explain`), never by" in text
-    assert "When delegating research to sub-agents, hand them the graph entry points" in text
-    assert "hand them the graph entry points" in skill_text()
+    assert "When delegating research to sub-agents, hand them the tools IN THE BRIEF" in text
+    assert "hand them the tools IN THE BRIEF" in skill_text()
+
+
+def test_no_mcp_cli_fallback_in_both_docs() -> None:
+    fallback = (
+        "the READ side still exists as the CLI, run via bash: `masora search [base_dir] query`,"
+        " `masora explain [base_dir] lineage`."
+    )
+    delegation = (
+        "exact `masora search`/`masora explain` commands for the base, exact `cppgraph`"
+        " commands (`find`, `callers`, `callees`) for the graph."
+    )
+
+    def flat(text: str) -> str:
+        return " ".join(text.split())
+
+    canonical = flat(AGENT_INSTRUCTIONS.read_text(encoding="utf-8"))
+    skill = flat(skill_text())
+    for fragment in (fallback, delegation):
+        assert fragment in canonical
+        assert fragment in skill
 
 
 def test_agent_instructions_carry_the_atomic_claims_rule() -> None:

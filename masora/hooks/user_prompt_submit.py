@@ -7,10 +7,11 @@ UserPromptSubmit command. Claude Code hands the prompt to stdin as JSON
 and best-effort: it searches the ALREADY-BUILT index for the 2-3 most
 relevant claims and prints them — prefixed by the one-line usage rule —
 with their trust labels; nothing at all prints when nothing matches.
-Never builds the
-index (the SessionStart hook owns rebuilds), never writes anything, never
-fails a prompt. Stateless v1: every prompt is searched on its own — no
-memory between prompts. Every failure is silent, exit 0 always.
+The hint is injected on the session's FIRST prompt and again only when its
+content changed — the last injected hint's hash is kept per session_id
+(best-effort, failing open to injecting). Never builds the
+index (the SessionStart hook owns rebuilds), never fails a prompt. Every
+failure is silent, exit 0 always.
 """
 
 import json
@@ -66,9 +67,11 @@ def main() -> int:
         payload = json.loads(sys.stdin.read())
         prompt = payload.get("prompt") if isinstance(payload, dict) else None
         cwd = payload.get("cwd") if isinstance(payload, dict) else None
+        session_id = payload.get("session_id") if isinstance(payload, dict) else None
         text = user_prompt_submit(
             prompt if isinstance(prompt, str) else "",
             Path(cwd) if isinstance(cwd, str) and cwd else Path.cwd(),
+            session_id if isinstance(session_id, str) and session_id else None,
         )
         if text:
             print(text)

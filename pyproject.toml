@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "masora"
-version = "0.8.0"
+version = "0.8.1"
 description = "Git-backed, append-only knowledge base of claims anchored to code, with verification lifecycle and self-invalidation."
 requires-python = ">=3.13"
 license = { text = "MIT" }
